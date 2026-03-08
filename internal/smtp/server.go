@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tamago/orinoco-mta/internal/auth"
 	"github.com/tamago/orinoco-mta/internal/config"
 	"github.com/tamago/orinoco-mta/internal/model"
 	"github.com/tamago/orinoco-mta/internal/queue"
@@ -144,6 +145,22 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			ss.data = data
+			remoteIP := parseRemoteIP(ss.remote)
+			authRes := auth.Evaluate(remoteIP, ss.helo, ss.mailFrom, ss.data)
+			switch authRes.Action {
+			case auth.ActionReject:
+				writeResp(w, 550, "message rejected by auth policy")
+				ss.mailFrom = ""
+				ss.rcptTo = nil
+				ss.data = nil
+				continue
+			case auth.ActionQuarantine:
+				ar := auth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
+				ss.data = auth.InjectHeaders(ss.data, []string{ar, "X-Orinoco-Quarantine: true"})
+			default:
+				ar := auth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
+				ss.data = auth.InjectHeaders(ss.data, []string{ar})
+			}
 			if err := s.enqueue(ss); err != nil {
 				log.Printf("enqueue error: %v", err)
 				writeResp(w, 451, "temporary local problem")
@@ -264,4 +281,12 @@ func newID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func parseRemoteIP(remote string) net.IP {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return net.ParseIP(remote)
+	}
+	return net.ParseIP(host)
 }
