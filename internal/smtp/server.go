@@ -3,6 +3,7 @@ package smtp
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -21,17 +22,23 @@ import (
 )
 
 type Server struct {
-	cfg   config.Config
-	queue *queue.Store
-	ln    net.Listener
-	wg    sync.WaitGroup
+	cfg        config.Config
+	queue      *queue.Store
+	tlsConfig  *tls.Config
+	tlsLoadErr error
+	ln         net.Listener
+	wg         sync.WaitGroup
 }
 
 func NewServer(cfg config.Config, q *queue.Store) *Server {
-	return &Server{cfg: cfg, queue: q}
+	tlsConfig, err := loadTLSConfig(cfg)
+	return &Server{cfg: cfg, queue: q, tlsConfig: tlsConfig, tlsLoadErr: err}
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	if s.tlsLoadErr != nil {
+		return s.tlsLoadErr
+	}
 	ln, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
 		return err
@@ -70,6 +77,7 @@ type session struct {
 	rcptTo   []string
 	data     []byte
 	seenHelo bool
+	tls      bool
 }
 
 func (s *Server) handleConn(conn net.Conn) {
@@ -102,11 +110,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.mailFrom = ""
 			ss.rcptTo = nil
 			ss.data = nil
-			writeLine(w, "250-"+s.cfg.Hostname)
-			writeLine(w, "250-PIPELINING")
-			writeLine(w, "250-SIZE 10485760")
-			writeLine(w, "250-8BITMIME")
-			writeLine(w, "250 STARTTLS")
+			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls)
 		case "MAIL":
 			if !ss.seenHelo {
 				writeResp(w, 503, "send EHLO/HELO first")
@@ -181,7 +185,28 @@ func (s *Server) handleConn(conn net.Conn) {
 			writeResp(w, 221, "bye")
 			return
 		case "STARTTLS":
-			writeResp(w, 502, "STARTTLS not configured")
+			if ss.tls {
+				writeResp(w, 503, "already using TLS")
+				continue
+			}
+			if s.tlsConfig == nil {
+				writeResp(w, 454, "TLS not available due to temporary reason")
+				continue
+			}
+			writeResp(w, 220, "Ready to start TLS")
+			tlsConn := tls.Server(conn, s.tlsConfig)
+			if err := tlsConn.Handshake(); err != nil {
+				return
+			}
+			conn = tlsConn
+			_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+			r = bufio.NewReader(conn)
+			w = bufio.NewWriter(conn)
+			ss.tls = true
+			ss.seenHelo = false
+			ss.mailFrom = ""
+			ss.rcptTo = nil
+			ss.data = nil
 		default:
 			writeResp(w, 500, "unsupported command")
 		}
@@ -289,4 +314,33 @@ func parseRemoteIP(remote string) net.IP {
 		return net.ParseIP(remote)
 	}
 	return net.ParseIP(host)
+}
+
+func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool) {
+	_ = writeLine(w, "250-"+hostname)
+	_ = writeLine(w, "250-PIPELINING")
+	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
+	_ = writeLine(w, "250-8BITMIME")
+	if advertiseStartTLS {
+		_ = writeLine(w, "250 STARTTLS")
+		return
+	}
+	_ = writeLine(w, "250 HELP")
+}
+
+func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
+	if cfg.TLSCertFile == "" && cfg.TLSKeyFile == "" {
+		return nil, nil
+	}
+	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
+		return nil, errors.New("both MTA_TLS_CERT_FILE and MTA_TLS_KEY_FILE must be set")
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load TLS cert/key: %w", err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}, nil
 }

@@ -2,8 +2,19 @@ package smtp
 
 import (
 	"bufio"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"fmt"
+	"math/big"
+	"net"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tamago/orinoco-mta/internal/config"
 )
 
 func TestSplitVerb(t *testing.T) {
@@ -66,4 +77,165 @@ func TestParseRemoteIP(t *testing.T) {
 	if got := parseRemoteIP("2001:db8::1"); got == nil || got.String() != "2001:db8::1" {
 		t.Fatalf("got=%v", got)
 	}
+}
+
+func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+
+	_, _ = readSMTPResponse(t, r) // banner
+	if _, err := w.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EHLO: %v", err)
+	}
+	resp, _ := readSMTPResponse(t, r)
+	if strings.Contains(resp, "STARTTLS") {
+		t.Fatalf("STARTTLS must not be advertised when TLS is not configured: %q", resp)
+	}
+}
+
+func TestSTARTTLSWithoutTLSConfigReturns454(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+
+	_, _ = readSMTPResponse(t, r) // banner
+	if _, err := w.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EHLO: %v", err)
+	}
+	_, _ = readSMTPResponse(t, r)
+
+	if _, err := w.WriteString("STARTTLS\r\n"); err != nil {
+		t.Fatalf("write STARTTLS: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush STARTTLS: %v", err)
+	}
+	resp, code := readSMTPResponse(t, r)
+	if code != 454 {
+		t.Fatalf("code=%d resp=%q want=454", code, resp)
+	}
+}
+
+func TestSTARTTLSWithTLSConfigUpgradesConnection(t *testing.T) {
+	cert, err := selfSignedCert()
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	s := &Server{
+		cfg:       config.Config{Hostname: "mx.example.test"},
+		tlsConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	if _, err := w.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EHLO: %v", err)
+	}
+	resp, _ := readSMTPResponse(t, r)
+	if !strings.Contains(resp, "STARTTLS") {
+		t.Fatalf("STARTTLS must be advertised when TLS is configured: %q", resp)
+	}
+
+	if _, err := w.WriteString("STARTTLS\r\n"); err != nil {
+		t.Fatalf("write STARTTLS: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush STARTTLS: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 220 {
+		t.Fatalf("code=%d want=220", code)
+	}
+
+	tlsClient := tls.Client(client, &tls.Config{InsecureSkipVerify: true})
+	if err := tlsClient.Handshake(); err != nil {
+		t.Fatalf("tls handshake: %v", err)
+	}
+	defer tlsClient.Close()
+	rt := bufio.NewReader(tlsClient)
+	wt := bufio.NewWriter(tlsClient)
+
+	if _, err := wt.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO over TLS: %v", err)
+	}
+	if err := wt.Flush(); err != nil {
+		t.Fatalf("flush EHLO over TLS: %v", err)
+	}
+	_, code = readSMTPResponse(t, rt)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+}
+
+func readSMTPResponse(t *testing.T, r *bufio.Reader) (string, int) {
+	t.Helper()
+	var lines []string
+	code := 0
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		lines = append(lines, line)
+		if len(line) >= 3 && code == 0 {
+			if _, err := fmt.Sscanf(line[:3], "%d", &code); err != nil {
+				t.Fatalf("parse code: %v line=%q", err, line)
+			}
+		}
+		if len(line) >= 4 && line[3] == ' ' {
+			return strings.Join(lines, "\n"), code
+		}
+	}
+}
+
+func selfSignedCert() (tls.Certificate, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "mx.example.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"mx.example.test"},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{
+		Certificate: [][]byte{der},
+		PrivateKey:  priv,
+		Leaf:        tmpl,
+	}, nil
 }

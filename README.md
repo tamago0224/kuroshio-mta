@@ -26,6 +26,8 @@ go run ./cmd/mta
 - `MTA_LISTEN_ADDR` (default: `:2525`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
+- `MTA_TLS_CERT_FILE` (default: unset)
+- `MTA_TLS_KEY_FILE` (default: unset)
 - `MTA_MAX_MESSAGE_BYTES` (default: `10485760`)
 - `MTA_WORKER_COUNT` (default: `4`)
 - `MTA_SCAN_INTERVAL` (default: `5s`)
