@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,9 @@ type Config struct {
 	TLSKeyFile      string
 	MaxMessageBytes int64
 	WorkerCount     int
+	MaxAttempts     int
+	MaxRetryAge     time.Duration
+	RetrySchedule   []time.Duration
 	ScanInterval    time.Duration
 	DialTimeout     time.Duration
 	SendTimeout     time.Duration
@@ -28,9 +32,15 @@ func Load() Config {
 		TLSKeyFile:      env("MTA_TLS_KEY_FILE", ""),
 		MaxMessageBytes: envInt64("MTA_MAX_MESSAGE_BYTES", 10*1024*1024),
 		WorkerCount:     envInt("MTA_WORKER_COUNT", 4),
-		ScanInterval:    envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
-		DialTimeout:     envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
-		SendTimeout:     envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
+		MaxAttempts:     envInt("MTA_MAX_ATTEMPTS", 12),
+		MaxRetryAge:     envDuration("MTA_MAX_RETRY_AGE", 5*24*time.Hour),
+		RetrySchedule: envDurationList(
+			"MTA_RETRY_SCHEDULE",
+			[]time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
+		),
+		ScanInterval: envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
+		DialTimeout:  envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
+		SendTimeout:  envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
 	}
 }
 
@@ -76,4 +86,24 @@ func envDuration(k string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func envDurationList(k string, def []time.Duration) []time.Duration {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return append([]time.Duration(nil), def...)
+	}
+	parts := strings.Split(v, ",")
+	out := make([]time.Duration, 0, len(parts))
+	for _, p := range parts {
+		d, err := time.ParseDuration(strings.TrimSpace(p))
+		if err != nil {
+			return append([]time.Duration(nil), def...)
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return append([]time.Duration(nil), def...)
+	}
+	return out
 }

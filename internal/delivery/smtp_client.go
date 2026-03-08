@@ -173,7 +173,7 @@ func readLines(r *bufio.Reader) ([]string, error) {
 			return nil, err
 		}
 		if code < 200 || code > 399 {
-			return nil, fmt.Errorf("unexpected code %d: %s", code, line)
+			return nil, &SMTPResponseError{Code: code, Line: line}
 		}
 		out = append(out, line)
 		if len(line) >= 4 && line[3] == ' ' {
@@ -188,7 +188,7 @@ func expect2xx(r *bufio.Reader) error {
 		return err
 	}
 	if code < 200 || code > 299 {
-		return fmt.Errorf("code=%d line=%q", code, line)
+		return &SMTPResponseError{Code: code, Line: line}
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ func expect2xx3xx(r *bufio.Reader) error {
 		return err
 	}
 	if (code < 200 || code > 299) && (code < 300 || code > 399) {
-		return fmt.Errorf("code=%d line=%q", code, line)
+		return &SMTPResponseError{Code: code, Line: line}
 	}
 	return nil
 }
@@ -210,7 +210,7 @@ func expectCode(r *bufio.Reader, expected int) error {
 		return err
 	}
 	if code != expected {
-		return fmt.Errorf("expected=%d got=%d line=%q", expected, code, line)
+		return &SMTPResponseError{Code: code, Line: line}
 	}
 	return nil
 }
