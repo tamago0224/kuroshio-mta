@@ -1,0 +1,267 @@
+package smtp
+
+import (
+	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/tamago/orinoco-mta/internal/config"
+	"github.com/tamago/orinoco-mta/internal/model"
+	"github.com/tamago/orinoco-mta/internal/queue"
+	"github.com/tamago/orinoco-mta/internal/util"
+)
+
+type Server struct {
+	cfg   config.Config
+	queue *queue.Store
+	ln    net.Listener
+	wg    sync.WaitGroup
+}
+
+func NewServer(cfg config.Config, q *queue.Store) *Server {
+	return &Server{cfg: cfg, queue: q}
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	ln, err := net.Listen("tcp", s.cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	s.ln = ln
+	log.Printf("smtp listening on %s", s.cfg.ListenAddr)
+
+	go func() {
+		<-ctx.Done()
+		_ = s.ln.Close()
+	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+				break
+			}
+			log.Printf("accept error: %v", err)
+			continue
+		}
+		s.wg.Add(1)
+		go func(c net.Conn) {
+			defer s.wg.Done()
+			s.handleConn(c)
+		}(conn)
+	}
+	s.wg.Wait()
+	return nil
+}
+
+type session struct {
+	remote   string
+	helo     string
+	mailFrom string
+	rcptTo   []string
+	data     []byte
+	seenHelo bool
+}
+
+func (s *Server) handleConn(conn net.Conn) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+	ss := &session{remote: conn.RemoteAddr().String()}
+	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
+
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			writeResp(w, 500, "empty command")
+			continue
+		}
+		verb, arg := splitVerb(line)
+		switch verb {
+		case "EHLO", "HELO":
+			if arg == "" {
+				writeResp(w, 501, verb+" requires domain")
+				continue
+			}
+			ss.helo = arg
+			ss.seenHelo = true
+			ss.mailFrom = ""
+			ss.rcptTo = nil
+			ss.data = nil
+			writeLine(w, "250-"+s.cfg.Hostname)
+			writeLine(w, "250-PIPELINING")
+			writeLine(w, "250-SIZE 10485760")
+			writeLine(w, "250-8BITMIME")
+			writeLine(w, "250 STARTTLS")
+		case "MAIL":
+			if !ss.seenHelo {
+				writeResp(w, 503, "send EHLO/HELO first")
+				continue
+			}
+			addr, err := parseMailFrom(arg)
+			if err != nil {
+				writeResp(w, 501, err.Error())
+				continue
+			}
+			ss.mailFrom = addr
+			ss.rcptTo = nil
+			ss.data = nil
+			writeResp(w, 250, "sender ok")
+		case "RCPT":
+			if ss.mailFrom == "" {
+				writeResp(w, 503, "send MAIL FROM first")
+				continue
+			}
+			addr, err := parseRcptTo(arg)
+			if err != nil {
+				writeResp(w, 501, err.Error())
+				continue
+			}
+			ss.rcptTo = append(ss.rcptTo, addr)
+			writeResp(w, 250, "recipient ok")
+		case "DATA":
+			if len(ss.rcptTo) == 0 {
+				writeResp(w, 503, "need RCPT TO before DATA")
+				continue
+			}
+			writeResp(w, 354, "end with <CRLF>.<CRLF>")
+			data, err := readData(r, s.cfg.MaxMessageBytes)
+			if err != nil {
+				writeResp(w, 552, "message exceeds limit or read error")
+				continue
+			}
+			ss.data = data
+			if err := s.enqueue(ss); err != nil {
+				log.Printf("enqueue error: %v", err)
+				writeResp(w, 451, "temporary local problem")
+				continue
+			}
+			writeResp(w, 250, "queued")
+			ss.mailFrom = ""
+			ss.rcptTo = nil
+			ss.data = nil
+		case "RSET":
+			ss.mailFrom = ""
+			ss.rcptTo = nil
+			ss.data = nil
+			writeResp(w, 250, "reset state")
+		case "NOOP":
+			writeResp(w, 250, "ok")
+		case "QUIT":
+			writeResp(w, 221, "bye")
+			return
+		case "STARTTLS":
+			writeResp(w, 502, "STARTTLS not configured")
+		default:
+			writeResp(w, 500, "unsupported command")
+		}
+	}
+}
+
+func (s *Server) enqueue(ss *session) error {
+	id, err := newID()
+	if err != nil {
+		return err
+	}
+	msg := &model.Message{
+		ID:         id,
+		RemoteAddr: ss.remote,
+		Helo:       ss.helo,
+		MailFrom:   ss.mailFrom,
+		RcptTo:     append([]string(nil), ss.rcptTo...),
+		Data:       append([]byte(nil), ss.data...),
+	}
+	return s.queue.Enqueue(msg)
+}
+
+func splitVerb(line string) (string, string) {
+	line = strings.TrimSpace(line)
+	parts := strings.SplitN(line, " ", 2)
+	verb := strings.ToUpper(parts[0])
+	if len(parts) == 1 {
+		return verb, ""
+	}
+	return verb, strings.TrimSpace(parts[1])
+}
+
+func parseMailFrom(arg string) (string, error) {
+	if !strings.HasPrefix(strings.ToUpper(arg), "FROM:") {
+		return "", errors.New("MAIL must be MAIL FROM:<addr>")
+	}
+	path := strings.TrimSpace(arg[5:])
+	addr, err := util.NormalizePath(path)
+	if err != nil {
+		return "", err
+	}
+	return addr, nil
+}
+
+func parseRcptTo(arg string) (string, error) {
+	if !strings.HasPrefix(strings.ToUpper(arg), "TO:") {
+		return "", errors.New("RCPT must be RCPT TO:<addr>")
+	}
+	path := strings.TrimSpace(arg[3:])
+	addr, err := util.NormalizePath(path)
+	if err != nil {
+		return "", err
+	}
+	if addr == "" {
+		return "", errors.New("recipient is empty")
+	}
+	return addr, nil
+}
+
+func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
+	var out []byte
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "." {
+			break
+		}
+		if strings.HasPrefix(line, "..") {
+			line = line[1:]
+		}
+		out = append(out, []byte(line)...)
+		out = append(out, '\r', '\n')
+		if int64(len(out)) > maxBytes {
+			return nil, errors.New("message too large")
+		}
+	}
+	return out, nil
+}
+
+func writeResp(w *bufio.Writer, code int, msg string) {
+	_ = writeLine(w, fmt.Sprintf("%d %s", code, msg))
+}
+
+func writeLine(w *bufio.Writer, line string) error {
+	if _, err := w.WriteString(line + "\r\n"); err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
+func newID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
