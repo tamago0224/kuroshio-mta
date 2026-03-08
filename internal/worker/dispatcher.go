@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -109,5 +108,5 @@ func backoff(attempts int) time.Duration {
 }
 
 func isPermanent(reason string) bool {
-	return strings.Contains(reason, "code=5") || errors.Is(context.Canceled, context.Canceled)
+	return strings.Contains(reason, "code=5") || strings.Contains(strings.ToLower(reason), "context canceled")
 }
