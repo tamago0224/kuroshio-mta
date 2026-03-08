@@ -20,6 +20,7 @@ func TestAligned(t *testing.T) {
 		{name: "strict exact", fromDomain: "example.com", authDomain: "example.com", mode: "s", want: true},
 		{name: "strict subdomain no", fromDomain: "a.example.com", authDomain: "example.com", mode: "s", want: false},
 		{name: "relaxed subdomain yes", fromDomain: "a.example.com", authDomain: "example.com", mode: "r", want: true},
+		{name: "relaxed org domain co uk", fromDomain: "a.example.co.uk", authDomain: "b.example.co.uk", mode: "r", want: true},
 		{name: "relaxed unrelated", fromDomain: "example.com", authDomain: "example.net", mode: "r", want: false},
 	}
 	for _, tt := range tests {
@@ -28,5 +29,21 @@ func TestAligned(t *testing.T) {
 				t.Fatalf("got=%v want=%v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOrganizationalDomain(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "a.example.com", want: "example.com"},
+		{in: "a.example.co.uk", want: "example.co.uk"},
+		{in: "example", want: "example"},
+	}
+	for _, tt := range tests {
+		if got := organizationalDomain(tt.in); got != tt.want {
+			t.Fatalf("in=%q got=%q want=%q", tt.in, got, tt.want)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,10 +75,7 @@ func aligned(fromDomain, authDomain, mode string) bool {
 	if strings.EqualFold(mode, "s") {
 		return strings.EqualFold(fromDomain, authDomain)
 	}
-	if strings.EqualFold(fromDomain, authDomain) {
-		return true
-	}
-	return strings.HasSuffix(fromDomain, "."+authDomain) || strings.HasSuffix(authDomain, "."+fromDomain)
+	return organizationalDomain(fromDomain) == organizationalDomain(authDomain)
 }
 
 func lookupDMARC(domain string) (string, bool, error) {
@@ -94,4 +92,28 @@ func lookupDMARC(domain string) (string, bool, error) {
 		}
 	}
 	return "", false, nil
+}
+
+func organizationalDomain(domain string) string {
+	domain = strings.Trim(strings.ToLower(domain), ".")
+	if domain == "" {
+		return ""
+	}
+	labels := strings.Split(domain, ".")
+	if len(labels) <= 2 {
+		return domain
+	}
+	publicSuffix2 := labels[len(labels)-2] + "." + labels[len(labels)-1]
+	twoLevelPSL := []string{
+		"co.uk", "org.uk", "gov.uk", "ac.uk",
+		"co.jp", "or.jp", "ne.jp",
+		"com.au", "net.au", "org.au",
+		"co.nz", "co.kr", "co.in",
+		"com.br", "com.mx", "com.tr",
+		"com.cn", "com.tw", "com.hk", "com.sg",
+	}
+	if slices.Contains(twoLevelPSL, publicSuffix2) && len(labels) >= 3 {
+		return labels[len(labels)-3] + "." + publicSuffix2
+	}
+	return publicSuffix2
 }
