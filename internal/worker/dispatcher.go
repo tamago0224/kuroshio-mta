@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -65,10 +66,14 @@ func (d *Dispatcher) processBatch(ctx context.Context) error {
 }
 
 func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
-	var errs []string
+	var (
+		errs    []error
+		reasons []string
+	)
 	for _, rcpt := range msg.RcptTo {
 		if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
-			errs = append(errs, rcpt+": "+err.Error())
+			errs = append(errs, err)
+			reasons = append(reasons, rcpt+": "+err.Error())
 		}
 	}
 
@@ -79,34 +84,64 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 
-	reason := strings.Join(errs, "; ")
-	if isPermanent(reason) || msg.Attempts >= 12 {
+	reason := strings.Join(reasons, "; ")
+	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
 		if err := d.queue.Fail(msg, reason); err != nil {
 			log.Printf("mark failed error id=%s: %v", msg.ID, err)
 		}
 		return
 	}
-	delay := backoff(msg.Attempts)
+	delay := backoff(msg.Attempts, d.cfg.RetrySchedule)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
 		log.Printf("retry schedule error id=%s: %v", msg.ID, err)
 	}
 }
 
-func backoff(attempts int) time.Duration {
-	switch attempts {
-	case 0:
-		return 5 * time.Minute
-	case 1:
-		return 30 * time.Minute
-	case 2:
-		return 2 * time.Hour
-	case 3:
-		return 6 * time.Hour
-	default:
+func backoff(attempts int, schedule []time.Duration) time.Duration {
+	if len(schedule) == 0 {
 		return 24 * time.Hour
 	}
+	if attempts < 0 {
+		return schedule[0]
+	}
+	if attempts >= len(schedule) {
+		return schedule[len(schedule)-1]
+	}
+	return schedule[attempts]
 }
 
-func isPermanent(reason string) bool {
-	return strings.Contains(reason, "code=5") || strings.Contains(strings.ToLower(reason), "context canceled")
+func shouldFail(msg *model.Message, errs []error, cfg config.Config, now time.Time) bool {
+	if cfg.MaxAttempts > 0 && msg.Attempts >= cfg.MaxAttempts {
+		return true
+	}
+	if cfg.MaxRetryAge > 0 && !msg.CreatedAt.IsZero() && now.Sub(msg.CreatedAt) >= cfg.MaxRetryAge {
+		return true
+	}
+	if len(errs) == 0 {
+		return false
+	}
+	hasTemporary := false
+	hasPermanent := false
+	for _, err := range errs {
+		var smtpErr *delivery.SMTPResponseError
+		if errors.As(err, &smtpErr) {
+			if smtpErr.Temporary() {
+				hasTemporary = true
+			}
+			if smtpErr.Permanent() {
+				hasPermanent = true
+			}
+			continue
+		}
+		if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "context canceled") {
+			hasTemporary = true
+			continue
+		}
+		// Unknown/network errors are treated as temporary.
+		hasTemporary = true
+	}
+	if hasTemporary {
+		return false
+	}
+	return hasPermanent
 }
