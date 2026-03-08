@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tamago/orinoco-mta/internal/config"
-	"github.com/tamago/orinoco-mta/internal/model"
-	"github.com/tamago/orinoco-mta/internal/router"
-	"github.com/tamago/orinoco-mta/internal/util"
+	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/orinoco-mta/internal/router"
+	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
 type Client struct {

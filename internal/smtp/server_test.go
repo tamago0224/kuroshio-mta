@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/config"
 )
 
 func TestSplitVerb(t *testing.T) {

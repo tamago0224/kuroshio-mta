@@ -1,3 +1,3 @@
-module github.com/tamago/orinoco-mta
+module github.com/tamago0224/orinoco-mta
 
 go 1.23

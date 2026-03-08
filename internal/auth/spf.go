@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tamago/orinoco-mta/internal/util"
+	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
 func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {

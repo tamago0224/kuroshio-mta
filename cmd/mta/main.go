@@ -7,11 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tamago/orinoco-mta/internal/config"
-	"github.com/tamago/orinoco-mta/internal/delivery"
-	"github.com/tamago/orinoco-mta/internal/queue"
-	"github.com/tamago/orinoco-mta/internal/smtp"
-	"github.com/tamago/orinoco-mta/internal/worker"
+	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/delivery"
+	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/smtp"
+	"github.com/tamago0224/orinoco-mta/internal/worker"
 )
 
 func main() {

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago/orinoco-mta/internal/config"
-	"github.com/tamago/orinoco-mta/internal/delivery"
-	"github.com/tamago/orinoco-mta/internal/model"
+	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/delivery"
+	"github.com/tamago0224/orinoco-mta/internal/model"
 )
 
 func TestBackoff(t *testing.T) {
