@@ -1,0 +1,24 @@
+{
+  "a": [
+    { "name": "mx1.outbound.test", "ip": "192.0.2.20", "ttl": 60 },
+    { "name": "mta-sts.outbound.test", "ip": "172.28.0.80", "ttl": 60 }
+  ],
+  "mx": [
+    { "name": "outbound.test", "preference": 10, "host": "mx1.outbound.test", "ttl": 60 }
+  ],
+  "txt": [
+    { "name": "example.test", "texts": ["v=spf1 ip4:192.0.2.10 -all"], "ttl": 60 },
+    { "name": "_dmarc.example.test", "texts": ["v=DMARC1; p=reject; aspf=s; adkim=s"], "ttl": 60 },
+    { "name": "_mta-sts.outbound.test", "texts": ["v=STSv1; id=20260309T000000"], "ttl": 60 }
+  ],
+  "tlsa": [
+    {
+      "name": "_25._tcp.mx1.outbound.test",
+      "usage": 3,
+      "selector": 1,
+      "matching_type": 1,
+      "data_hex": "0123456789abcdef",
+      "ttl": 60
+    }
+  ]
+}
