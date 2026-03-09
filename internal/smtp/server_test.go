@@ -397,6 +397,68 @@ func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
 	}
 }
 
+func TestMailFromSMTPUTF8ParameterRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> SMTPUTF8")
+	_, code := readSMTPResponse(t, r)
+	if code != 555 {
+		t.Fatalf("code=%d want=555", code)
+	}
+}
+
+func TestMailFromUTF8AddressRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<álïce@invalid.invalid>")
+	_, code := readSMTPResponse(t, r)
+	if code != 553 {
+		t.Fatalf("code=%d want=553", code)
+	}
+}
+
+func TestRcptToUTF8AddressRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bób@invalid.invalid>")
+	_, code := readSMTPResponse(t, r)
+	if code != 553 {
+		t.Fatalf("code=%d want=553", code)
+	}
+}
+
 func TestParseRcptTo(t *testing.T) {
 	got, err := parseRcptTo("TO:<Bob@Example.com>", "mx.example.test")
 	if err != nil {
@@ -469,6 +531,9 @@ func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
 	resp, _ := readSMTPResponse(t, r)
 	if strings.Contains(resp, "STARTTLS") {
 		t.Fatalf("STARTTLS must not be advertised when TLS is not configured: %q", resp)
+	}
+	if strings.Contains(resp, "SMTPUTF8") {
+		t.Fatalf("SMTPUTF8 must not be advertised when unsupported: %q", resp)
 	}
 }
 

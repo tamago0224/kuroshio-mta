@@ -113,6 +113,8 @@ type mailFromArgs struct {
 
 var (
 	errMailParamUnsupported = errors.New("unsupported MAIL parameter")
+	errSMTPUTF8Param        = errors.New("unsupported SMTPUTF8 parameter")
+	errSMTPUTF8Address      = errors.New("smtputf8 address is not supported")
 	errDataLineTooLong      = errors.New("data line too long")
 	errMessageTooLarge      = errors.New("message too large")
 )
@@ -206,6 +208,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			mailArgs, err := parseMailFrom(arg)
 			if err != nil {
+				if errors.Is(err, errSMTPUTF8Address) {
+					writeResp(w, 553, err.Error())
+					continue
+				}
+				if errors.Is(err, errSMTPUTF8Param) {
+					writeResp(w, 555, err.Error())
+					continue
+				}
 				if errors.Is(err, errMailParamUnsupported) {
 					writeResp(w, 555, err.Error())
 					continue
@@ -242,6 +252,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			addr, err := parseRcptTo(arg, s.cfg.Hostname)
 			if err != nil {
+				if errors.Is(err, errSMTPUTF8Address) {
+					writeResp(w, 553, err.Error())
+					continue
+				}
 				if strings.Contains(strings.ToLower(err.Error()), "parameters") {
 					writeResp(w, 555, err.Error())
 				} else {
@@ -403,8 +417,14 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 	if err != nil {
 		return mailFromArgs{}, err
 	}
+	if addr != "" && !isASCII(addr) {
+		return mailFromArgs{}, errSMTPUTF8Address
+	}
 	out := mailFromArgs{Address: addr}
 	for _, p := range params {
+		if strings.EqualFold(strings.TrimSpace(p), "SMTPUTF8") {
+			return mailFromArgs{}, fmt.Errorf("%w: SMTPUTF8", errSMTPUTF8Param)
+		}
 		key, val, ok := splitParamKV(p)
 		if !ok {
 			return mailFromArgs{}, fmt.Errorf("invalid MAIL parameter: %s", p)
@@ -455,6 +475,9 @@ func parseRcptTo(arg string, hostname string) (string, error) {
 	}
 	if addr == "" {
 		return "", errors.New("recipient is empty")
+	}
+	if !isASCII(addr) {
+		return "", errSMTPUTF8Address
 	}
 	return addr, nil
 }
@@ -590,6 +613,15 @@ func contains8Bit(data []byte) bool {
 		}
 	}
 	return false
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn bool) string {

@@ -19,6 +19,7 @@ Orinoco は南米を流れる川の名前で、
 | --- | --- | --- | --- |
 | RFC 5321 | SMTP | 一部対応 | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT` を実装 |
 | RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
+| RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
 | RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `all` を評価 |
 | RFC 6376 | DKIM | 一部対応 | DKIM署名検証（`rsa-sha256`）を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment と `p` ポリシー評価を実装 |
