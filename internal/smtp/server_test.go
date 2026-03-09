@@ -230,6 +230,106 @@ func TestDataAccepts8BitWhenBodyIs8BitMime(t *testing.T) {
 	}
 }
 
+func TestPipeliningProcessesCommandsInOrder(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	payload := strings.Join([]string{
+		"EHLO client.example",
+		"MAIL FROM:<alice@invalid.invalid> BODY=8BITMIME",
+		"RCPT TO:<bob@invalid.invalid>",
+		"DATA",
+		"From: alice@invalid.invalid",
+		"To: bob@invalid.invalid",
+		"Subject: pipelining",
+		"",
+		"hello",
+		".",
+		"QUIT",
+		"",
+	}, "\r\n")
+	if _, err := w.WriteString(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush payload: %v", err)
+	}
+
+	_, ehloCode := readSMTPResponse(t, r)
+	if ehloCode != 250 {
+		t.Fatalf("ehlo code=%d want=250", ehloCode)
+	}
+	_, mailCode := readSMTPResponse(t, r)
+	if mailCode != 250 {
+		t.Fatalf("mail code=%d want=250", mailCode)
+	}
+	_, rcptCode := readSMTPResponse(t, r)
+	if rcptCode != 250 {
+		t.Fatalf("rcpt code=%d want=250", rcptCode)
+	}
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data prompt code=%d want=354", dataCode)
+	}
+	_, queuedCode := readSMTPResponse(t, r)
+	if queuedCode != 250 {
+		t.Fatalf("queued code=%d want=250", queuedCode)
+	}
+	_, quitCode := readSMTPResponse(t, r)
+	if quitCode != 221 {
+		t.Fatalf("quit code=%d want=221", quitCode)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+}
+
+func TestPipeliningErrorResponsesKeepCommandOrder(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	payload := strings.Join([]string{
+		"MAIL FROM:<alice@invalid.invalid>",
+		"RCPT TO:<bob@invalid.invalid>",
+		"DATA",
+		"",
+	}, "\r\n")
+	if _, err := w.WriteString(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush payload: %v", err)
+	}
+
+	_, mailCode := readSMTPResponse(t, r)
+	if mailCode != 503 {
+		t.Fatalf("mail code=%d want=503", mailCode)
+	}
+	_, rcptCode := readSMTPResponse(t, r)
+	if rcptCode != 503 {
+		t.Fatalf("rcpt code=%d want=503", rcptCode)
+	}
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 503 {
+		t.Fatalf("data code=%d want=503", dataCode)
+	}
+}
+
 func TestParseRcptTo(t *testing.T) {
 	got, err := parseRcptTo("TO:<Bob@Example.com>", "mx.example.test")
 	if err != nil {
