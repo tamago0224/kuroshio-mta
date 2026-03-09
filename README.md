@@ -32,6 +32,8 @@ go run ./cmd/mta
 - `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` (default: `100`)
 - `MTA_DNSBL_ZONES` (default: unset, comma-separated)
 - `MTA_DNSBL_CACHE_TTL` (default: `5m`)
+- `MTA_MTA_STS_CACHE_TTL` (default: `1h`)
+- `MTA_MTA_STS_FETCH_TIMEOUT` (default: `5s`)
 - `MTA_MAX_MESSAGE_BYTES` (default: `10485760`)
 - `MTA_WORKER_COUNT` (default: `4`)
 - `MTA_MAX_ATTEMPTS` (default: `12`)

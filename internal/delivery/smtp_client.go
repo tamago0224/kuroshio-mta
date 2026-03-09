@@ -17,11 +17,15 @@ import (
 )
 
 type Client struct {
-	cfg config.Config
+	cfg    config.Config
+	mtaSTS *MTASTSResolver
 }
 
 func NewClient(cfg config.Config) *Client {
-	return &Client{cfg: cfg}
+	return &Client{
+		cfg:    cfg,
+		mtaSTS: NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
+	}
 }
 
 func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) error {
@@ -33,9 +37,27 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	if err != nil {
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
+	requireTLS := false
+	if c.mtaSTS != nil {
+		if p, pErr := c.mtaSTS.Lookup(ctx, domain); pErr == nil {
+			if p.Mode == "enforce" {
+				requireTLS = true
+				filtered := make([]router.MXHost, 0, len(mxHosts))
+				for _, mx := range mxHosts {
+					if p.AllowsMX(mx.Host) {
+						filtered = append(filtered, mx)
+					}
+				}
+				if len(filtered) == 0 {
+					return &SMTPResponseError{Code: 454, Line: "mta-sts policy mismatch: no allowed mx"}
+				}
+				mxHosts = filtered
+			}
+		}
+	}
 	var lastErr error
 	for _, mx := range mxHosts {
-		if err := c.deliverHost(ctx, mx.Host, msg, rcpt); err == nil {
+		if err := c.deliverHost(ctx, mx.Host, msg, rcpt, requireTLS); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -47,7 +69,7 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	return lastErr
 }
 
-func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Message, rcpt string) error {
+func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Message, rcpt string, requireTLS bool) error {
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, "25"))
 	if err != nil {
@@ -88,6 +110,9 @@ func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Messag
 		if code == 220 {
 			tlsConn := tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				if requireTLS {
+					return &SMTPResponseError{Code: 454, Line: "starttls handshake failed"}
+				}
 				return err
 			}
 			conn = tlsConn
@@ -100,6 +125,8 @@ func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Messag
 				return err
 			}
 		}
+	} else if requireTLS {
+		return &SMTPResponseError{Code: 454, Line: "mta-sts enforce requires starttls"}
 	}
 
 	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
