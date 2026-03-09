@@ -19,6 +19,11 @@ type Config struct {
 	DNSBLCacheTTL      time.Duration
 	MTASTSCacheTTL     time.Duration
 	MTASTSFetchTimeout time.Duration
+	DeliveryMode       string
+	LocalSpoolDir      string
+	RelayHost          string
+	RelayPort          int
+	RelayRequireTLS    bool
 	MaxMessageBytes    int64
 	WorkerCount        int
 	MaxAttempts        int
@@ -42,6 +47,11 @@ func Load() Config {
 		DNSBLCacheTTL:      envDuration("MTA_DNSBL_CACHE_TTL", 5*time.Minute),
 		MTASTSCacheTTL:     envDuration("MTA_MTA_STS_CACHE_TTL", time.Hour),
 		MTASTSFetchTimeout: envDuration("MTA_MTA_STS_FETCH_TIMEOUT", 5*time.Second),
+		DeliveryMode:       env("MTA_DELIVERY_MODE", "mx"),
+		LocalSpoolDir:      env("MTA_LOCAL_SPOOL_DIR", "./var/spool"),
+		RelayHost:          env("MTA_RELAY_HOST", ""),
+		RelayPort:          envInt("MTA_RELAY_PORT", 25),
+		RelayRequireTLS:    envBool("MTA_RELAY_REQUIRE_TLS", false),
 		MaxMessageBytes:    envInt64("MTA_MAX_MESSAGE_BYTES", 10*1024*1024),
 		WorkerCount:        envInt("MTA_WORKER_COUNT", 4),
 		MaxAttempts:        envInt("MTA_MAX_ATTEMPTS", 12),
@@ -137,4 +147,19 @@ func envCSV(k string, def []string) []string {
 		return append([]string(nil), def...)
 	}
 	return out
+}
+
+func envBool(k string, def bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }
