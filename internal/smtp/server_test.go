@@ -330,6 +330,73 @@ func TestPipeliningErrorResponsesKeepCommandOrder(t *testing.T) {
 	}
 }
 
+func TestQueueMessageInjectsReceivedHeader(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\nhello\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+	msg := string(q.msgs[0].Data)
+	if !strings.HasPrefix(msg, "Received: ") {
+		t.Fatalf("message must start with Received header: %q", msg)
+	}
+	if !strings.Contains(msg, "by mx.example.test with ESMTP id ") {
+		t.Fatalf("missing expected trace fields: %q", msg)
+	}
+}
+
+func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
+	got := buildReceivedHeader(
+		"mx.example.test",
+		"client.example\r\nBcc:evil@example.net",
+		"127.0.0.1:2525\r\nX:evil",
+		"id-123\r\nInjected",
+		time.Date(2026, 3, 10, 12, 30, 0, 0, time.UTC),
+		false,
+	)
+	if strings.Contains(got, "\r") || strings.Contains(got, "\n") {
+		t.Fatalf("received header must be single-line: %q", got)
+	}
+	if strings.Contains(strings.ToLower(got), "bcc:") || strings.Contains(strings.ToLower(got), "x:evil") {
+		t.Fatalf("received header must sanitize injected fragments: %q", got)
+	}
+	if !strings.Contains(got, "Received: from client.exampleBcc_evil@example.net") {
+		t.Fatalf("unexpected header content: %q", got)
+	}
+}
+
 func TestParseRcptTo(t *testing.T) {
 	got, err := parseRcptTo("TO:<Bob@Example.com>", "mx.example.test")
 	if err != nil {

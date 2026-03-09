@@ -296,7 +296,15 @@ func (s *Server) handleConn(conn net.Conn) {
 				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
 				ss.data = mailauth.InjectHeaders(ss.data, []string{ar})
 			}
-			if err := s.enqueue(ss); err != nil {
+			id, err := newID()
+			if err != nil {
+				writeResp(w, 451, "temporary local problem")
+				continue
+			}
+			received := buildReceivedHeader(s.cfg.Hostname, ss.helo, ss.remote, id, time.Now().UTC(), ss.tls)
+			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
+
+			if err := s.enqueue(ss, id); err != nil {
 				log.Printf("enqueue error: %v", err)
 				s.metricInc("smtp_enqueue_fail")
 				writeResp(w, 451, "temporary local problem")
@@ -361,11 +369,7 @@ func (s *Server) metricInc(name string) {
 	}
 }
 
-func (s *Server) enqueue(ss *session) error {
-	id, err := newID()
-	if err != nil {
-		return err
-	}
+func (s *Server) enqueue(ss *session, id string) error {
 	msg := &model.Message{
 		ID:         id,
 		RemoteAddr: ss.remote,
@@ -586,4 +590,56 @@ func contains8Bit(data []byte) bool {
 		}
 	}
 	return false
+}
+
+func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn bool) string {
+	by := sanitizeReceivedToken(hostname)
+	if by == "" {
+		by = "localhost"
+	}
+	from := sanitizeReceivedToken(helo)
+	if from == "" {
+		from = "unknown"
+	}
+	remoteDesc := sanitizeReceivedToken(remote)
+	if ip := parseRemoteIP(remote); ip != nil {
+		remoteDesc = ip.String()
+	}
+	proto := "ESMTP"
+	if tlsOn {
+		proto = "ESMTPS"
+	}
+	return fmt.Sprintf(
+		"Received: from %s (%s) by %s with %s id %s; %s",
+		from,
+		remoteDesc,
+		by,
+		proto,
+		sanitizeReceivedToken(id),
+		now.Format(time.RFC1123Z),
+	)
+}
+
+func sanitizeReceivedToken(v string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(v, "\r", ""), "\n", ""))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r < 33 || r > 126:
+			b.WriteByte('_')
+		case r == '(' || r == ')' || r == ';' || r == '\\' || r == ':':
+			b.WriteByte('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > 255 {
+		return out[:255]
+	}
+	return out
 }
