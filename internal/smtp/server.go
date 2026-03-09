@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -98,7 +99,15 @@ type session struct {
 	rcptTo   []string
 	data     []byte
 	seenHelo bool
+	extended bool
 	tls      bool
+}
+
+type mailFromArgs struct {
+	Address string
+	Size    int64
+	HasSize bool
+	Body    string
 }
 
 func (s *Server) handleConn(conn net.Conn) {
@@ -140,6 +149,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		if err != nil {
 			return
 		}
+		if len(line) > 512 {
+			writeResp(w, 500, "command line too long")
+			continue
+		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
 			writeResp(w, 500, "empty command")
@@ -147,9 +160,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		verb, arg := splitVerb(line)
 		switch verb {
-		case "EHLO", "HELO":
+		case "EHLO":
 			if arg == "" {
-				writeResp(w, 501, verb+" requires domain")
+				writeResp(w, 501, "EHLO requires domain")
 				continue
 			}
 			ss.helo = arg
@@ -160,27 +173,48 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			ss.seenHelo = true
+			ss.extended = true
 			ss.mailFrom = ""
 			ss.rcptTo = nil
 			ss.data = nil
 			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls)
+		case "HELO":
+			if arg == "" {
+				writeResp(w, 501, "HELO requires domain")
+				continue
+			}
+			ss.helo = arg
+			ss.seenHelo = true
+			ss.extended = false
+			ss.mailFrom = ""
+			ss.rcptTo = nil
+			ss.data = nil
+			writeResp(w, 250, s.cfg.Hostname)
 		case "MAIL":
 			if !ss.seenHelo {
 				writeResp(w, 503, "send EHLO/HELO first")
 				continue
 			}
-			addr, err := parseMailFrom(arg)
+			mailArgs, err := parseMailFrom(arg)
 			if err != nil {
 				writeResp(w, 501, err.Error())
 				continue
 			}
-			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, addr, time.Now().UTC()) {
+			if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "") {
+				writeResp(w, 555, "MAIL parameters require EHLO")
+				continue
+			}
+			if mailArgs.HasSize && mailArgs.Size > s.cfg.MaxMessageBytes {
+				writeResp(w, 552, "message size exceeds fixed maximum message size")
+				continue
+			}
+			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC()) {
 				s.metricInc("smtp_reject_rate_limit")
-				log.Printf("event=ingress_reject reason=rate_rule_mailfrom remote_ip=%s helo=%s mail_from=%s", remoteIP.String(), ss.helo, addr)
+				log.Printf("event=ingress_reject reason=rate_rule_mailfrom remote_ip=%s helo=%s mail_from=%s", remoteIP.String(), ss.helo, mailArgs.Address)
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
-			ss.mailFrom = addr
+			ss.mailFrom = mailArgs.Address
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "sender ok")
@@ -189,9 +223,13 @@ func (s *Server) handleConn(conn net.Conn) {
 				writeResp(w, 503, "send MAIL FROM first")
 				continue
 			}
-			addr, err := parseRcptTo(arg)
+			addr, err := parseRcptTo(arg, s.cfg.Hostname)
 			if err != nil {
-				writeResp(w, 501, err.Error())
+				if strings.Contains(strings.ToLower(err.Error()), "parameters") {
+					writeResp(w, 555, err.Error())
+				} else {
+					writeResp(w, 501, err.Error())
+				}
 				continue
 			}
 			ss.rcptTo = append(ss.rcptTo, addr)
@@ -245,6 +283,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			writeResp(w, 250, "reset state")
 		case "NOOP":
 			writeResp(w, 250, "ok")
+		case "HELP":
+			writeResp(w, 214, "Supported commands: EHLO HELO MAIL RCPT DATA RSET NOOP QUIT STARTTLS HELP VRFY EXPN")
+		case "VRFY":
+			writeResp(w, 252, "cannot VRFY user, but will accept message")
+		case "EXPN":
+			writeResp(w, 502, "EXPN is not supported")
 		case "QUIT":
 			writeResp(w, 221, "bye")
 			return
@@ -268,6 +312,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			w = bufio.NewWriter(conn)
 			ss.tls = true
 			ss.seenHelo = false
+			ss.extended = false
 			ss.mailFrom = ""
 			ss.rcptTo = nil
 			ss.data = nil
@@ -309,23 +354,64 @@ func splitVerb(line string) (string, string) {
 	return verb, strings.TrimSpace(parts[1])
 }
 
-func parseMailFrom(arg string) (string, error) {
+func parseMailFrom(arg string) (mailFromArgs, error) {
 	if !strings.HasPrefix(strings.ToUpper(arg), "FROM:") {
-		return "", errors.New("MAIL must be MAIL FROM:<addr>")
+		return mailFromArgs{}, errors.New("MAIL must be MAIL FROM:<addr>")
 	}
-	path := strings.TrimSpace(arg[5:])
+	path, params, err := splitPathAndParams(strings.TrimSpace(arg[5:]))
+	if err != nil {
+		return mailFromArgs{}, err
+	}
 	addr, err := util.NormalizePath(path)
 	if err != nil {
-		return "", err
+		return mailFromArgs{}, err
 	}
-	return addr, nil
+	out := mailFromArgs{Address: addr}
+	for _, p := range params {
+		key, val, ok := splitParamKV(p)
+		if !ok {
+			return mailFromArgs{}, fmt.Errorf("invalid MAIL parameter: %s", p)
+		}
+		switch key {
+		case "SIZE":
+			n, pErr := strconv.ParseInt(val, 10, 64)
+			if pErr != nil || n < 0 {
+				return mailFromArgs{}, errors.New("invalid SIZE parameter")
+			}
+			out.HasSize = true
+			out.Size = n
+		case "BODY":
+			v := strings.ToUpper(val)
+			if v != "7BIT" && v != "8BITMIME" {
+				return mailFromArgs{}, errors.New("invalid BODY parameter")
+			}
+			out.Body = v
+		default:
+			return mailFromArgs{}, fmt.Errorf("unsupported MAIL parameter: %s", key)
+		}
+	}
+	return out, nil
 }
 
-func parseRcptTo(arg string) (string, error) {
+func parseRcptTo(arg string, hostname string) (string, error) {
 	if !strings.HasPrefix(strings.ToUpper(arg), "TO:") {
 		return "", errors.New("RCPT must be RCPT TO:<addr>")
 	}
-	path := strings.TrimSpace(arg[3:])
+	path, params, err := splitPathAndParams(strings.TrimSpace(arg[3:]))
+	if err != nil {
+		return "", err
+	}
+	if len(params) > 0 {
+		return "", errors.New("RCPT parameters are not supported")
+	}
+	unwrapped := unwrapPath(path)
+	if strings.EqualFold(unwrapped, "postmaster") {
+		host := strings.ToLower(strings.TrimSpace(hostname))
+		if host == "" {
+			host = "localhost"
+		}
+		return "postmaster@" + host, nil
+	}
 	addr, err := util.NormalizePath(path)
 	if err != nil {
 		return "", err
@@ -342,6 +428,9 @@ func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
+		}
+		if len(line) > 1000 {
+			return nil, errors.New("data line too long")
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "." {
@@ -392,10 +481,52 @@ func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, 
 	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
 	_ = writeLine(w, "250-8BITMIME")
 	if advertiseStartTLS {
-		_ = writeLine(w, "250 STARTTLS")
-		return
+		_ = writeLine(w, "250-STARTTLS")
 	}
 	_ = writeLine(w, "250 HELP")
+}
+
+func splitPathAndParams(raw string) (string, []string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil, errors.New("missing path")
+	}
+	if raw[0] == '<' {
+		end := strings.IndexByte(raw, '>')
+		if end < 0 {
+			return "", nil, errors.New("path must be enclosed with <>")
+		}
+		path := strings.TrimSpace(raw[:end+1])
+		rest := strings.TrimSpace(raw[end+1:])
+		if rest == "" {
+			return path, nil, nil
+		}
+		return path, strings.Fields(rest), nil
+	}
+	parts := strings.Fields(raw)
+	if len(parts) == 0 {
+		return "", nil, errors.New("missing path")
+	}
+	if len(parts) == 1 {
+		return parts[0], nil, nil
+	}
+	return parts[0], parts[1:], nil
+}
+
+func splitParamKV(v string) (key, value string, ok bool) {
+	idx := strings.IndexByte(v, '=')
+	if idx <= 0 || idx == len(v)-1 {
+		return "", "", false
+	}
+	return strings.ToUpper(strings.TrimSpace(v[:idx])), strings.TrimSpace(v[idx+1:]), true
+}
+
+func unwrapPath(path string) string {
+	s := strings.TrimSpace(path)
+	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") && len(s) >= 2 {
+		return strings.TrimSpace(s[1 : len(s)-1])
+	}
+	return s
 }
 
 func loadTLSConfig(cfg config.Config) (*tls.Config, error) {

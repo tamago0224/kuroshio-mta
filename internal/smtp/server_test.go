@@ -29,24 +29,56 @@ func TestParseMailFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if got != "alice@example.com" {
-		t.Fatalf("got=%q", got)
+	if got.Address != "alice@example.com" {
+		t.Fatalf("got=%q", got.Address)
 	}
 	if _, err := parseMailFrom("TO:<alice@example.com>"); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
+func TestParseMailFromWithParameters(t *testing.T) {
+	got, err := parseMailFrom("FROM:<Alice@Example.com> SIZE=123 BODY=8BITMIME")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Address != "alice@example.com" {
+		t.Fatalf("address=%q", got.Address)
+	}
+	if got.Size != 123 {
+		t.Fatalf("size=%d", got.Size)
+	}
+	if got.Body != "8BITMIME" {
+		t.Fatalf("body=%q", got.Body)
+	}
+}
+
+func TestParseMailFromRejectsUnknownParameter(t *testing.T) {
+	if _, err := parseMailFrom("FROM:<alice@example.com> FOO=bar"); err == nil {
+		t.Fatal("expected unknown param error")
+	}
+}
+
 func TestParseRcptTo(t *testing.T) {
-	got, err := parseRcptTo("TO:<Bob@Example.com>")
+	got, err := parseRcptTo("TO:<Bob@Example.com>", "mx.example.test")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if got != "bob@example.com" {
 		t.Fatalf("got=%q", got)
 	}
-	if _, err := parseRcptTo("TO:<>"); err == nil {
+	if _, err := parseRcptTo("TO:<>", "mx.example.test"); err == nil {
 		t.Fatal("expected error for empty rcpt")
+	}
+}
+
+func TestParseRcptToPostmasterWithoutDomain(t *testing.T) {
+	got, err := parseRcptTo("TO:<postmaster>", "mx.example.test")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got != "postmaster@mx.example.test" {
+		t.Fatalf("got=%q", got)
 	}
 }
 
@@ -190,6 +222,51 @@ func TestSTARTTLSWithTLSConfigUpgradesConnection(t *testing.T) {
 	_, code = readSMTPResponse(t, rt)
 	if code != 250 {
 		t.Fatalf("code=%d want=250", code)
+	}
+}
+
+func TestHELPVRFYEXPNCommands(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	if _, err := w.WriteString("HELP\r\n"); err != nil {
+		t.Fatalf("write HELP: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush HELP: %v", err)
+	}
+	helpResp, helpCode := readSMTPResponse(t, r)
+	if helpCode != 214 || !strings.Contains(helpResp, "Supported") {
+		t.Fatalf("unexpected HELP response: %d %q", helpCode, helpResp)
+	}
+
+	if _, err := w.WriteString("VRFY user@example.test\r\n"); err != nil {
+		t.Fatalf("write VRFY: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush VRFY: %v", err)
+	}
+	_, vrfyCode := readSMTPResponse(t, r)
+	if vrfyCode != 252 {
+		t.Fatalf("vrfy code=%d want=252", vrfyCode)
+	}
+
+	if _, err := w.WriteString("EXPN staff\r\n"); err != nil {
+		t.Fatalf("write EXPN: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EXPN: %v", err)
+	}
+	_, expnCode := readSMTPResponse(t, r)
+	if expnCode != 502 {
+		t.Fatalf("expn code=%d want=502", expnCode)
 	}
 }
 
