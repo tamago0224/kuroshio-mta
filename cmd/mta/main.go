@@ -23,10 +23,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	q, err := queue.New(cfg.QueueDir)
+	q, err := queue.NewBackend(cfg)
 	if err != nil {
 		log.Fatalf("queue init failed: %v", err)
 	}
+	defer func() {
+		if cErr := q.Close(); cErr != nil {
+			log.Printf("queue close error: %v", cErr)
+		}
+	}()
 	sup, err := bounce.NewSuppressionStore(filepath.Join(cfg.QueueDir, "suppression.json"))
 	if err != nil {
 		log.Fatalf("suppression init failed: %v", err)

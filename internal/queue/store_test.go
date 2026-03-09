@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -50,6 +51,12 @@ func TestStoreRetryAndFail(t *testing.T) {
 	if err := s.Retry(msg, time.Hour, "temporary"); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.retry", "m2.json")); err != nil {
+		t.Fatalf("retry topic file not found: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.inbound", "m2.json")); !os.IsNotExist(err) {
+		t.Fatalf("inbound file should be moved after retry, err=%v", err)
+	}
 	due, err := s.Due(10)
 	if err != nil {
 		t.Fatalf("due: %v", err)
@@ -60,11 +67,48 @@ func TestStoreRetryAndFail(t *testing.T) {
 	if err := s.Fail(msg, "permanent"); err != nil {
 		t.Fatalf("fail: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.dlq", "m2.json")); err != nil {
+		t.Fatalf("dlq topic file not found: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.retry", "m2.json")); !os.IsNotExist(err) {
+		t.Fatalf("retry file should be removed after fail, err=%v", err)
+	}
 	due, err = s.Due(10)
 	if err != nil {
 		t.Fatalf("due2: %v", err)
 	}
 	if len(due) != 0 {
 		t.Fatalf("failed message should not be pending")
+	}
+}
+
+func TestStoreDueReadsLegacyPending(t *testing.T) {
+	d := t.TempDir()
+	s, err := New(filepath.Join(d, "queue"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	msg := &model.Message{
+		ID:          "legacy1",
+		MailFrom:    "sender@example.com",
+		RcptTo:      []string{"r@example.net"},
+		Data:        []byte("x"),
+		CreatedAt:   time.Now().UTC().Add(-time.Minute),
+		UpdatedAt:   time.Now().UTC().Add(-time.Minute),
+		NextAttempt: time.Now().UTC().Add(-time.Second),
+	}
+	if err := os.MkdirAll(filepath.Join(d, "queue", "pending"), 0o755); err != nil {
+		t.Fatalf("mkdir legacy pending: %v", err)
+	}
+	if err := s.write(filepath.Join(d, "queue", "pending", "legacy1.json"), msg); err != nil {
+		t.Fatalf("write legacy message: %v", err)
+	}
+
+	due, err := s.Due(10)
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != "legacy1" {
+		t.Fatalf("expected legacy message due, got=%v", due)
 	}
 }

@@ -14,20 +14,24 @@ import (
 )
 
 type Store struct {
-	root    string
-	pending string
-	failed  string
-	sent    string
+	root          string
+	inbound       string
+	retry         string
+	dlq           string
+	sent          string
+	legacyPending string
 }
 
 func New(root string) (*Store, error) {
 	s := &Store{
-		root:    root,
-		pending: filepath.Join(root, "pending"),
-		failed:  filepath.Join(root, "failed"),
-		sent:    filepath.Join(root, "sent"),
+		root:          root,
+		inbound:       filepath.Join(root, "mail.inbound"),
+		retry:         filepath.Join(root, "mail.retry"),
+		dlq:           filepath.Join(root, "mail.dlq"),
+		sent:          filepath.Join(root, "sent"),
+		legacyPending: filepath.Join(root, "pending"),
 	}
-	for _, d := range []string{s.root, s.pending, s.failed, s.sent} {
+	for _, d := range []string{s.root, s.inbound, s.retry, s.dlq, s.sent} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
@@ -40,29 +44,17 @@ func (s *Store) Enqueue(msg *model.Message) error {
 	msg.CreatedAt = now
 	msg.UpdatedAt = now
 	msg.NextAttempt = now
-	return s.write(filepath.Join(s.pending, msg.ID+".json"), msg)
+	return s.write(filepath.Join(s.inbound, msg.ID+".json"), msg)
 }
 
 func (s *Store) Due(limit int) ([]*model.Message, error) {
-	entries, err := os.ReadDir(s.pending)
-	if err != nil {
-		return nil, err
-	}
 	var out []*model.Message
-	now := time.Now().UTC()
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(s.pending, e.Name())
-		msg, err := s.read(path)
+	for _, dir := range []string{s.inbound, s.retry, s.legacyPending} {
+		msgs, err := s.dueFromDir(dir)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		if msg.NextAttempt.After(now) {
-			continue
-		}
-		out = append(out, msg)
+		out = append(out, msgs...)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].NextAttempt.Before(out[j].NextAttempt)
@@ -74,7 +66,7 @@ func (s *Store) Due(limit int) ([]*model.Message, error) {
 }
 
 func (s *Store) AckSent(id string, msg *model.Message) error {
-	if err := os.Remove(filepath.Join(s.pending, id+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.removeByID(id); err != nil {
 		return err
 	}
 	msg.UpdatedAt = time.Now().UTC()
@@ -82,21 +74,64 @@ func (s *Store) AckSent(id string, msg *model.Message) error {
 }
 
 func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) error {
-	msg.Attempts++
-	msg.LastError = reason
-	msg.UpdatedAt = time.Now().UTC()
-	msg.NextAttempt = msg.UpdatedAt.Add(delay)
-	return s.write(filepath.Join(s.pending, msg.ID+".json"), msg)
-}
-
-func (s *Store) Fail(msg *model.Message, reason string) error {
-	if err := os.Remove(filepath.Join(s.pending, msg.ID+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.removeByID(msg.ID); err != nil {
 		return err
 	}
 	msg.Attempts++
 	msg.LastError = reason
 	msg.UpdatedAt = time.Now().UTC()
-	return s.write(filepath.Join(s.failed, msg.ID+".json"), msg)
+	msg.NextAttempt = msg.UpdatedAt.Add(delay)
+	return s.write(filepath.Join(s.retry, msg.ID+".json"), msg)
+}
+
+func (s *Store) Fail(msg *model.Message, reason string) error {
+	if err := s.removeByID(msg.ID); err != nil {
+		return err
+	}
+	msg.Attempts++
+	msg.LastError = reason
+	msg.UpdatedAt = time.Now().UTC()
+	return s.write(filepath.Join(s.dlq, msg.ID+".json"), msg)
+}
+
+func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]*model.Message, 0, len(entries))
+	now := time.Now().UTC()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		msg, err := s.read(path)
+		if err != nil {
+			continue
+		}
+		if msg.NextAttempt.After(now) {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out, nil
+}
+
+func (s *Store) removeByID(id string) error {
+	for _, dir := range []string{s.inbound, s.retry, s.legacyPending} {
+		if err := os.Remove(filepath.Join(dir, id+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) Close() error {
+	return nil
 }
 
 func (s *Store) write(path string, msg *model.Message) error {
