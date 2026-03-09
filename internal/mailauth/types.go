@@ -1,4 +1,4 @@
-package auth
+package mailauth
 
 type Action string
 

@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/auth"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/ingress"
+	"github.com/tamago0224/orinoco-mta/internal/mailauth"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/util"
@@ -173,20 +173,24 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			ss.data = data
-			authRes := auth.Evaluate(remoteIP, ss.helo, ss.mailFrom, ss.data)
+			msgRemoteIP := remoteIP
+			if msgRemoteIP == nil {
+				msgRemoteIP = parseRemoteIP(ss.remote)
+			}
+			authRes := mailauth.Evaluate(msgRemoteIP, ss.helo, ss.mailFrom, ss.data)
 			switch authRes.Action {
-			case auth.ActionReject:
+			case mailauth.ActionReject:
 				writeResp(w, 550, "message rejected by auth policy")
 				ss.mailFrom = ""
 				ss.rcptTo = nil
 				ss.data = nil
 				continue
-			case auth.ActionQuarantine:
-				ar := auth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
-				ss.data = auth.InjectHeaders(ss.data, []string{ar, "X-Orinoco-Quarantine: true"})
+			case mailauth.ActionQuarantine:
+				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
+				ss.data = mailauth.InjectHeaders(ss.data, []string{ar, "X-Orinoco-Quarantine: true"})
 			default:
-				ar := auth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
-				ss.data = auth.InjectHeaders(ss.data, []string{ar})
+				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
+				ss.data = mailauth.InjectHeaders(ss.data, []string{ar})
 			}
 			if err := s.enqueue(ss); err != nil {
 				log.Printf("enqueue error: %v", err)
