@@ -29,3 +29,18 @@ func TestEnvDurationList(t *testing.T) {
 
 	_ = os.Unsetenv("MTA_RETRY_SCHEDULE")
 }
+
+func TestEnvCSV(t *testing.T) {
+	def := []string{"a.example.org"}
+	t.Setenv("MTA_DNSBL_ZONES", "zen.example.org, bl.example.net")
+	got := envCSV("MTA_DNSBL_ZONES", def)
+	if len(got) != 2 || got[0] != "zen.example.org" || got[1] != "bl.example.net" {
+		t.Fatalf("unexpected csv parse: %v", got)
+	}
+
+	t.Setenv("MTA_DNSBL_ZONES", " , ")
+	got = envCSV("MTA_DNSBL_ZONES", def)
+	if len(got) != 1 || got[0] != def[0] {
+		t.Fatalf("expected fallback default, got=%v", got)
+	}
+}

@@ -8,32 +8,38 @@ import (
 )
 
 type Config struct {
-	ListenAddr      string
-	Hostname        string
-	QueueDir        string
-	TLSCertFile     string
-	TLSKeyFile      string
-	MaxMessageBytes int64
-	WorkerCount     int
-	MaxAttempts     int
-	MaxRetryAge     time.Duration
-	RetrySchedule   []time.Duration
-	ScanInterval    time.Duration
-	DialTimeout     time.Duration
-	SendTimeout     time.Duration
+	ListenAddr       string
+	Hostname         string
+	QueueDir         string
+	TLSCertFile      string
+	TLSKeyFile       string
+	IngressRateLimit int
+	DNSBLZones       []string
+	DNSBLCacheTTL    time.Duration
+	MaxMessageBytes  int64
+	WorkerCount      int
+	MaxAttempts      int
+	MaxRetryAge      time.Duration
+	RetrySchedule    []time.Duration
+	ScanInterval     time.Duration
+	DialTimeout      time.Duration
+	SendTimeout      time.Duration
 }
 
 func Load() Config {
 	return Config{
-		ListenAddr:      env("MTA_LISTEN_ADDR", ":2525"),
-		Hostname:        env("MTA_HOSTNAME", "orinoco.local"),
-		QueueDir:        env("MTA_QUEUE_DIR", "./var/queue"),
-		TLSCertFile:     env("MTA_TLS_CERT_FILE", ""),
-		TLSKeyFile:      env("MTA_TLS_KEY_FILE", ""),
-		MaxMessageBytes: envInt64("MTA_MAX_MESSAGE_BYTES", 10*1024*1024),
-		WorkerCount:     envInt("MTA_WORKER_COUNT", 4),
-		MaxAttempts:     envInt("MTA_MAX_ATTEMPTS", 12),
-		MaxRetryAge:     envDuration("MTA_MAX_RETRY_AGE", 5*24*time.Hour),
+		ListenAddr:       env("MTA_LISTEN_ADDR", ":2525"),
+		Hostname:         env("MTA_HOSTNAME", "orinoco.local"),
+		QueueDir:         env("MTA_QUEUE_DIR", "./var/queue"),
+		TLSCertFile:      env("MTA_TLS_CERT_FILE", ""),
+		TLSKeyFile:       env("MTA_TLS_KEY_FILE", ""),
+		IngressRateLimit: envInt("MTA_INGRESS_RATE_LIMIT_PER_MINUTE", 100),
+		DNSBLZones:       envCSV("MTA_DNSBL_ZONES", []string{}),
+		DNSBLCacheTTL:    envDuration("MTA_DNSBL_CACHE_TTL", 5*time.Minute),
+		MaxMessageBytes:  envInt64("MTA_MAX_MESSAGE_BYTES", 10*1024*1024),
+		WorkerCount:      envInt("MTA_WORKER_COUNT", 4),
+		MaxAttempts:      envInt("MTA_MAX_ATTEMPTS", 12),
+		MaxRetryAge:      envDuration("MTA_MAX_RETRY_AGE", 5*24*time.Hour),
 		RetrySchedule: envDurationList(
 			"MTA_RETRY_SCHEDULE",
 			[]time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
@@ -104,6 +110,25 @@ func envDurationList(k string, def []time.Duration) []time.Duration {
 	}
 	if len(out) == 0 {
 		return append([]time.Duration(nil), def...)
+	}
+	return out
+}
+
+func envCSV(k string, def []string) []string {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return append([]string(nil), def...)
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return append([]string(nil), def...)
 	}
 	return out
 }

@@ -3,8 +3,8 @@ package smtp
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/tamago0224/orinoco-mta/internal/auth"
 	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/ingress"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/util"
@@ -26,13 +27,22 @@ type Server struct {
 	queue      *queue.Store
 	tlsConfig  *tls.Config
 	tlsLoadErr error
+	limiter    *ingress.RateLimiter
+	dnsbl      *ingress.DNSBLChecker
 	ln         net.Listener
 	wg         sync.WaitGroup
 }
 
 func NewServer(cfg config.Config, q *queue.Store) *Server {
 	tlsConfig, err := loadTLSConfig(cfg)
-	return &Server{cfg: cfg, queue: q, tlsConfig: tlsConfig, tlsLoadErr: err}
+	return &Server{
+		cfg:        cfg,
+		queue:      q,
+		tlsConfig:  tlsConfig,
+		tlsLoadErr: err,
+		limiter:    ingress.NewRateLimiter(cfg.IngressRateLimit, time.Minute),
+		dnsbl:      ingress.NewDNSBLChecker(cfg.DNSBLZones, cfg.DNSBLCacheTTL, nil),
+	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -83,8 +93,22 @@ type session struct {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	remoteIP := parseRemoteIP(conn.RemoteAddr().String())
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
+	if remoteIP != nil {
+		remoteStr := remoteIP.String()
+		if s.limiter != nil && !s.limiter.Allow(remoteStr, time.Now().UTC()) {
+			writeResp(w, 421, "rate limit exceeded, try again later")
+			return
+		}
+		if s.dnsbl != nil {
+			if listed, zone := s.dnsbl.IsListed(remoteStr); listed {
+				writeResp(w, 554, "connection rejected (dnsbl: "+zone+")")
+				return
+			}
+		}
+	}
 	ss := &session{remote: conn.RemoteAddr().String()}
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
@@ -149,7 +173,6 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			ss.data = data
-			remoteIP := parseRemoteIP(ss.remote)
 			authRes := auth.Evaluate(remoteIP, ss.helo, ss.mailFrom, ss.data)
 			switch authRes.Action {
 			case auth.ActionReject:
