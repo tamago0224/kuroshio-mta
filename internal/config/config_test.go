@@ -44,3 +44,18 @@ func TestEnvCSV(t *testing.T) {
 		t.Fatalf("expected fallback default, got=%v", got)
 	}
 }
+
+func TestEnvBool(t *testing.T) {
+	t.Setenv("MTA_RELAY_REQUIRE_TLS", "true")
+	if !envBool("MTA_RELAY_REQUIRE_TLS", false) {
+		t.Fatal("true should parse as true")
+	}
+	t.Setenv("MTA_RELAY_REQUIRE_TLS", "0")
+	if envBool("MTA_RELAY_REQUIRE_TLS", true) {
+		t.Fatal("0 should parse as false")
+	}
+	t.Setenv("MTA_RELAY_REQUIRE_TLS", "invalid")
+	if !envBool("MTA_RELAY_REQUIRE_TLS", true) {
+		t.Fatal("invalid value should fallback to default")
+	}
+}

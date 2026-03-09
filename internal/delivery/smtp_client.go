@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,23 +19,54 @@ import (
 )
 
 type Client struct {
-	cfg    config.Config
-	mtaSTS *MTASTSResolver
+	cfg           config.Config
+	mtaSTS        *MTASTSResolver
+	resolveMXFn   func(string, time.Duration) ([]router.MXHost, error)
+	deliverHostFn func(context.Context, string, int, *model.Message, string, bool) error
+	spoolWriteFn  func(*model.Message, string) error
 }
 
 func NewClient(cfg config.Config) *Client {
-	return &Client{
-		cfg:    cfg,
-		mtaSTS: NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
+	c := &Client{
+		cfg:         cfg,
+		mtaSTS:      NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
+		resolveMXFn: router.LookupWithTimeout,
 	}
+	c.deliverHostFn = c.deliverHost
+	c.spoolWriteFn = c.writeLocalSpool
+	return c
 }
 
 func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) error {
+	mode := strings.ToLower(strings.TrimSpace(c.cfg.DeliveryMode))
+	if mode == "" {
+		mode = "mx"
+	}
+	switch mode {
+	case "mx":
+		return c.deliverByMX(ctx, msg, rcpt)
+	case "local_spool":
+		return c.spoolWriteFn(msg, rcpt)
+	case "relay":
+		if strings.TrimSpace(c.cfg.RelayHost) == "" {
+			return errors.New("relay mode requires MTA_RELAY_HOST")
+		}
+		port := c.cfg.RelayPort
+		if port <= 0 {
+			port = 25
+		}
+		return c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS)
+	default:
+		return fmt.Errorf("unknown delivery mode: %s", mode)
+	}
+}
+
+func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt string) error {
 	domain, ok := util.DomainOf(rcpt)
 	if !ok {
 		return errors.New("invalid rcpt domain")
 	}
-	mxHosts, err := router.LookupWithTimeout(domain, c.cfg.DialTimeout)
+	mxHosts, err := c.resolveMXFn(domain, c.cfg.DialTimeout)
 	if err != nil {
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
@@ -57,7 +90,7 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	}
 	var lastErr error
 	for _, mx := range mxHosts {
-		if err := c.deliverHost(ctx, mx.Host, msg, rcpt, requireTLS); err == nil {
+		if err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -69,9 +102,12 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	return lastErr
 }
 
-func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Message, rcpt string, requireTLS bool) error {
+func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool) error {
+	if port <= 0 {
+		port = 25
+	}
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, "25"))
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err != nil {
 		return err
 	}
@@ -166,6 +202,40 @@ func (c *Client) deliverHost(ctx context.Context, host string, msg *model.Messag
 	_ = writeLine(w, "QUIT")
 	_, _, _ = readCode(r)
 	return nil
+}
+
+func (c *Client) writeLocalSpool(msg *model.Message, rcpt string) error {
+	dir := strings.TrimSpace(c.cfg.LocalSpoolDir)
+	if dir == "" {
+		dir = "./var/spool"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	id := strings.TrimSpace(msg.ID)
+	if id == "" {
+		id = fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	}
+	name := fmt.Sprintf("%s_%s.eml", id, sanitizeFilename(rcpt))
+	path := filepath.Join(dir, name)
+	return os.WriteFile(path, msg.Data, 0o644)
+}
+
+func sanitizeFilename(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for i := 0; i < len(v); i++ {
+		ch := v[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
+			b.WriteByte(ch)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func writeLine(w *bufio.Writer, line string) error {
