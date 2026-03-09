@@ -39,3 +39,24 @@ jobs:
 
       - name: Race Tests
         run: go test -race ./...
+
+  smtp-conformance:
+    name: SMTP Conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: SMTP Conformance (RFC section trace)
+        run: go test ./internal/smtp -run '^TestSMTPConformance$' -v

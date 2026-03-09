@@ -108,6 +108,14 @@ MTA_RATE_LIMIT_RULES="connect:ip:100:1m;helo:ip+helo:20:1m;mailfrom:ip+mailfrom:
 2. 最小実装でテストを通す (`Green`)
 3. 振る舞いを維持したまま整理する (`Refactor`)
 
+## SMTP Conformance Test
+
+SMTP RFC の主要要件を `internal/smtp` のコンフォーマンステストで確認できます。
+
+```bash
+go test ./internal/smtp -run '^TestSMTPConformance$' -v
+```
+
 ## Kafka Queue Mode Example
 
 ```bash
