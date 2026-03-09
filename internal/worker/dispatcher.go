@@ -18,13 +18,13 @@ import (
 
 type Dispatcher struct {
 	cfg   config.Config
-	queue *queue.Store
+	queue queue.Backend
 	cl    *delivery.Client
 	sup   *bounce.SuppressionStore
 	m     *observability.Metrics
 }
 
-func New(cfg config.Config, q *queue.Store, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics) *Dispatcher {
+func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics) *Dispatcher {
 	return &Dispatcher{cfg: cfg, queue: q, cl: cl, sup: sup, m: metrics}
 }
 

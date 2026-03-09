@@ -27,6 +27,13 @@ go run ./cmd/mta
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
+- `MTA_QUEUE_BACKEND` (default: `local`, values: `local` / `kafka`)
+- `MTA_KAFKA_BROKERS` (default: `localhost:9092`, comma-separated)
+- `MTA_KAFKA_CONSUMER_GROUP` (default: `orinoco-mta`)
+- `MTA_KAFKA_TOPIC_INBOUND` (default: `mail.inbound`)
+- `MTA_KAFKA_TOPIC_RETRY` (default: `mail.retry`)
+- `MTA_KAFKA_TOPIC_DLQ` (default: `mail.dlq`)
+- `MTA_KAFKA_TOPIC_SENT` (default: `mail.sent`)
 - `MTA_TLS_CERT_FILE` (default: unset)
 - `MTA_TLS_KEY_FILE` (default: unset)
 - `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` (default: `100`)
@@ -85,3 +92,21 @@ MTA_RATE_LIMIT_RULES="connect:ip:100:1m;helo:ip+helo:20:1m;mailfrom:ip+mailfrom:
 1. 先に失敗するテストを書く (`Red`)
 2. 最小実装でテストを通す (`Green`)
 3. 振る舞いを維持したまま整理する (`Refactor`)
+
+## Kafka Queue Mode Example
+
+```bash
+MTA_QUEUE_BACKEND="kafka"
+MTA_KAFKA_BROKERS="localhost:9092"
+MTA_KAFKA_CONSUMER_GROUP="orinoco-mta"
+MTA_KAFKA_TOPIC_INBOUND="mail.inbound"
+MTA_KAFKA_TOPIC_RETRY="mail.retry"
+MTA_KAFKA_TOPIC_DLQ="mail.dlq"
+MTA_KAFKA_TOPIC_SENT="mail.sent"
+```
+
+Kafka のローカル起動例:
+
+```bash
+docker compose -f docker-compose.kafka.yml up -d
+```

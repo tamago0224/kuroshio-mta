@@ -25,7 +25,7 @@ import (
 
 type Server struct {
 	cfg         config.Config
-	queue       *queue.Store
+	queue       queue.Backend
 	tlsConfig   *tls.Config
 	tlsLoadErr  error
 	limiter     *ingress.RateLimiter
@@ -37,7 +37,7 @@ type Server struct {
 	wg          sync.WaitGroup
 }
 
-func NewServer(cfg config.Config, q *queue.Store, metrics *observability.Metrics) *Server {
+func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
 	tlsConfig, err := loadTLSConfig(cfg)
 	rules, rErr := ingress.ParseRateRules(cfg.RateLimitRules)
 	return &Server{

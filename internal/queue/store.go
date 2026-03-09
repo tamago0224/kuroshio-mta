@@ -130,6 +130,10 @@ func (s *Store) removeByID(id string) error {
 	return nil
 }
 
+func (s *Store) Close() error {
+	return nil
+}
+
 func (s *Store) write(path string, msg *model.Message) error {
 	tmp := path + ".tmp"
 	b, err := json.MarshalIndent(msg, "", "  ")

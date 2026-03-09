@@ -12,6 +12,13 @@ type Config struct {
 	ObservabilityAddr  string
 	Hostname           string
 	QueueDir           string
+	QueueBackend       string
+	KafkaBrokers       []string
+	KafkaConsumerGroup string
+	KafkaTopicInbound  string
+	KafkaTopicRetry    string
+	KafkaTopicDLQ      string
+	KafkaTopicSent     string
 	TLSCertFile        string
 	TLSKeyFile         string
 	IngressRateLimit   int
@@ -41,6 +48,13 @@ func Load() Config {
 		ObservabilityAddr:  env("MTA_OBSERVABILITY_ADDR", ":9090"),
 		Hostname:           env("MTA_HOSTNAME", "orinoco.local"),
 		QueueDir:           env("MTA_QUEUE_DIR", "./var/queue"),
+		QueueBackend:       env("MTA_QUEUE_BACKEND", "local"),
+		KafkaBrokers:       envCSV("MTA_KAFKA_BROKERS", []string{"localhost:9092"}),
+		KafkaConsumerGroup: env("MTA_KAFKA_CONSUMER_GROUP", "orinoco-mta"),
+		KafkaTopicInbound:  env("MTA_KAFKA_TOPIC_INBOUND", "mail.inbound"),
+		KafkaTopicRetry:    env("MTA_KAFKA_TOPIC_RETRY", "mail.retry"),
+		KafkaTopicDLQ:      env("MTA_KAFKA_TOPIC_DLQ", "mail.dlq"),
+		KafkaTopicSent:     env("MTA_KAFKA_TOPIC_SENT", "mail.sent"),
 		TLSCertFile:        env("MTA_TLS_CERT_FILE", ""),
 		TLSKeyFile:         env("MTA_TLS_KEY_FILE", ""),
 		IngressRateLimit:   envInt("MTA_INGRESS_RATE_LIMIT_PER_MINUTE", 100),
