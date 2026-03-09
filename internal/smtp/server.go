@@ -18,6 +18,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/ingress"
 	"github.com/tamago0224/orinoco-mta/internal/mailauth"
 	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/util"
 )
@@ -29,11 +30,12 @@ type Server struct {
 	tlsLoadErr error
 	limiter    *ingress.RateLimiter
 	dnsbl      *ingress.DNSBLChecker
+	metrics    *observability.Metrics
 	ln         net.Listener
 	wg         sync.WaitGroup
 }
 
-func NewServer(cfg config.Config, q *queue.Store) *Server {
+func NewServer(cfg config.Config, q *queue.Store, metrics *observability.Metrics) *Server {
 	tlsConfig, err := loadTLSConfig(cfg)
 	return &Server{
 		cfg:        cfg,
@@ -42,6 +44,7 @@ func NewServer(cfg config.Config, q *queue.Store) *Server {
 		tlsLoadErr: err,
 		limiter:    ingress.NewRateLimiter(cfg.IngressRateLimit, time.Minute),
 		dnsbl:      ingress.NewDNSBLChecker(cfg.DNSBLZones, cfg.DNSBLCacheTTL, nil),
+		metrics:    metrics,
 	}
 }
 
@@ -93,17 +96,22 @@ type session struct {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	s.metricInc("smtp_connections")
 	remoteIP := parseRemoteIP(conn.RemoteAddr().String())
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 	if remoteIP != nil {
 		remoteStr := remoteIP.String()
 		if s.limiter != nil && !s.limiter.Allow(remoteStr, time.Now().UTC()) {
+			s.metricInc("smtp_reject_rate_limit")
+			log.Printf("event=ingress_reject reason=rate_limit remote_ip=%s", remoteStr)
 			writeResp(w, 421, "rate limit exceeded, try again later")
 			return
 		}
 		if s.dnsbl != nil {
 			if listed, zone := s.dnsbl.IsListed(remoteStr); listed {
+				s.metricInc("smtp_reject_dnsbl")
+				log.Printf("event=ingress_reject reason=dnsbl zone=%s remote_ip=%s", zone, remoteStr)
 				writeResp(w, 554, "connection rejected (dnsbl: "+zone+")")
 				return
 			}
@@ -194,9 +202,11 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			if err := s.enqueue(ss); err != nil {
 				log.Printf("enqueue error: %v", err)
+				s.metricInc("smtp_enqueue_fail")
 				writeResp(w, 451, "temporary local problem")
 				continue
 			}
+			s.metricInc("smtp_queued_messages")
 			writeResp(w, 250, "queued")
 			ss.mailFrom = ""
 			ss.rcptTo = nil
@@ -237,6 +247,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		default:
 			writeResp(w, 500, "unsupported command")
 		}
+	}
+}
+
+func (s *Server) metricInc(name string) {
+	if s.metrics != nil {
+		s.metrics.Counter(name).Inc()
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
+	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/smtp"
 	"github.com/tamago0224/orinoco-mta/internal/worker"
@@ -30,15 +31,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("suppression init failed: %v", err)
 	}
+	metrics := observability.NewMetrics()
 
-	d := worker.New(cfg, q, delivery.NewClient(cfg), sup)
-	s := smtp.NewServer(cfg, q)
+	d := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics)
+	s := smtp.NewServer(cfg, q, metrics)
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() { errCh <- s.Run(ctx) }()
 	go func() { errCh <- d.Run(ctx) }()
+	go func() { errCh <- observability.RunServer(ctx, cfg.ObservabilityAddr, metrics) }()
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		err := <-errCh
 		if err == nil || errors.Is(err, context.Canceled) {
 			continue
