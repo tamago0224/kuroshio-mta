@@ -96,6 +96,7 @@ type session struct {
 	remote   string
 	helo     string
 	mailFrom string
+	bodyMode string
 	rcptTo   []string
 	data     []byte
 	seenHelo bool
@@ -147,7 +148,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 		}
 	}
-	ss := &session{remote: conn.RemoteAddr().String()}
+	ss := &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT"}
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {
@@ -181,6 +182,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = true
 			ss.extended = true
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls)
@@ -193,6 +195,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = true
 			ss.extended = false
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, s.cfg.Hostname)
@@ -225,6 +228,10 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			ss.mailFrom = mailArgs.Address
+			ss.bodyMode = mailArgs.Body
+			if ss.bodyMode == "" {
+				ss.bodyMode = "7BIT"
+			}
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "sender ok")
@@ -262,6 +269,13 @@ func (s *Server) handleConn(conn net.Conn) {
 				}
 				continue
 			}
+			if !strings.EqualFold(ss.bodyMode, "8BITMIME") && contains8Bit(data) {
+				writeResp(w, 554, "8-bit data is not permitted without BODY=8BITMIME")
+				ss.mailFrom = ""
+				ss.rcptTo = nil
+				ss.data = nil
+				continue
+			}
 			ss.data = data
 			msgRemoteIP := remoteIP
 			if msgRemoteIP == nil {
@@ -295,6 +309,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.data = nil
 		case "RSET":
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "reset state")
@@ -331,6 +346,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = false
 			ss.extended = false
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 		default:
@@ -561,4 +577,13 @@ func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}, nil
+}
+
+func contains8Bit(data []byte) bool {
+	for _, b := range data {
+		if b >= 0x80 {
+			return true
+		}
+	}
+	return false
 }

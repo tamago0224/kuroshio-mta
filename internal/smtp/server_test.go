@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/model"
 )
 
 func TestSplitVerb(t *testing.T) {
@@ -146,6 +147,86 @@ func TestRSETResetsTransactionState(t *testing.T) {
 	_, code := readSMTPResponse(t, r)
 	if code != 503 {
 		t.Fatalf("code=%d want=503", code)
+	}
+}
+
+func TestDataRejects8BitWhenBodyIs7Bit(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> BODY=7BIT")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\ncaf\xc3\xa9\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 554 {
+		t.Fatalf("code=%d want=554", code)
+	}
+	if len(q.msgs) != 0 {
+		t.Fatalf("queued=%d want=0", len(q.msgs))
+	}
+}
+
+func TestDataAccepts8BitWhenBodyIs8BitMime(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> BODY=8BITMIME")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\ncaf\xc3\xa9\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
 	}
 }
 
@@ -368,6 +449,38 @@ func mustWriteSMTPLine(t *testing.T, w *bufio.Writer, line string) {
 	if err := w.Flush(); err != nil {
 		t.Fatalf("flush %q: %v", line, err)
 	}
+}
+
+type recordingQueue struct {
+	msgs []*model.Message
+}
+
+func (q *recordingQueue) Enqueue(msg *model.Message) error {
+	copied := *msg
+	copied.RcptTo = append([]string(nil), msg.RcptTo...)
+	copied.Data = append([]byte(nil), msg.Data...)
+	q.msgs = append(q.msgs, &copied)
+	return nil
+}
+
+func (q *recordingQueue) Due(limit int) ([]*model.Message, error) {
+	return nil, nil
+}
+
+func (q *recordingQueue) AckSent(id string, msg *model.Message) error {
+	return nil
+}
+
+func (q *recordingQueue) Retry(msg *model.Message, delay time.Duration, reason string) error {
+	return nil
+}
+
+func (q *recordingQueue) Fail(msg *model.Message, reason string) error {
+	return nil
+}
+
+func (q *recordingQueue) Close() error {
+	return nil
 }
 
 func readSMTPResponse(t *testing.T, r *bufio.Reader) (string, int) {
