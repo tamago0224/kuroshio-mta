@@ -59,6 +59,96 @@ func TestParseMailFromRejectsUnknownParameter(t *testing.T) {
 	}
 }
 
+func TestMailFromUnknownParameterReturns555(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, ehloCode := readSMTPResponse(t, r)
+	if ehloCode != 250 {
+		t.Fatalf("ehlo code=%d want=250", ehloCode)
+	}
+
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com> FOO=bar")
+	_, code := readSMTPResponse(t, r)
+	if code != 555 {
+		t.Fatalf("code=%d want=555", code)
+	}
+}
+
+func TestDataLineTooLongReturns500(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	longLine := strings.Repeat("a", 999) // 999 + CRLF = 1001 (> 1000)
+	if _, err := w.WriteString(longLine + "\r\n.\r\n"); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 500 {
+		t.Fatalf("code=%d want=500", code)
+	}
+}
+
+func TestRSETResetsTransactionState(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RSET")
+	_, resetCode := readSMTPResponse(t, r)
+	if resetCode != 250 {
+		t.Fatalf("reset code=%d want=250", resetCode)
+	}
+
+	mustWriteSMTPLine(t, w, "DATA")
+	_, code := readSMTPResponse(t, r)
+	if code != 503 {
+		t.Fatalf("code=%d want=503", code)
+	}
+}
+
 func TestParseRcptTo(t *testing.T) {
 	got, err := parseRcptTo("TO:<Bob@Example.com>", "mx.example.test")
 	if err != nil {
@@ -267,6 +357,16 @@ func TestHELPVRFYEXPNCommands(t *testing.T) {
 	_, expnCode := readSMTPResponse(t, r)
 	if expnCode != 502 {
 		t.Fatalf("expn code=%d want=502", expnCode)
+	}
+}
+
+func mustWriteSMTPLine(t *testing.T, w *bufio.Writer, line string) {
+	t.Helper()
+	if _, err := w.WriteString(line + "\r\n"); err != nil {
+		t.Fatalf("write %q: %v", line, err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush %q: %v", line, err)
 	}
 }
 

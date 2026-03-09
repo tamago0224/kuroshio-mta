@@ -110,6 +110,12 @@ type mailFromArgs struct {
 	Body    string
 }
 
+var (
+	errMailParamUnsupported = errors.New("unsupported MAIL parameter")
+	errDataLineTooLong      = errors.New("data line too long")
+	errMessageTooLarge      = errors.New("message too large")
+)
+
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
@@ -197,6 +203,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			mailArgs, err := parseMailFrom(arg)
 			if err != nil {
+				if errors.Is(err, errMailParamUnsupported) {
+					writeResp(w, 555, err.Error())
+					continue
+				}
 				writeResp(w, 501, err.Error())
 				continue
 			}
@@ -242,7 +252,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			writeResp(w, 354, "end with <CRLF>.<CRLF>")
 			data, err := readData(r, s.cfg.MaxMessageBytes)
 			if err != nil {
-				writeResp(w, 552, "message exceeds limit or read error")
+				switch {
+				case errors.Is(err, errDataLineTooLong):
+					writeResp(w, 500, "line too long")
+				case errors.Is(err, errMessageTooLarge):
+					writeResp(w, 552, "message size exceeds fixed maximum message size")
+				default:
+					writeResp(w, 451, "temporary local problem")
+				}
 				continue
 			}
 			ss.data = data
@@ -387,7 +404,7 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 			}
 			out.Body = v
 		default:
-			return mailFromArgs{}, fmt.Errorf("unsupported MAIL parameter: %s", key)
+			return mailFromArgs{}, fmt.Errorf("%w: %s", errMailParamUnsupported, key)
 		}
 	}
 	return out, nil
@@ -430,7 +447,7 @@ func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 			return nil, err
 		}
 		if len(line) > 1000 {
-			return nil, errors.New("data line too long")
+			return nil, errDataLineTooLong
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "." {
@@ -442,7 +459,7 @@ func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 		out = append(out, []byte(line)...)
 		out = append(out, '\r', '\n')
 		if int64(len(out)) > maxBytes {
-			return nil, errors.New("message too large")
+			return nil, errMessageTooLarge
 		}
 	}
 	return out, nil
