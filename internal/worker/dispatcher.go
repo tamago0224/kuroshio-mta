@@ -12,6 +12,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
 	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 )
 
@@ -20,10 +21,11 @@ type Dispatcher struct {
 	queue *queue.Store
 	cl    *delivery.Client
 	sup   *bounce.SuppressionStore
+	m     *observability.Metrics
 }
 
-func New(cfg config.Config, q *queue.Store, cl *delivery.Client, sup *bounce.SuppressionStore) *Dispatcher {
-	return &Dispatcher{cfg: cfg, queue: q, cl: cl, sup: sup}
+func New(cfg config.Config, q *queue.Store, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics) *Dispatcher {
+	return &Dispatcher{cfg: cfg, queue: q, cl: cl, sup: sup, m: metrics}
 }
 
 func (d *Dispatcher) Run(ctx context.Context) error {
@@ -75,12 +77,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	for _, rcpt := range msg.RcptTo {
 		if d.sup != nil && d.sup.IsSuppressed(rcpt) {
 			reasons = append(reasons, rcpt+": suppressed")
+			d.metricInc("worker_suppressed_recipient")
 			continue
 		}
 		if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
 			reasons = append(reasons, rcpt+": "+err.Error())
 			var smtpErr *delivery.SMTPResponseError
 			if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+				d.metricInc("worker_permanent_bounce")
 				if d.sup != nil {
 					if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
 						log.Printf("suppression add error addr=%s: %v", rcpt, sErr)
@@ -88,7 +92,10 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 				continue
 			}
+			d.metricInc("worker_temporary_failure")
 			errs = append(errs, err)
+		} else {
+			d.metricInc("worker_delivery_success")
 		}
 	}
 
@@ -96,6 +103,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		if err := d.queue.AckSent(msg.ID, msg); err != nil {
 			log.Printf("ack sent error id=%s: %v", msg.ID, err)
 		}
+		d.metricInc("worker_ack_sent")
 		return
 	}
 
@@ -104,12 +112,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		if err := d.queue.Fail(msg, reason); err != nil {
 			log.Printf("mark failed error id=%s: %v", msg.ID, err)
 		}
+		d.metricInc("worker_mark_failed")
 		return
 	}
 	delay := backoff(msg.Attempts, d.cfg.RetrySchedule)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
 		log.Printf("retry schedule error id=%s: %v", msg.ID, err)
 	}
+	d.metricInc("worker_retry_scheduled")
 }
 
 func backoff(attempts int, schedule []time.Duration) time.Duration {
@@ -159,4 +169,10 @@ func shouldFail(msg *model.Message, errs []error, cfg config.Config, now time.Ti
 		return false
 	}
 	return hasPermanent
+}
+
+func (d *Dispatcher) metricInc(name string) {
+	if d.m != nil {
+		d.m.Counter(name).Inc()
+	}
 }

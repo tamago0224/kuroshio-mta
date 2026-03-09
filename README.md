@@ -24,6 +24,7 @@ go run ./cmd/mta
 ## 主要環境変数
 
 - `MTA_LISTEN_ADDR` (default: `:2525`)
+- `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
 - `MTA_TLS_CERT_FILE` (default: unset)
