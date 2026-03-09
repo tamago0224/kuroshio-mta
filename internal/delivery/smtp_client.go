@@ -20,6 +20,7 @@ import (
 
 type Client struct {
 	cfg           config.Config
+	dane          *DANEResolver
 	mtaSTS        *MTASTSResolver
 	resolveMXFn   func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn func(context.Context, string, int, *model.Message, string, bool) error
@@ -29,6 +30,7 @@ type Client struct {
 func NewClient(cfg config.Config) *Client {
 	c := &Client{
 		cfg:         cfg,
+		dane:        NewDANEResolver(cfg.DialTimeout, nil),
 		mtaSTS:      NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
 		resolveMXFn: router.LookupWithTimeout,
 	}
@@ -71,7 +73,23 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
 	requireTLS := false
-	if c.mtaSTS != nil {
+	daneCandidates := make([]router.MXHost, 0, len(mxHosts))
+	if c.dane != nil {
+		for _, mx := range mxHosts {
+			res, lErr := c.dane.LookupHost(ctx, mx.Host, 25)
+			if lErr != nil {
+				continue
+			}
+			if res.HasUsableTLSA() {
+				daneCandidates = append(daneCandidates, mx)
+			}
+		}
+	}
+	if len(daneCandidates) > 0 {
+		// RFC 7672 precedence: if usable DANE is available, apply it before MTA-STS.
+		requireTLS = true
+		mxHosts = daneCandidates
+	} else if c.mtaSTS != nil {
 		if p, pErr := c.mtaSTS.Lookup(ctx, domain); pErr == nil {
 			if p.Mode == "enforce" {
 				requireTLS = true
