@@ -53,6 +53,31 @@ go run ./cmd/mta
 
 このリポジトリのコアは、SMTPプロトコル処理を外部SMTPライブラリに依存せず実装しています。
 
+## Rate Limit Rules Examples
+
+`MTA_RATE_LIMIT_RULES` は `event:key:limit:window;...` 形式で指定します。
+
+- `event`: `connect` / `helo` / `mailfrom`
+- `key`: `ip` / `helo` / `mailfrom` / `ip+helo` / `ip+mailfrom`
+- `limit`: 許可回数
+- `window`: 期間（例: `10s`, `1m`, `5m`, `1h`）
+
+例:
+
+```bash
+# 1分間に接続100回まで（IP単位）
+MTA_RATE_LIMIT_RULES="connect:ip:100:1m"
+
+# 1分間に HELO ごとに 20回まで（IP+HELO 単位）
+MTA_RATE_LIMIT_RULES="helo:ip+helo:20:1m"
+
+# 5分間に MAIL FROM ごとに 30回まで（IP+MAIL FROM 単位）
+MTA_RATE_LIMIT_RULES="mailfrom:ip+mailfrom:30:5m"
+
+# 複数ルールの組み合わせ
+MTA_RATE_LIMIT_RULES="connect:ip:100:1m;helo:ip+helo:20:1m;mailfrom:ip+mailfrom:30:5m"
+```
+
 ## 開発方針 (TDD)
 
 今後の機能追加・修正は、以下の順で進めます。
