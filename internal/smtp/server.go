@@ -24,33 +24,41 @@ import (
 )
 
 type Server struct {
-	cfg        config.Config
-	queue      *queue.Store
-	tlsConfig  *tls.Config
-	tlsLoadErr error
-	limiter    *ingress.RateLimiter
-	dnsbl      *ingress.DNSBLChecker
-	metrics    *observability.Metrics
-	ln         net.Listener
-	wg         sync.WaitGroup
+	cfg         config.Config
+	queue       *queue.Store
+	tlsConfig   *tls.Config
+	tlsLoadErr  error
+	limiter     *ingress.RateLimiter
+	flexLimiter *ingress.FlexibleLimiter
+	rateRuleErr error
+	dnsbl       *ingress.DNSBLChecker
+	metrics     *observability.Metrics
+	ln          net.Listener
+	wg          sync.WaitGroup
 }
 
 func NewServer(cfg config.Config, q *queue.Store, metrics *observability.Metrics) *Server {
 	tlsConfig, err := loadTLSConfig(cfg)
+	rules, rErr := ingress.ParseRateRules(cfg.RateLimitRules)
 	return &Server{
-		cfg:        cfg,
-		queue:      q,
-		tlsConfig:  tlsConfig,
-		tlsLoadErr: err,
-		limiter:    ingress.NewRateLimiter(cfg.IngressRateLimit, time.Minute),
-		dnsbl:      ingress.NewDNSBLChecker(cfg.DNSBLZones, cfg.DNSBLCacheTTL, nil),
-		metrics:    metrics,
+		cfg:         cfg,
+		queue:       q,
+		tlsConfig:   tlsConfig,
+		tlsLoadErr:  err,
+		limiter:     ingress.NewRateLimiter(cfg.IngressRateLimit, time.Minute),
+		flexLimiter: ingress.NewFlexibleLimiter(rules),
+		rateRuleErr: rErr,
+		dnsbl:       ingress.NewDNSBLChecker(cfg.DNSBLZones, cfg.DNSBLCacheTTL, nil),
+		metrics:     metrics,
 	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
 	if s.tlsLoadErr != nil {
 		return s.tlsLoadErr
+	}
+	if s.rateRuleErr != nil {
+		return s.rateRuleErr
 	}
 	ln, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
@@ -102,9 +110,16 @@ func (s *Server) handleConn(conn net.Conn) {
 	w := bufio.NewWriter(conn)
 	if remoteIP != nil {
 		remoteStr := remoteIP.String()
-		if s.limiter != nil && !s.limiter.Allow(remoteStr, time.Now().UTC()) {
+		now := time.Now().UTC()
+		if s.limiter != nil && !s.limiter.Allow(remoteStr, now) {
 			s.metricInc("smtp_reject_rate_limit")
 			log.Printf("event=ingress_reject reason=rate_limit remote_ip=%s", remoteStr)
+			writeResp(w, 421, "rate limit exceeded, try again later")
+			return
+		}
+		if s.flexLimiter != nil && !s.flexLimiter.Allow("connect", remoteStr, "", "", now) {
+			s.metricInc("smtp_reject_rate_limit")
+			log.Printf("event=ingress_reject reason=rate_rule_connect remote_ip=%s", remoteStr)
 			writeResp(w, 421, "rate limit exceeded, try again later")
 			return
 		}
@@ -138,6 +153,12 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			ss.helo = arg
+			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("helo", remoteIP.String(), ss.helo, "", time.Now().UTC()) {
+				s.metricInc("smtp_reject_rate_limit")
+				log.Printf("event=ingress_reject reason=rate_rule_helo remote_ip=%s helo=%s", remoteIP.String(), ss.helo)
+				writeResp(w, 421, "rate limit exceeded, try again later")
+				return
+			}
 			ss.seenHelo = true
 			ss.mailFrom = ""
 			ss.rcptTo = nil
@@ -152,6 +173,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				writeResp(w, 501, err.Error())
 				continue
+			}
+			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, addr, time.Now().UTC()) {
+				s.metricInc("smtp_reject_rate_limit")
+				log.Printf("event=ingress_reject reason=rate_rule_mailfrom remote_ip=%s helo=%s mail_from=%s", remoteIP.String(), ss.helo, addr)
+				writeResp(w, 421, "rate limit exceeded, try again later")
+				return
 			}
 			ss.mailFrom = addr
 			ss.rcptTo = nil
