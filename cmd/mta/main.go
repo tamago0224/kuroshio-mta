@@ -5,8 +5,10 @@ import (
 	"errors"
 	"log"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
@@ -24,8 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("queue init failed: %v", err)
 	}
+	sup, err := bounce.NewSuppressionStore(filepath.Join(cfg.QueueDir, "suppression.json"))
+	if err != nil {
+		log.Fatalf("suppression init failed: %v", err)
+	}
 
-	d := worker.New(cfg, q, delivery.NewClient(cfg))
+	d := worker.New(cfg, q, delivery.NewClient(cfg), sup)
 	s := smtp.NewServer(cfg, q)
 
 	errCh := make(chan error, 2)

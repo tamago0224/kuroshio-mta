@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
 	"github.com/tamago0224/orinoco-mta/internal/model"
@@ -18,10 +19,11 @@ type Dispatcher struct {
 	cfg   config.Config
 	queue *queue.Store
 	cl    *delivery.Client
+	sup   *bounce.SuppressionStore
 }
 
-func New(cfg config.Config, q *queue.Store, cl *delivery.Client) *Dispatcher {
-	return &Dispatcher{cfg: cfg, queue: q, cl: cl}
+func New(cfg config.Config, q *queue.Store, cl *delivery.Client, sup *bounce.SuppressionStore) *Dispatcher {
+	return &Dispatcher{cfg: cfg, queue: q, cl: cl, sup: sup}
 }
 
 func (d *Dispatcher) Run(ctx context.Context) error {
@@ -71,9 +73,22 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		reasons []string
 	)
 	for _, rcpt := range msg.RcptTo {
+		if d.sup != nil && d.sup.IsSuppressed(rcpt) {
+			reasons = append(reasons, rcpt+": suppressed")
+			continue
+		}
 		if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
-			errs = append(errs, err)
 			reasons = append(reasons, rcpt+": "+err.Error())
+			var smtpErr *delivery.SMTPResponseError
+			if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+				if d.sup != nil {
+					if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
+						log.Printf("suppression add error addr=%s: %v", rcpt, sErr)
+					}
+				}
+				continue
+			}
+			errs = append(errs, err)
 		}
 	}
 
