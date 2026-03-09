@@ -15,6 +15,7 @@ type Config struct {
 	TLSCertFile        string
 	TLSKeyFile         string
 	IngressRateLimit   int
+	RateLimitRules     string
 	DNSBLZones         []string
 	DNSBLCacheTTL      time.Duration
 	MTASTSCacheTTL     time.Duration
@@ -43,6 +44,7 @@ func Load() Config {
 		TLSCertFile:        env("MTA_TLS_CERT_FILE", ""),
 		TLSKeyFile:         env("MTA_TLS_KEY_FILE", ""),
 		IngressRateLimit:   envInt("MTA_INGRESS_RATE_LIMIT_PER_MINUTE", 100),
+		RateLimitRules:     env("MTA_RATE_LIMIT_RULES", ""),
 		DNSBLZones:         envCSV("MTA_DNSBL_ZONES", []string{}),
 		DNSBLCacheTTL:      envDuration("MTA_DNSBL_CACHE_TTL", 5*time.Minute),
 		MTASTSCacheTTL:     envDuration("MTA_MTA_STS_CACHE_TTL", time.Hour),

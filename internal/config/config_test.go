@@ -59,3 +59,11 @@ func TestEnvBool(t *testing.T) {
 		t.Fatal("invalid value should fallback to default")
 	}
 }
+
+func TestLoadRateLimitRules(t *testing.T) {
+	t.Setenv("MTA_RATE_LIMIT_RULES", "connect:ip:10:1m")
+	cfg := Load()
+	if cfg.RateLimitRules != "connect:ip:10:1m" {
+		t.Fatalf("unexpected rules: %q", cfg.RateLimitRules)
+	}
+}

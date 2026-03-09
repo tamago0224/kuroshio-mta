@@ -30,6 +30,7 @@ go run ./cmd/mta
 - `MTA_TLS_CERT_FILE` (default: unset)
 - `MTA_TLS_KEY_FILE` (default: unset)
 - `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` (default: `100`)
+- `MTA_RATE_LIMIT_RULES` (default: unset, format: `event:key:limit:window;...`)
 - `MTA_DNSBL_ZONES` (default: unset, comma-separated)
 - `MTA_DNSBL_CACHE_TTL` (default: `5m`)
 - `MTA_MTA_STS_CACHE_TTL` (default: `1h`)
