@@ -1,0 +1,45 @@
+services:
+  dnsmock:
+    build:
+      context: ./dnsmock
+      dockerfile: Dockerfile
+    image: orinoco-dnsmock:latest
+    container_name: orinoco-dnsmock
+    volumes:
+      - ./dns/records.json:/records.json:ro
+    environment:
+      DNSMOCK_RECORDS_FILE: /records.json
+    networks:
+      integration-net:
+        ipv4_address: 172.28.0.53
+
+  policy:
+    image: nginx:1.27-alpine
+    container_name: orinoco-mta-sts-policy
+    volumes:
+      - ./mta-sts/mta-sts.txt:/usr/share/nginx/html/.well-known/mta-sts.txt:ro
+    networks:
+      integration-net:
+        ipv4_address: 172.28.0.80
+
+  tester:
+    image: golang:1.23
+    container_name: orinoco-integration-tester
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace
+    dns:
+      - 172.28.0.53
+    environment:
+      INTEG_MTA_STS_POLICY_URL: http://policy/.well-known/mta-sts.txt
+    networks:
+      integration-net:
+        ipv4_address: 172.28.0.90
+    command: ["sleep", "infinity"]
+
+networks:
+  integration-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

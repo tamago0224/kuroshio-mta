@@ -110,3 +110,14 @@ Kafka のローカル起動例:
 ```bash
 docker compose -f docker-compose.kafka.yml up -d
 ```
+
+## DNS結合テスト環境
+
+受信側の `mailauth`（SPF/DMARC）と送信側の DANE/MTA-STS の検証用に、
+DNS を含む `docker compose` 環境を用意しています。
+
+```bash
+./scripts/integration/run_dns_env_tests.sh
+```
+
+詳細は `test/integration/README.md` を参照してください。
