@@ -2,9 +2,11 @@ package smtp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,6 +23,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/userauth"
 	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
@@ -36,6 +39,8 @@ type Server struct {
 	metrics     *observability.Metrics
 	ln          net.Listener
 	wg          sync.WaitGroup
+	submission  bool
+	authBackend userauth.Backend
 }
 
 func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
@@ -52,6 +57,15 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 		dnsbl:       ingress.NewDNSBLChecker(cfg.DNSBLZones, cfg.DNSBLCacheTTL, nil),
 		metrics:     metrics,
 	}
+}
+
+func NewSubmissionServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics, backend userauth.Backend) *Server {
+	subCfg := cfg
+	subCfg.ListenAddr = cfg.SubmissionAddr
+	s := NewServer(subCfg, q, metrics)
+	s.submission = true
+	s.authBackend = backend
+	return s
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -102,6 +116,8 @@ type session struct {
 	seenHelo bool
 	extended bool
 	tls      bool
+	authUser string
+	authOK   bool
 }
 
 type mailFromArgs struct {
@@ -187,7 +203,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
-			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls)
+			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, s.submission)
 		case "HELO":
 			if arg == "" {
 				writeResp(w, 501, "HELO requires domain")
@@ -204,6 +220,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		case "MAIL":
 			if !ss.seenHelo {
 				writeResp(w, 503, "send EHLO/HELO first")
+				continue
+			}
+			if s.submission && s.cfg.SubmissionAuth && !ss.authOK {
+				writeResp(w, 530, "authentication required")
 				continue
 			}
 			mailArgs, err := parseMailFrom(arg)
@@ -229,6 +249,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			if mailArgs.HasSize && mailArgs.Size > s.cfg.MaxMessageBytes {
 				writeResp(w, 552, "message size exceeds fixed maximum message size")
+				continue
+			}
+			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.authUser, mailArgs.Address) {
+				writeResp(w, 553, "sender address rejected for authenticated identity")
 				continue
 			}
 			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC()) {
@@ -335,10 +359,39 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "reset state")
+		case "AUTH":
+			if !s.submission {
+				writeResp(w, 502, "AUTH is not supported")
+				continue
+			}
+			if !ss.extended {
+				writeResp(w, 503, "send EHLO first")
+				continue
+			}
+			if s.authBackend == nil {
+				writeResp(w, 454, "authentication backend unavailable")
+				continue
+			}
+			user, ok, err := s.handleAuth(r, w, arg)
+			if err != nil {
+				writeResp(w, 501, err.Error())
+				continue
+			}
+			if !ok {
+				writeResp(w, 535, "authentication credentials invalid")
+				continue
+			}
+			ss.authUser = user
+			ss.authOK = true
+			writeResp(w, 235, "authentication successful")
 		case "NOOP":
 			writeResp(w, 250, "ok")
 		case "HELP":
-			writeResp(w, 214, "Supported commands: EHLO HELO MAIL RCPT DATA RSET NOOP QUIT STARTTLS HELP VRFY EXPN")
+			help := "Supported commands: EHLO HELO MAIL RCPT DATA RSET NOOP QUIT STARTTLS HELP VRFY EXPN"
+			if s.submission {
+				help += " AUTH"
+			}
+			writeResp(w, 214, help)
 		case "VRFY":
 			writeResp(w, 252, "cannot VRFY user, but will accept message")
 		case "EXPN":
@@ -371,6 +424,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
+			ss.authUser = ""
+			ss.authOK = false
 		default:
 			writeResp(w, 500, "unsupported command")
 		}
@@ -535,11 +590,14 @@ func parseRemoteIP(remote string) net.IP {
 	return net.ParseIP(host)
 }
 
-func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool) {
+func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool) {
 	_ = writeLine(w, "250-"+hostname)
 	_ = writeLine(w, "250-PIPELINING")
 	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
 	_ = writeLine(w, "250-8BITMIME")
+	if advertiseAuth {
+		_ = writeLine(w, "250-AUTH PLAIN LOGIN")
+	}
 	if advertiseStartTLS {
 		_ = writeLine(w, "250-STARTTLS")
 	}
@@ -622,6 +680,99 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (string, bool, error) {
+	if strings.TrimSpace(arg) == "" {
+		return "", false, errors.New("AUTH requires mechanism")
+	}
+	parts := strings.Fields(arg)
+	mech := strings.ToUpper(parts[0])
+	switch mech {
+	case "PLAIN":
+		var payload string
+		if len(parts) >= 2 {
+			payload = parts[1]
+		} else {
+			if err := writeLine(w, "334 "); err != nil {
+				return "", false, err
+			}
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return "", false, err
+			}
+			payload = strings.TrimSpace(line)
+		}
+		user, pass, err := decodeAuthPlain(payload)
+		if err != nil {
+			return "", false, err
+		}
+		return user, s.authBackend.Validate(user, pass), nil
+	case "LOGIN":
+		if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
+			return "", false, err
+		}
+		userLine, err := r.ReadString('\n')
+		if err != nil {
+			return "", false, err
+		}
+		userRaw, err := decodeBase64Line(userLine)
+		if err != nil {
+			return "", false, errors.New("invalid base64 username")
+		}
+		if err := writeLine(w, "334 UGFzc3dvcmQ6"); err != nil {
+			return "", false, err
+		}
+		passLine, err := r.ReadString('\n')
+		if err != nil {
+			return "", false, err
+		}
+		passRaw, err := decodeBase64Line(passLine)
+		if err != nil {
+			return "", false, errors.New("invalid base64 password")
+		}
+		user := strings.TrimSpace(string(userRaw))
+		pass := strings.TrimSpace(string(passRaw))
+		if user == "" || pass == "" {
+			return "", false, errors.New("empty credentials")
+		}
+		return user, s.authBackend.Validate(user, pass), nil
+	default:
+		return "", false, errors.New("unsupported auth mechanism")
+	}
+}
+
+func decodeAuthPlain(payload string) (string, string, error) {
+	raw, err := decodeBase64Line(payload)
+	if err != nil {
+		return "", "", errors.New("invalid base64 credentials")
+	}
+	parts := bytes.Split(raw, []byte{0})
+	if len(parts) < 3 {
+		return "", "", errors.New("invalid plain auth payload")
+	}
+	user := strings.TrimSpace(string(parts[1]))
+	pass := strings.TrimSpace(string(parts[2]))
+	if user == "" || pass == "" {
+		return "", "", errors.New("empty credentials")
+	}
+	return user, pass, nil
+}
+
+func decodeBase64Line(v string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(strings.TrimSpace(v))
+}
+
+func senderAllowedForAuth(authUser, mailFrom string) bool {
+	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(authUser)))
+	if !ok {
+		return false
+	}
+	fromDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(mailFrom)))
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(authDomain, fromDomain)
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn bool) string {

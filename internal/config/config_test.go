@@ -67,3 +67,24 @@ func TestLoadRateLimitRules(t *testing.T) {
 		t.Fatalf("unexpected rules: %q", cfg.RateLimitRules)
 	}
 }
+
+func TestLoadSubmissionConfig(t *testing.T) {
+	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
+	t.Setenv("MTA_SUBMISSION_AUTH_REQUIRED", "true")
+	t.Setenv("MTA_SUBMISSION_USERS", "alice@example.com:s3cr3t")
+	t.Setenv("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", "true")
+
+	cfg := Load()
+	if cfg.SubmissionAddr != ":587" {
+		t.Fatalf("submission addr=%q", cfg.SubmissionAddr)
+	}
+	if !cfg.SubmissionAuth {
+		t.Fatal("submission auth should be true")
+	}
+	if cfg.SubmissionUsers != "alice@example.com:s3cr3t" {
+		t.Fatalf("submission users=%q", cfg.SubmissionUsers)
+	}
+	if !cfg.SubmissionSenderID {
+		t.Fatal("submission sender identity should be true")
+	}
+}

@@ -9,6 +9,10 @@ import (
 
 type Config struct {
 	ListenAddr         string
+	SubmissionAddr     string
+	SubmissionAuth     bool
+	SubmissionUsers    string
+	SubmissionSenderID bool
 	ObservabilityAddr  string
 	Hostname           string
 	QueueDir           string
@@ -45,6 +49,10 @@ type Config struct {
 func Load() Config {
 	return Config{
 		ListenAddr:         env("MTA_LISTEN_ADDR", ":2525"),
+		SubmissionAddr:     env("MTA_SUBMISSION_ADDR", ""),
+		SubmissionAuth:     envBool("MTA_SUBMISSION_AUTH_REQUIRED", true),
+		SubmissionUsers:    env("MTA_SUBMISSION_USERS", ""),
+		SubmissionSenderID: envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", true),
 		ObservabilityAddr:  env("MTA_OBSERVABILITY_ADDR", ":9090"),
 		Hostname:           env("MTA_HOSTNAME", "orinoco.local"),
 		QueueDir:           env("MTA_QUEUE_DIR", "./var/queue"),

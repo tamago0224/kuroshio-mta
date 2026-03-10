@@ -16,6 +16,7 @@ import (
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/orinoco-mta/internal/userauth"
 )
 
 func TestSplitVerb(t *testing.T) {
@@ -670,6 +671,146 @@ func TestHELPVRFYEXPNCommands(t *testing.T) {
 	_, expnCode := readSMTPResponse(t, r)
 	if expnCode != 502 {
 		t.Fatalf("expn code=%d want=502", expnCode)
+	}
+}
+
+func TestSubmissionRejectsMailBeforeAuth(t *testing.T) {
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, code := readSMTPResponse(t, r)
+	if code != 530 {
+		t.Fatalf("code=%d want=530", code)
+	}
+}
+
+func TestSubmissionAuthPlainSuccess(t *testing.T) {
+	q := &recordingQueue{}
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg: config.Config{
+			Hostname:           "sub.example.test",
+			SubmissionAuth:     true,
+			SubmissionSenderID: true,
+			MaxMessageBytes:    1024 * 1024,
+		},
+		queue:       q,
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	resp, _ := readSMTPResponse(t, r)
+	if !strings.Contains(resp, "AUTH PLAIN LOGIN") {
+		t.Fatalf("EHLO must advertise AUTH for submission: %q", resp)
+	}
+
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, authCode := readSMTPResponse(t, r)
+	if authCode != 235 {
+		t.Fatalf("auth code=%d want=235", authCode)
+	}
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, mailCode := readSMTPResponse(t, r)
+	if mailCode != 250 {
+		t.Fatalf("mail code=%d want=250", mailCode)
+	}
+}
+
+func TestSubmissionAuthLoginSuccess(t *testing.T) {
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH LOGIN")
+	_, code := readSMTPResponse(t, r)
+	if code != 334 {
+		t.Fatalf("first login challenge code=%d want=334", code)
+	}
+	mustWriteSMTPLine(t, w, "YWxpY2VAZXhhbXBsZS5jb20=")
+	_, code = readSMTPResponse(t, r)
+	if code != 334 {
+		t.Fatalf("second login challenge code=%d want=334", code)
+	}
+	mustWriteSMTPLine(t, w, "czNjcjN0")
+	_, code = readSMTPResponse(t, r)
+	if code != 235 {
+		t.Fatalf("final auth code=%d want=235", code)
+	}
+}
+
+func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg: config.Config{
+			Hostname:           "sub.example.test",
+			SubmissionAuth:     true,
+			SubmissionSenderID: true,
+		},
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@other.example>")
+	_, code := readSMTPResponse(t, r)
+	if code != 553 {
+		t.Fatalf("code=%d want=553", code)
 	}
 }
 
