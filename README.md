@@ -39,6 +39,10 @@ go run ./cmd/mta
 ## 主要環境変数
 
 - `MTA_LISTEN_ADDR` (default: `:2525`)
+- `MTA_SUBMISSION_ADDR` (default: unset, set e.g. `:587` to enable Submission listener)
+- `MTA_SUBMISSION_AUTH_REQUIRED` (default: `true`)
+- `MTA_SUBMISSION_USERS` (default: unset, format: `user@example.com:password,...`)
+- `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` (default: `true`, requires `MAIL FROM` domain to match authenticated user domain)
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)

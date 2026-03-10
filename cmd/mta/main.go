@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
@@ -14,6 +15,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/smtp"
+	"github.com/tamago0224/orinoco-mta/internal/userauth"
 	"github.com/tamago0224/orinoco-mta/internal/worker"
 )
 
@@ -40,13 +42,31 @@ func main() {
 
 	d := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics)
 	s := smtp.NewServer(cfg, q, metrics)
+	var submissionServer *smtp.Server
+	if cfg.SubmissionAddr != "" {
+		authBackend, aErr := userauth.NewStatic(cfg.SubmissionUsers)
+		if aErr != nil {
+			log.Fatalf("submission auth init failed: %v", aErr)
+		}
+		if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" {
+			log.Fatalf("submission auth is required but MTA_SUBMISSION_USERS is empty")
+		}
+		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
+	}
 
-	errCh := make(chan error, 3)
+	workers := 3
+	if submissionServer != nil {
+		workers++
+	}
+	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
+	if submissionServer != nil {
+		go func() { errCh <- submissionServer.Run(ctx) }()
+	}
 	go func() { errCh <- d.Run(ctx) }()
 	go func() { errCh <- observability.RunServer(ctx, cfg.ObservabilityAddr, metrics) }()
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < workers; i++ {
 		err := <-errCh
 		if err == nil || errors.Is(err, context.Canceled) {
 			continue
