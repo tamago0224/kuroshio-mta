@@ -96,3 +96,20 @@ func TestLoadLogLevel(t *testing.T) {
 		t.Fatalf("log level=%q", cfg.LogLevel)
 	}
 }
+
+func TestLoadDKIMSigningConfig(t *testing.T) {
+	t.Setenv("MTA_DKIM_SIGN_DOMAIN", "example.com")
+	t.Setenv("MTA_DKIM_SIGN_SELECTOR", "s1")
+	t.Setenv("MTA_DKIM_PRIVATE_KEY_FILE", "/tmp/dkim.pem")
+	t.Setenv("MTA_DKIM_SIGN_HEADERS", "from:to:subject")
+	cfg := Load()
+	if cfg.DKIMSignDomain != "example.com" || cfg.DKIMSignSelector != "s1" {
+		t.Fatalf("unexpected dkim config: domain=%q selector=%q", cfg.DKIMSignDomain, cfg.DKIMSignSelector)
+	}
+	if cfg.DKIMPrivateKeyFile != "/tmp/dkim.pem" {
+		t.Fatalf("key file=%q", cfg.DKIMPrivateKeyFile)
+	}
+	if cfg.DKIMSignHeaders != "from:to:subject" {
+		t.Fatalf("headers=%q", cfg.DKIMSignHeaders)
+	}
+}
