@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -80,7 +80,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	s.ln = ln
-	log.Printf("smtp listening on %s", s.cfg.ListenAddr)
+	slog.Info("smtp listening", "component", "smtp", "listen_addr", s.cfg.ListenAddr, "submission", s.submission)
 
 	go func() {
 		<-ctx.Done()
@@ -93,7 +93,7 @@ func (s *Server) Run(ctx context.Context) error {
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 				break
 			}
-			log.Printf("accept error: %v", err)
+			slog.Warn("smtp accept error", "component", "smtp", "error", err)
 			continue
 		}
 		s.wg.Add(1)
@@ -147,20 +147,20 @@ func (s *Server) handleConn(conn net.Conn) {
 		now := time.Now().UTC()
 		if s.limiter != nil && !s.limiter.Allow(remoteStr, now) {
 			s.metricInc("smtp_reject_rate_limit")
-			log.Printf("event=ingress_reject reason=rate_limit remote_ip=%s", remoteStr)
+			slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_limit", "remote_ip", remoteStr)
 			writeResp(w, 421, "rate limit exceeded, try again later")
 			return
 		}
 		if s.flexLimiter != nil && !s.flexLimiter.Allow("connect", remoteStr, "", "", now) {
 			s.metricInc("smtp_reject_rate_limit")
-			log.Printf("event=ingress_reject reason=rate_rule_connect remote_ip=%s", remoteStr)
+			slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_connect", "remote_ip", remoteStr)
 			writeResp(w, 421, "rate limit exceeded, try again later")
 			return
 		}
 		if s.dnsbl != nil {
 			if listed, zone := s.dnsbl.IsListed(remoteStr); listed {
 				s.metricInc("smtp_reject_dnsbl")
-				log.Printf("event=ingress_reject reason=dnsbl zone=%s remote_ip=%s", zone, remoteStr)
+				slog.Warn("ingress rejected", "component", "smtp", "reason", "dnsbl", "zone", zone, "remote_ip", remoteStr)
 				writeResp(w, 554, "connection rejected (dnsbl: "+zone+")")
 				return
 			}
@@ -193,7 +193,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.helo = arg
 			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("helo", remoteIP.String(), ss.helo, "", time.Now().UTC()) {
 				s.metricInc("smtp_reject_rate_limit")
-				log.Printf("event=ingress_reject reason=rate_rule_helo remote_ip=%s helo=%s", remoteIP.String(), ss.helo)
+				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_helo", "remote_ip", remoteIP.String(), "helo", ss.helo)
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
@@ -257,7 +257,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC()) {
 				s.metricInc("smtp_reject_rate_limit")
-				log.Printf("event=ingress_reject reason=rate_rule_mailfrom remote_ip=%s helo=%s mail_from=%s", remoteIP.String(), ss.helo, mailArgs.Address)
+				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", mailArgs.Address)
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
@@ -343,7 +343,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
 
 			if err := s.enqueue(ss, id); err != nil {
-				log.Printf("enqueue error: %v", err)
+				slog.Error("enqueue failed", "component", "smtp", "error", err, "msg_id", id, "remote_ip", ipString(msgRemoteIP))
 				s.metricInc("smtp_enqueue_fail")
 				writeResp(w, 451, "temporary local problem")
 				continue
@@ -588,6 +588,13 @@ func parseRemoteIP(remote string) net.IP {
 		return net.ParseIP(remote)
 	}
 	return net.ParseIP(host)
+}
+
+func ipString(ip net.IP) string {
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }
 
 func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool) {

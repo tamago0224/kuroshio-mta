@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
+	"github.com/tamago0224/orinoco-mta/internal/logging"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/smtp"
@@ -21,22 +23,23 @@ import (
 
 func main() {
 	cfg := config.Load()
+	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	q, err := queue.NewBackend(cfg)
 	if err != nil {
-		log.Fatalf("queue init failed: %v", err)
+		fatal("queue init failed", "error", err)
 	}
 	defer func() {
 		if cErr := q.Close(); cErr != nil {
-			log.Printf("queue close error: %v", cErr)
+			slog.Error("queue close failed", "component", "main", "error", cErr)
 		}
 	}()
 	sup, err := bounce.NewSuppressionStore(filepath.Join(cfg.QueueDir, "suppression.json"))
 	if err != nil {
-		log.Fatalf("suppression init failed: %v", err)
+		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
 
@@ -46,10 +49,10 @@ func main() {
 	if cfg.SubmissionAddr != "" {
 		authBackend, aErr := userauth.NewStatic(cfg.SubmissionUsers)
 		if aErr != nil {
-			log.Fatalf("submission auth init failed: %v", aErr)
+			fatal("submission auth init failed", "error", aErr)
 		}
 		if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" {
-			log.Fatalf("submission auth is required but MTA_SUBMISSION_USERS is empty")
+			fatal("submission auth is required but MTA_SUBMISSION_USERS is empty")
 		}
 		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
 	}
@@ -71,7 +74,14 @@ func main() {
 		if err == nil || errors.Is(err, context.Canceled) {
 			continue
 		}
-		log.Printf("runtime error: %v", err)
+		slog.Error("runtime error", "component", "main", "error", err)
 		stop()
 	}
+}
+
+func fatal(msg string, args ...any) {
+	base := []any{"component", "main"}
+	base = append(base, args...)
+	slog.Error(msg, base...)
+	os.Exit(1)
 }

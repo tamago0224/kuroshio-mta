@@ -88,3 +88,11 @@ func TestLoadSubmissionConfig(t *testing.T) {
 		t.Fatal("submission sender identity should be true")
 	}
 }
+
+func TestLoadLogLevel(t *testing.T) {
+	t.Setenv("MTA_LOG_LEVEL", "debug")
+	cfg := Load()
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("log level=%q", cfg.LogLevel)
+	}
+}
