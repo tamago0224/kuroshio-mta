@@ -3,7 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +38,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := d.processBatch(ctx); err != nil {
-				log.Printf("worker batch error: %v", err)
+				slog.Error("worker batch failed", "component", "worker", "error", err)
 			}
 		}
 	}
@@ -87,7 +87,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				d.metricInc("worker_permanent_bounce")
 				if d.sup != nil {
 					if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
-						log.Printf("suppression add error addr=%s: %v", rcpt, sErr)
+						slog.Error("suppression add failed", "component", "worker", "rcpt", rcpt, "msg_id", msg.ID, "error", sErr)
 					}
 				}
 				continue
@@ -101,7 +101,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 
 	if len(errs) == 0 {
 		if err := d.queue.AckSent(msg.ID, msg); err != nil {
-			log.Printf("ack sent error id=%s: %v", msg.ID, err)
+			slog.Error("ack sent failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		d.metricInc("worker_ack_sent")
 		return
@@ -110,14 +110,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	reason := strings.Join(reasons, "; ")
 	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
 		if err := d.queue.Fail(msg, reason); err != nil {
-			log.Printf("mark failed error id=%s: %v", msg.ID, err)
+			slog.Error("mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		d.metricInc("worker_mark_failed")
 		return
 	}
 	delay := backoff(msg.Attempts, d.cfg.RetrySchedule)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
-		log.Printf("retry schedule error id=%s: %v", msg.ID, err)
+		slog.Error("retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
 }

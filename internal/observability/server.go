@@ -2,7 +2,7 @@ package observability
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -29,7 +29,7 @@ func RunServer(ctx context.Context, addr string, m *Metrics) error {
 		<-ctx.Done()
 		_ = srv.Shutdown(context.Background())
 	}()
-	log.Printf("observability listening on %s", addr)
+	slog.Info("observability listening", "component", "observability", "listen_addr", addr)
 	err := srv.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil

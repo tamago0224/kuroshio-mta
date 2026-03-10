@@ -13,6 +13,7 @@ type Config struct {
 	SubmissionAuth     bool
 	SubmissionUsers    string
 	SubmissionSenderID bool
+	LogLevel           string
 	ObservabilityAddr  string
 	Hostname           string
 	QueueDir           string
@@ -53,6 +54,7 @@ func Load() Config {
 		SubmissionAuth:     envBool("MTA_SUBMISSION_AUTH_REQUIRED", true),
 		SubmissionUsers:    env("MTA_SUBMISSION_USERS", ""),
 		SubmissionSenderID: envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", true),
+		LogLevel:           env("MTA_LOG_LEVEL", "info"),
 		ObservabilityAddr:  env("MTA_OBSERVABILITY_ADDR", ":9090"),
 		Hostname:           env("MTA_HOSTNAME", "orinoco.local"),
 		QueueDir:           env("MTA_QUEUE_DIR", "./var/queue"),
