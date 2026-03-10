@@ -96,6 +96,7 @@ type session struct {
 	remote   string
 	helo     string
 	mailFrom string
+	bodyMode string
 	rcptTo   []string
 	data     []byte
 	seenHelo bool
@@ -109,6 +110,14 @@ type mailFromArgs struct {
 	HasSize bool
 	Body    string
 }
+
+var (
+	errMailParamUnsupported = errors.New("unsupported MAIL parameter")
+	errSMTPUTF8Param        = errors.New("unsupported SMTPUTF8 parameter")
+	errSMTPUTF8Address      = errors.New("smtputf8 address is not supported")
+	errDataLineTooLong      = errors.New("data line too long")
+	errMessageTooLarge      = errors.New("message too large")
+)
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
@@ -141,7 +150,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 		}
 	}
-	ss := &session{remote: conn.RemoteAddr().String()}
+	ss := &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT"}
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {
@@ -175,6 +184,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = true
 			ss.extended = true
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls)
@@ -187,6 +197,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = true
 			ss.extended = false
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, s.cfg.Hostname)
@@ -197,6 +208,18 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			mailArgs, err := parseMailFrom(arg)
 			if err != nil {
+				if errors.Is(err, errSMTPUTF8Address) {
+					writeResp(w, 553, err.Error())
+					continue
+				}
+				if errors.Is(err, errSMTPUTF8Param) {
+					writeResp(w, 555, err.Error())
+					continue
+				}
+				if errors.Is(err, errMailParamUnsupported) {
+					writeResp(w, 555, err.Error())
+					continue
+				}
 				writeResp(w, 501, err.Error())
 				continue
 			}
@@ -215,6 +238,10 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			ss.mailFrom = mailArgs.Address
+			ss.bodyMode = mailArgs.Body
+			if ss.bodyMode == "" {
+				ss.bodyMode = "7BIT"
+			}
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "sender ok")
@@ -225,6 +252,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			addr, err := parseRcptTo(arg, s.cfg.Hostname)
 			if err != nil {
+				if errors.Is(err, errSMTPUTF8Address) {
+					writeResp(w, 553, err.Error())
+					continue
+				}
 				if strings.Contains(strings.ToLower(err.Error()), "parameters") {
 					writeResp(w, 555, err.Error())
 				} else {
@@ -242,7 +273,21 @@ func (s *Server) handleConn(conn net.Conn) {
 			writeResp(w, 354, "end with <CRLF>.<CRLF>")
 			data, err := readData(r, s.cfg.MaxMessageBytes)
 			if err != nil {
-				writeResp(w, 552, "message exceeds limit or read error")
+				switch {
+				case errors.Is(err, errDataLineTooLong):
+					writeResp(w, 500, "line too long")
+				case errors.Is(err, errMessageTooLarge):
+					writeResp(w, 552, "message size exceeds fixed maximum message size")
+				default:
+					writeResp(w, 451, "temporary local problem")
+				}
+				continue
+			}
+			if !strings.EqualFold(ss.bodyMode, "8BITMIME") && contains8Bit(data) {
+				writeResp(w, 554, "8-bit data is not permitted without BODY=8BITMIME")
+				ss.mailFrom = ""
+				ss.rcptTo = nil
+				ss.data = nil
 				continue
 			}
 			ss.data = data
@@ -265,7 +310,15 @@ func (s *Server) handleConn(conn net.Conn) {
 				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
 				ss.data = mailauth.InjectHeaders(ss.data, []string{ar})
 			}
-			if err := s.enqueue(ss); err != nil {
+			id, err := newID()
+			if err != nil {
+				writeResp(w, 451, "temporary local problem")
+				continue
+			}
+			received := buildReceivedHeader(s.cfg.Hostname, ss.helo, ss.remote, id, time.Now().UTC(), ss.tls)
+			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
+
+			if err := s.enqueue(ss, id); err != nil {
 				log.Printf("enqueue error: %v", err)
 				s.metricInc("smtp_enqueue_fail")
 				writeResp(w, 451, "temporary local problem")
@@ -278,6 +331,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.data = nil
 		case "RSET":
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 			writeResp(w, 250, "reset state")
@@ -314,6 +368,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			ss.seenHelo = false
 			ss.extended = false
 			ss.mailFrom = ""
+			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
 		default:
@@ -328,11 +383,7 @@ func (s *Server) metricInc(name string) {
 	}
 }
 
-func (s *Server) enqueue(ss *session) error {
-	id, err := newID()
-	if err != nil {
-		return err
-	}
+func (s *Server) enqueue(ss *session, id string) error {
 	msg := &model.Message{
 		ID:         id,
 		RemoteAddr: ss.remote,
@@ -366,8 +417,14 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 	if err != nil {
 		return mailFromArgs{}, err
 	}
+	if addr != "" && !isASCII(addr) {
+		return mailFromArgs{}, errSMTPUTF8Address
+	}
 	out := mailFromArgs{Address: addr}
 	for _, p := range params {
+		if strings.EqualFold(strings.TrimSpace(p), "SMTPUTF8") {
+			return mailFromArgs{}, fmt.Errorf("%w: SMTPUTF8", errSMTPUTF8Param)
+		}
 		key, val, ok := splitParamKV(p)
 		if !ok {
 			return mailFromArgs{}, fmt.Errorf("invalid MAIL parameter: %s", p)
@@ -387,7 +444,7 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 			}
 			out.Body = v
 		default:
-			return mailFromArgs{}, fmt.Errorf("unsupported MAIL parameter: %s", key)
+			return mailFromArgs{}, fmt.Errorf("%w: %s", errMailParamUnsupported, key)
 		}
 	}
 	return out, nil
@@ -419,6 +476,9 @@ func parseRcptTo(arg string, hostname string) (string, error) {
 	if addr == "" {
 		return "", errors.New("recipient is empty")
 	}
+	if !isASCII(addr) {
+		return "", errSMTPUTF8Address
+	}
 	return addr, nil
 }
 
@@ -430,7 +490,7 @@ func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 			return nil, err
 		}
 		if len(line) > 1000 {
-			return nil, errors.New("data line too long")
+			return nil, errDataLineTooLong
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "." {
@@ -442,7 +502,7 @@ func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 		out = append(out, []byte(line)...)
 		out = append(out, '\r', '\n')
 		if int64(len(out)) > maxBytes {
-			return nil, errors.New("message too large")
+			return nil, errMessageTooLarge
 		}
 	}
 	return out, nil
@@ -544,4 +604,74 @@ func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}, nil
+}
+
+func contains8Bit(data []byte) bool {
+	for _, b := range data {
+		if b >= 0x80 {
+			return true
+		}
+	}
+	return false
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn bool) string {
+	by := sanitizeReceivedToken(hostname)
+	if by == "" {
+		by = "localhost"
+	}
+	from := sanitizeReceivedToken(helo)
+	if from == "" {
+		from = "unknown"
+	}
+	remoteDesc := sanitizeReceivedToken(remote)
+	if ip := parseRemoteIP(remote); ip != nil {
+		remoteDesc = ip.String()
+	}
+	proto := "ESMTP"
+	if tlsOn {
+		proto = "ESMTPS"
+	}
+	return fmt.Sprintf(
+		"Received: from %s (%s) by %s with %s id %s; %s",
+		from,
+		remoteDesc,
+		by,
+		proto,
+		sanitizeReceivedToken(id),
+		now.Format(time.RFC1123Z),
+	)
+}
+
+func sanitizeReceivedToken(v string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(v, "\r", ""), "\n", ""))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r < 33 || r > 126:
+			b.WriteByte('_')
+		case r == '(' || r == ')' || r == ';' || r == '\\' || r == ':':
+			b.WriteByte('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > 255 {
+		return out[:255]
+	}
+	return out
 }

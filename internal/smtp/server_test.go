@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/model"
 )
 
 func TestSplitVerb(t *testing.T) {
@@ -56,6 +57,405 @@ func TestParseMailFromWithParameters(t *testing.T) {
 func TestParseMailFromRejectsUnknownParameter(t *testing.T) {
 	if _, err := parseMailFrom("FROM:<alice@example.com> FOO=bar"); err == nil {
 		t.Fatal("expected unknown param error")
+	}
+}
+
+func TestMailFromUnknownParameterReturns555(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, ehloCode := readSMTPResponse(t, r)
+	if ehloCode != 250 {
+		t.Fatalf("ehlo code=%d want=250", ehloCode)
+	}
+
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com> FOO=bar")
+	_, code := readSMTPResponse(t, r)
+	if code != 555 {
+		t.Fatalf("code=%d want=555", code)
+	}
+}
+
+func TestDataLineTooLongReturns500(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	longLine := strings.Repeat("a", 999) // 999 + CRLF = 1001 (> 1000)
+	if _, err := w.WriteString(longLine + "\r\n.\r\n"); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 500 {
+		t.Fatalf("code=%d want=500", code)
+	}
+}
+
+func TestRSETResetsTransactionState(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@example.com>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RSET")
+	_, resetCode := readSMTPResponse(t, r)
+	if resetCode != 250 {
+		t.Fatalf("reset code=%d want=250", resetCode)
+	}
+
+	mustWriteSMTPLine(t, w, "DATA")
+	_, code := readSMTPResponse(t, r)
+	if code != 503 {
+		t.Fatalf("code=%d want=503", code)
+	}
+}
+
+func TestDataRejects8BitWhenBodyIs7Bit(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> BODY=7BIT")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\ncaf\xc3\xa9\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 554 {
+		t.Fatalf("code=%d want=554", code)
+	}
+	if len(q.msgs) != 0 {
+		t.Fatalf("queued=%d want=0", len(q.msgs))
+	}
+}
+
+func TestDataAccepts8BitWhenBodyIs8BitMime(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> BODY=8BITMIME")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\ncaf\xc3\xa9\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+}
+
+func TestPipeliningProcessesCommandsInOrder(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	payload := strings.Join([]string{
+		"EHLO client.example",
+		"MAIL FROM:<alice@invalid.invalid> BODY=8BITMIME",
+		"RCPT TO:<bob@invalid.invalid>",
+		"DATA",
+		"From: alice@invalid.invalid",
+		"To: bob@invalid.invalid",
+		"Subject: pipelining",
+		"",
+		"hello",
+		".",
+		"QUIT",
+		"",
+	}, "\r\n")
+	if _, err := w.WriteString(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush payload: %v", err)
+	}
+
+	_, ehloCode := readSMTPResponse(t, r)
+	if ehloCode != 250 {
+		t.Fatalf("ehlo code=%d want=250", ehloCode)
+	}
+	_, mailCode := readSMTPResponse(t, r)
+	if mailCode != 250 {
+		t.Fatalf("mail code=%d want=250", mailCode)
+	}
+	_, rcptCode := readSMTPResponse(t, r)
+	if rcptCode != 250 {
+		t.Fatalf("rcpt code=%d want=250", rcptCode)
+	}
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data prompt code=%d want=354", dataCode)
+	}
+	_, queuedCode := readSMTPResponse(t, r)
+	if queuedCode != 250 {
+		t.Fatalf("queued code=%d want=250", queuedCode)
+	}
+	_, quitCode := readSMTPResponse(t, r)
+	if quitCode != 221 {
+		t.Fatalf("quit code=%d want=221", quitCode)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+}
+
+func TestPipeliningErrorResponsesKeepCommandOrder(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	payload := strings.Join([]string{
+		"MAIL FROM:<alice@invalid.invalid>",
+		"RCPT TO:<bob@invalid.invalid>",
+		"DATA",
+		"",
+	}, "\r\n")
+	if _, err := w.WriteString(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush payload: %v", err)
+	}
+
+	_, mailCode := readSMTPResponse(t, r)
+	if mailCode != 503 {
+		t.Fatalf("mail code=%d want=503", mailCode)
+	}
+	_, rcptCode := readSMTPResponse(t, r)
+	if rcptCode != 503 {
+		t.Fatalf("rcpt code=%d want=503", rcptCode)
+	}
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 503 {
+		t.Fatalf("data code=%d want=503", dataCode)
+	}
+}
+
+func TestQueueMessageInjectsReceivedHeader(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\nhello\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+	msg := string(q.msgs[0].Data)
+	if !strings.HasPrefix(msg, "Received: ") {
+		t.Fatalf("message must start with Received header: %q", msg)
+	}
+	if !strings.Contains(msg, "by mx.example.test with ESMTP id ") {
+		t.Fatalf("missing expected trace fields: %q", msg)
+	}
+}
+
+func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
+	got := buildReceivedHeader(
+		"mx.example.test",
+		"client.example\r\nBcc:evil@example.net",
+		"127.0.0.1:2525\r\nX:evil",
+		"id-123\r\nInjected",
+		time.Date(2026, 3, 10, 12, 30, 0, 0, time.UTC),
+		false,
+	)
+	if strings.Contains(got, "\r") || strings.Contains(got, "\n") {
+		t.Fatalf("received header must be single-line: %q", got)
+	}
+	if strings.Contains(strings.ToLower(got), "bcc:") || strings.Contains(strings.ToLower(got), "x:evil") {
+		t.Fatalf("received header must sanitize injected fragments: %q", got)
+	}
+	if !strings.Contains(got, "Received: from client.exampleBcc_evil@example.net") {
+		t.Fatalf("unexpected header content: %q", got)
+	}
+}
+
+func TestMailFromSMTPUTF8ParameterRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> SMTPUTF8")
+	_, code := readSMTPResponse(t, r)
+	if code != 555 {
+		t.Fatalf("code=%d want=555", code)
+	}
+}
+
+func TestMailFromUTF8AddressRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<álïce@invalid.invalid>")
+	_, code := readSMTPResponse(t, r)
+	if code != 553 {
+		t.Fatalf("code=%d want=553", code)
+	}
+}
+
+func TestRcptToUTF8AddressRejected(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bób@invalid.invalid>")
+	_, code := readSMTPResponse(t, r)
+	if code != 553 {
+		t.Fatalf("code=%d want=553", code)
 	}
 }
 
@@ -131,6 +531,9 @@ func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
 	resp, _ := readSMTPResponse(t, r)
 	if strings.Contains(resp, "STARTTLS") {
 		t.Fatalf("STARTTLS must not be advertised when TLS is not configured: %q", resp)
+	}
+	if strings.Contains(resp, "SMTPUTF8") {
+		t.Fatalf("SMTPUTF8 must not be advertised when unsupported: %q", resp)
 	}
 }
 
@@ -268,6 +671,48 @@ func TestHELPVRFYEXPNCommands(t *testing.T) {
 	if expnCode != 502 {
 		t.Fatalf("expn code=%d want=502", expnCode)
 	}
+}
+
+func mustWriteSMTPLine(t *testing.T, w *bufio.Writer, line string) {
+	t.Helper()
+	if _, err := w.WriteString(line + "\r\n"); err != nil {
+		t.Fatalf("write %q: %v", line, err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush %q: %v", line, err)
+	}
+}
+
+type recordingQueue struct {
+	msgs []*model.Message
+}
+
+func (q *recordingQueue) Enqueue(msg *model.Message) error {
+	copied := *msg
+	copied.RcptTo = append([]string(nil), msg.RcptTo...)
+	copied.Data = append([]byte(nil), msg.Data...)
+	q.msgs = append(q.msgs, &copied)
+	return nil
+}
+
+func (q *recordingQueue) Due(limit int) ([]*model.Message, error) {
+	return nil, nil
+}
+
+func (q *recordingQueue) AckSent(id string, msg *model.Message) error {
+	return nil
+}
+
+func (q *recordingQueue) Retry(msg *model.Message, delay time.Duration, reason string) error {
+	return nil
+}
+
+func (q *recordingQueue) Fail(msg *model.Message, reason string) error {
+	return nil
+}
+
+func (q *recordingQueue) Close() error {
+	return nil
 }
 
 func readSMTPResponse(t *testing.T, r *bufio.Reader) (string, int) {

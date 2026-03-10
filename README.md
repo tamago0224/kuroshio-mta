@@ -19,6 +19,7 @@ Orinoco は南米を流れる川の名前で、
 | --- | --- | --- | --- |
 | RFC 5321 | SMTP | 一部対応 | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT` を実装 |
 | RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
+| RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
 | RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `all` を評価 |
 | RFC 6376 | DKIM | 一部対応 | DKIM署名検証（`rsa-sha256`）を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment と `p` ポリシー評価を実装 |
@@ -106,6 +107,14 @@ MTA_RATE_LIMIT_RULES="connect:ip:100:1m;helo:ip+helo:20:1m;mailfrom:ip+mailfrom:
 1. 先に失敗するテストを書く (`Red`)
 2. 最小実装でテストを通す (`Green`)
 3. 振る舞いを維持したまま整理する (`Refactor`)
+
+## SMTP Conformance Test
+
+SMTP RFC の主要要件を `internal/smtp` のコンフォーマンステストで確認できます。
+
+```bash
+go test ./internal/smtp -run '^TestSMTPConformance$' -v
+```
 
 ## Kafka Queue Mode Example
 
