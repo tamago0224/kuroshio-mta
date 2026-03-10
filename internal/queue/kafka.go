@@ -120,6 +120,7 @@ func (k *KafkaStore) Due(limit int) ([]*model.Message, error) {
 	}
 	now := time.Now().UTC()
 	out := make([]*model.Message, 0, limit)
+	seen := make(map[string]struct{}, limit)
 
 	// Prefer already-fetched messages first.
 	k.mu.Lock()
@@ -133,7 +134,13 @@ func (k *KafkaStore) Due(limit int) ([]*model.Message, error) {
 			rest = append(rest, item)
 			continue
 		}
+		if _, dup := seen[item.data.ID]; dup {
+			// Drop duplicate message-id to keep processing idempotent.
+			_ = k.commitByReceipt(item.source, item.msg)
+			continue
+		}
 		k.receipts[item.data.ID] = kafkaReceipt{source: item.source, msg: item.msg}
+		seen[item.data.ID] = struct{}{}
 		out = append(out, item.data)
 	}
 	k.staged = rest
@@ -158,9 +165,14 @@ func (k *KafkaStore) Due(limit int) ([]*model.Message, error) {
 				k.mu.Unlock()
 				continue
 			}
+			if _, dup := seen[item.data.ID]; dup {
+				_ = k.commitByReceipt(item.source, item.msg)
+				continue
+			}
 			k.mu.Lock()
 			k.receipts[item.data.ID] = kafkaReceipt{source: item.source, msg: item.msg}
 			k.mu.Unlock()
+			seen[item.data.ID] = struct{}{}
 			out = append(out, item.data)
 			if len(out) >= limit {
 				return out, nil
@@ -172,6 +184,21 @@ func (k *KafkaStore) Due(limit int) ([]*model.Message, error) {
 		}
 	}
 	return out, nil
+}
+
+func (k *KafkaStore) commitByReceipt(source string, msg kafka.Message) error {
+	var reader *kafka.Reader
+	switch source {
+	case "retry":
+		reader = k.retryReader
+	case "inbound":
+		reader = k.inboundReader
+	default:
+		return errors.New("unknown receipt source: " + source)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return reader.CommitMessages(ctx, msg)
 }
 
 func (k *KafkaStore) AckSent(id string, msg *model.Message) error {
@@ -280,18 +307,7 @@ func (k *KafkaStore) commitByID(id string) error {
 	if !ok {
 		return nil
 	}
-	var reader *kafka.Reader
-	switch receipt.source {
-	case "retry":
-		reader = k.retryReader
-	case "inbound":
-		reader = k.inboundReader
-	default:
-		return errors.New("unknown receipt source: " + receipt.source)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return reader.CommitMessages(ctx, receipt.msg)
+	return k.commitByReceipt(receipt.source, receipt.msg)
 }
 
 func marshalMessage(msg *model.Message) ([]byte, error) {

@@ -1,8 +1,10 @@
 package queue
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +37,87 @@ func TestStoreLifecycle(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("expected empty due queue, got=%d", len(due))
+	}
+}
+
+func TestStoreEnqueueDeduplicatesByMessageID(t *testing.T) {
+	d := t.TempDir()
+	s, err := New(filepath.Join(d, "queue"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	m1 := &model.Message{ID: "dup1", MailFrom: "sender@example.com", RcptTo: []string{"r@example.net"}, Data: []byte("x")}
+	if err := s.Enqueue(m1); err != nil {
+		t.Fatalf("enqueue first: %v", err)
+	}
+	m2 := &model.Message{ID: "dup1", MailFrom: "other@example.com", RcptTo: []string{"other@example.net"}, Data: []byte("y")}
+	if err := s.Enqueue(m2); err != nil {
+		t.Fatalf("enqueue duplicate: %v", err)
+	}
+	due, err := s.Due(10)
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("due count=%d want=1", len(due))
+	}
+	if due[0].MailFrom != "sender@example.com" {
+		t.Fatalf("duplicate enqueue must keep original message, got=%q", due[0].MailFrom)
+	}
+}
+
+func TestStoreRejectsRetryAfterAckState(t *testing.T) {
+	d := t.TempDir()
+	s, err := New(filepath.Join(d, "queue"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	msg := &model.Message{ID: "m3", MailFrom: "sender@example.com", RcptTo: []string{"r@example.net"}, Data: []byte("x")}
+	if err := s.Enqueue(msg); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	due, err := s.Due(1)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("due=%v err=%v", due, err)
+	}
+	if err := s.AckSent("m3", due[0]); err != nil {
+		t.Fatalf("ack sent: %v", err)
+	}
+	if err := s.Retry(due[0], time.Minute, "temp"); !errors.Is(err, ErrInvalidStateTransition) {
+		t.Fatalf("retry err=%v want=%v", err, ErrInvalidStateTransition)
+	}
+}
+
+func TestStoreQuarantinesPoisonMessage(t *testing.T) {
+	d := t.TempDir()
+	root := filepath.Join(d, "queue")
+	s, err := New(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	path := filepath.Join(root, "mail.inbound", "bad1.json")
+	if err := os.WriteFile(path, []byte("{invalid-json"), 0o644); err != nil {
+		t.Fatalf("write poison: %v", err)
+	}
+	due, err := s.Due(10)
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("poison should not become due")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("poison source must be removed, err=%v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "mail.dlq", "poison"))
+	if err != nil {
+		t.Fatalf("read poison dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("poison file count=%d want=1", len(entries))
+	}
+	if !strings.HasSuffix(entries[0].Name(), ".bad") {
+		t.Fatalf("poison file suffix unexpected: %s", entries[0].Name())
 	}
 }
 
