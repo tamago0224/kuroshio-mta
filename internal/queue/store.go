@@ -18,9 +18,15 @@ type Store struct {
 	inbound       string
 	retry         string
 	dlq           string
+	poison        string
 	sent          string
 	legacyPending string
 }
+
+var (
+	ErrMessageNotFound        = errors.New("message not found")
+	ErrInvalidStateTransition = errors.New("invalid state transition")
+)
 
 func New(root string) (*Store, error) {
 	s := &Store{
@@ -28,10 +34,11 @@ func New(root string) (*Store, error) {
 		inbound:       filepath.Join(root, "mail.inbound"),
 		retry:         filepath.Join(root, "mail.retry"),
 		dlq:           filepath.Join(root, "mail.dlq"),
+		poison:        filepath.Join(root, "mail.dlq", "poison"),
 		sent:          filepath.Join(root, "sent"),
 		legacyPending: filepath.Join(root, "pending"),
 	}
-	for _, d := range []string{s.root, s.inbound, s.retry, s.dlq, s.sent} {
+	for _, d := range []string{s.root, s.inbound, s.retry, s.dlq, s.poison, s.sent} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
@@ -40,6 +47,17 @@ func New(root string) (*Store, error) {
 }
 
 func (s *Store) Enqueue(msg *model.Message) error {
+	if strings.TrimSpace(msg.ID) == "" {
+		return errors.New("message id is required")
+	}
+	st, err := s.messageState(msg.ID)
+	if err != nil {
+		return err
+	}
+	if st != "none" {
+		// Idempotent enqueue: duplicate message id is ignored.
+		return nil
+	}
 	now := time.Now().UTC()
 	msg.CreatedAt = now
 	msg.UpdatedAt = now
@@ -66,6 +84,18 @@ func (s *Store) Due(limit int) ([]*model.Message, error) {
 }
 
 func (s *Store) AckSent(id string, msg *model.Message) error {
+	st, err := s.messageState(id)
+	if err != nil {
+		return err
+	}
+	switch st {
+	case "sent":
+		return nil
+	case "dlq":
+		return ErrInvalidStateTransition
+	case "none":
+		return ErrMessageNotFound
+	}
 	if err := s.removeByID(id); err != nil {
 		return err
 	}
@@ -74,6 +104,16 @@ func (s *Store) AckSent(id string, msg *model.Message) error {
 }
 
 func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) error {
+	st, err := s.messageState(msg.ID)
+	if err != nil {
+		return err
+	}
+	switch st {
+	case "sent", "dlq":
+		return ErrInvalidStateTransition
+	case "none":
+		return ErrMessageNotFound
+	}
 	if err := s.removeByID(msg.ID); err != nil {
 		return err
 	}
@@ -85,6 +125,18 @@ func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) er
 }
 
 func (s *Store) Fail(msg *model.Message, reason string) error {
+	st, err := s.messageState(msg.ID)
+	if err != nil {
+		return err
+	}
+	switch st {
+	case "dlq":
+		return nil
+	case "sent":
+		return ErrInvalidStateTransition
+	case "none":
+		return ErrMessageNotFound
+	}
 	if err := s.removeByID(msg.ID); err != nil {
 		return err
 	}
@@ -111,6 +163,7 @@ func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
 		path := filepath.Join(dir, e.Name())
 		msg, err := s.read(path)
 		if err != nil {
+			_ = s.quarantinePoison(path, e.Name(), err)
 			continue
 		}
 		if msg.NextAttempt.After(now) {
@@ -156,4 +209,49 @@ func (s *Store) read(path string) (*model.Message, error) {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	return &msg, nil
+}
+
+func (s *Store) quarantinePoison(path, name string, cause error) error {
+	b, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return readErr
+	}
+	dst := filepath.Join(s.poison, fmt.Sprintf("%d_%s.bad", time.Now().UTC().UnixNano(), strings.TrimSuffix(name, ".json")))
+	payload := append([]byte(fmt.Sprintf("cause: %v\n", cause)), b...)
+	if err := os.WriteFile(dst, payload, 0o644); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func (s *Store) messageState(id string) (string, error) {
+	exists := func(path string) (bool, error) {
+		_, err := os.Stat(path)
+		if err == nil {
+			return true, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, p := range []struct {
+		state string
+		dir   string
+	}{
+		{state: "inbound", dir: s.inbound},
+		{state: "retry", dir: s.retry},
+		{state: "pending", dir: s.legacyPending},
+		{state: "sent", dir: s.sent},
+		{state: "dlq", dir: s.dlq},
+	} {
+		ok, err := exists(filepath.Join(p.dir, id+".json"))
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return p.state, nil
+		}
+	}
+	return "none", nil
 }
