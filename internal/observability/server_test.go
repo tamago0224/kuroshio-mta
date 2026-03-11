@@ -11,6 +11,7 @@ import (
 func TestRunServerMetricsEndpoint(t *testing.T) {
 	m := NewMetrics()
 	m.Counter("smtp_connections").Inc()
+	m.Counter("worker_delivery_success").Add(10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -37,5 +38,21 @@ func TestRunServerMetricsEndpoint(t *testing.T) {
 			t.Fatalf("metrics endpoint not ready: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Setenv("MTA_SLO_MIN_DELIVERY_SUCCESS_RATE", "0.5")
+	t.Setenv("MTA_SLO_MAX_RETRY_RATE", "0.5")
+	t.Setenv("MTA_SLO_MAX_QUEUE_BACKLOG", "10000")
+	resp, err := http.Get("http://" + addr + "/slo")
+	if err != nil {
+		t.Fatalf("slo endpoint not ready: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("slo status=%d want=%d", resp.StatusCode, http.StatusOK)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if len(b) == 0 {
+		t.Fatal("empty slo body")
 	}
 }
