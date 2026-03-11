@@ -101,7 +101,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 			if lErr != nil {
 				continue
 			}
-			if res.HasUsableTLSA() {
+			if res.HasUsableTLSAWithTrustModel(c.cfg.DANEDNSSECTrustModel) {
 				daneCandidates = append(daneCandidates, mx)
 			}
 		}

@@ -171,3 +171,17 @@ func TestLoadRetentionConfig(t *testing.T) {
 		t.Fatalf("retention sweep=%s", cfg.RetentionSweepInterval)
 	}
 }
+
+func TestLoadDANEDNSSECTrustModel(t *testing.T) {
+	t.Setenv("MTA_DANE_DNSSEC_TRUST_MODEL", "insecure_allow_unsigned")
+	cfg := Load()
+	if cfg.DANEDNSSECTrustModel != "insecure_allow_unsigned" {
+		t.Fatalf("trust model=%q", cfg.DANEDNSSECTrustModel)
+	}
+
+	t.Setenv("MTA_DANE_DNSSEC_TRUST_MODEL", "invalid")
+	cfg = Load()
+	if cfg.DANEDNSSECTrustModel != "ad_required" {
+		t.Fatalf("invalid trust model should fallback, got=%q", cfg.DANEDNSSECTrustModel)
+	}
+}

@@ -65,6 +65,20 @@ func TestDANEResultHasUsableTLSA(t *testing.T) {
 	}
 }
 
+func TestDANEResultHasUsableTLSAWithTrustModel(t *testing.T) {
+	rec := TLSARecord{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}}
+
+	adRequired := DANEResult{AuthenticatedData: false, Records: []TLSARecord{rec}}
+	if adRequired.HasUsableTLSAWithTrustModel("ad_required") {
+		t.Fatal("ad_required must reject AD=false")
+	}
+
+	insecureAllowed := DANEResult{AuthenticatedData: false, Records: []TLSARecord{rec}}
+	if !insecureAllowed.HasUsableTLSAWithTrustModel("insecure_allow_unsigned") {
+		t.Fatal("insecure_allow_unsigned should allow AD=false when profile is otherwise usable")
+	}
+}
+
 func TestParseTLSAResponse(t *testing.T) {
 	queryID := uint16(0x1234)
 	packet := []byte{

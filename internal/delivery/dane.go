@@ -29,8 +29,22 @@ type DANEResult struct {
 }
 
 func (r DANEResult) HasUsableTLSA() bool {
-	if !r.AuthenticatedData {
-		return false
+	return r.HasUsableTLSAWithTrustModel("ad_required")
+}
+
+func (r DANEResult) HasUsableTLSAWithTrustModel(trustModel string) bool {
+	trustModel = strings.ToLower(strings.TrimSpace(trustModel))
+	switch trustModel {
+	case "", "ad_required":
+		if !r.AuthenticatedData {
+			return false
+		}
+	case "insecure_allow_unsigned":
+		// allow AD=false and evaluate only TLSA profile validity.
+	default:
+		if !r.AuthenticatedData {
+			return false
+		}
 	}
 	for _, rec := range r.Records {
 		if isSupportedTLSAProfile(rec) {

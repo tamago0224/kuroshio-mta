@@ -68,6 +68,7 @@ go run ./cmd/mta
 - `MTA_RATE_LIMIT_RULES` (default: unset, format: `event:key:limit:window;...`)
 - `MTA_DNSBL_ZONES` (default: unset, comma-separated)
 - `MTA_DNSBL_CACHE_TTL` (default: `5m`)
+- `MTA_DANE_DNSSEC_TRUST_MODEL` (default: `ad_required`, values: `ad_required` / `insecure_allow_unsigned`)
 - `MTA_MTA_STS_CACHE_TTL` (default: `1h`)
 - `MTA_MTA_STS_FETCH_TIMEOUT` (default: `5s`)
 - `MTA_DELIVERY_MODE` (default: `mx`, values: `mx` / `local_spool` / `relay`)

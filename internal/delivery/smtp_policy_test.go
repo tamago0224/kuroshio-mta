@@ -141,3 +141,30 @@ func TestDeliverByMX_MTASTSTestingModeNoViolationWhenMXMatches(t *testing.T) {
 		t.Fatal("did not expect testing mode violation report when mx matches policy")
 	}
 }
+
+func TestDeliverByMX_DANETrustModelAllowsUnsignedWhenConfigured(t *testing.T) {
+	cl := NewClient(config.Config{DANEDNSSECTrustModel: "insecure_allow_unsigned"})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx1.example.net", Pref: 10}}, nil
+	}
+	cl.dane = NewDANEResolver(time.Second, func(_ context.Context, host string, _ int) (DANEResult, error) {
+		return DANEResult{
+			AuthenticatedData: false,
+			Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0x01}}},
+		}, nil
+	})
+
+	var requireTLS bool
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+		requireTLS = reqTLS
+		return nil
+	}
+
+	err := cl.deliverByMX(context.Background(), &model.Message{MailFrom: "sender@example.org", Data: []byte("x")}, "user@example.org")
+	if err != nil {
+		t.Fatalf("deliverByMX: %v", err)
+	}
+	if !requireTLS {
+		t.Fatal("expected TLS required when insecure_allow_unsigned trust model is configured")
+	}
+}
