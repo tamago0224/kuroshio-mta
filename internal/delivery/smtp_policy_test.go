@@ -31,7 +31,7 @@ func TestDeliverByMX_DANETakesPrecedenceOverMTASTS(t *testing.T) {
 
 	var calledHost string
 	var requireTLS bool
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		calledHost = host
 		requireTLS = reqTLS
 		return nil
@@ -63,7 +63,7 @@ func TestDeliverByMX_FallsBackToMTASTSWhenNoUsableDANE(t *testing.T) {
 
 	var calledHost string
 	var requireTLS bool
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		calledHost = host
 		requireTLS = reqTLS
 		return nil
@@ -93,7 +93,7 @@ func TestDeliverByMX_MTASTSTestingModeDoesNotRejectOnMXMismatch(t *testing.T) {
 	var calledHost string
 	var requireTLS bool
 	var violationCalled bool
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		calledHost = host
 		requireTLS = reqTLS
 		return nil
@@ -127,7 +127,7 @@ func TestDeliverByMX_MTASTSTestingModeNoViolationWhenMXMatches(t *testing.T) {
 	})
 
 	var violationCalled bool
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		return nil
 	}
 	cl.reportMTASTSTestingViolationFn = func(context.Context, string, string, string) {
@@ -156,7 +156,7 @@ func TestDeliverByMX_DANETrustModelAllowsUnsignedWhenConfigured(t *testing.T) {
 	})
 
 	var requireTLS bool
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		requireTLS = reqTLS
 		return nil
 	}
@@ -181,7 +181,7 @@ func TestDeliverByMX_DANEFailureBecomesHardFailOnTLSAuthError(t *testing.T) {
 			Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0x01}}},
 		}, nil
 	})
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		return &SMTPResponseError{Code: 454, Line: "starttls handshake failed"}
 	}
 
@@ -209,7 +209,7 @@ func TestDeliverByMX_DANEFailureKeepsTemporaryForNetworkError(t *testing.T) {
 			Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0x01}}},
 		}, nil
 	})
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool, _ *DANEResult) error {
 		return errors.New("dial timeout")
 	}
 

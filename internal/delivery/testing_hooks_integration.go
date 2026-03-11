@@ -34,12 +34,12 @@ func (c *Client) ResolveForTest(
 }
 
 func (c *Client) DeliverHostForTest(
-	fn func(host string, port int, msg *model.Message, rcpt string, requireTLS bool) error,
+	fn func(host string, port int, msg *model.Message, rcpt string, requireTLS bool, _ *DANEResult) error,
 ) {
 	if fn == nil {
 		return
 	}
-	c.deliverHostFn = func(_ context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool) error {
-		return fn(host, port, msg, rcpt, requireTLS)
+	c.deliverHostFn = func(_ context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool, _ *DANEResult) error {
+		return fn(host, port, msg, rcpt, requireTLS, nil)
 	}
 }

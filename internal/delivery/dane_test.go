@@ -2,8 +2,15 @@ package delivery
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/sha512"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
 	"errors"
+	"math/big"
 	"reflect"
 	"testing"
 	"time"
@@ -183,5 +190,87 @@ func TestDANEResolverLookupHost_CNAMEChainLoopStops(t *testing.T) {
 	}
 	if len(lookedUp) > 2 {
 		t.Fatalf("expected loop detection to stop exploration, looked up=%v", lookedUp)
+	}
+}
+
+func TestVerifyPeerCertificatesWithTLSA_Match(t *testing.T) {
+	cert := mustCreateTestCert(t)
+	cases := []TLSARecord{
+		{
+			Usage:                  3,
+			Selector:               1,
+			MatchingType:           1,
+			CertificateAssociation: digestTLSA(cert, 1, 1),
+		},
+		{
+			Usage:                  3,
+			Selector:               0,
+			MatchingType:           2,
+			CertificateAssociation: digestTLSA(cert, 0, 2),
+		},
+	}
+	for i, rec := range cases {
+		if err := verifyPeerCertificatesWithTLSA([]*x509.Certificate{cert}, []TLSARecord{rec}); err != nil {
+			t.Fatalf("case %d expected match: %v", i, err)
+		}
+	}
+}
+
+func TestVerifyPeerCertificatesWithTLSA_NoMatch(t *testing.T) {
+	cert := mustCreateTestCert(t)
+	rec := TLSARecord{
+		Usage:                  3,
+		Selector:               1,
+		MatchingType:           1,
+		CertificateAssociation: []byte{0x00, 0x01, 0x02},
+	}
+	if err := verifyPeerCertificatesWithTLSA([]*x509.Certificate{cert}, []TLSARecord{rec}); err == nil {
+		t.Fatal("expected mismatch error")
+	}
+}
+
+func mustCreateTestCert(t *testing.T) *x509.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "mx.example.net"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+	return cert
+}
+
+func digestTLSA(cert *x509.Certificate, selector, matchingType uint8) []byte {
+	var selected []byte
+	switch selector {
+	case 0:
+		selected = cert.Raw
+	case 1:
+		selected = cert.RawSubjectPublicKeyInfo
+	default:
+		return nil
+	}
+	switch matchingType {
+	case 1:
+		sum := sha256.Sum256(selected)
+		return sum[:]
+	case 2:
+		sum := sha512.Sum512(selected)
+		return sum[:]
+	default:
+		return nil
 	}
 }
