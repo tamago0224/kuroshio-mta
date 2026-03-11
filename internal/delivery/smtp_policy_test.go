@@ -79,3 +79,65 @@ func TestDeliverByMX_FallsBackToMTASTSWhenNoUsableDANE(t *testing.T) {
 		t.Fatal("expected TLS required by MTA-STS enforce")
 	}
 }
+
+func TestDeliverByMX_MTASTSTestingModeDoesNotRejectOnMXMismatch(t *testing.T) {
+	cl := NewClient(config.Config{})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx1.example.net", Pref: 10}, {Host: "mx2.example.net", Pref: 20}}, nil
+	}
+	cl.mtaSTS = NewMTASTSResolver(time.Minute, time.Second, func(context.Context, string) (string, error) {
+		return "version: STSv1\nmode: testing\nmx: mx2.example.net\nmax_age: 3600\n", nil
+	})
+
+	var calledHost string
+	var requireTLS bool
+	var violationCalled bool
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+		calledHost = host
+		requireTLS = reqTLS
+		return nil
+	}
+	cl.reportMTASTSTestingViolationFn = func(context.Context, string, string, string) {
+		violationCalled = true
+	}
+
+	err := cl.deliverByMX(context.Background(), &model.Message{MailFrom: "sender@example.org", Data: []byte("x")}, "user@example.org")
+	if err != nil {
+		t.Fatalf("deliverByMX: %v", err)
+	}
+	if calledHost != "mx1.example.net" {
+		t.Fatalf("expected first MX host to be used without hard enforcement, got %q", calledHost)
+	}
+	if requireTLS {
+		t.Fatal("testing mode must not require TLS")
+	}
+	if !violationCalled {
+		t.Fatal("expected testing mode violation report on mx mismatch")
+	}
+}
+
+func TestDeliverByMX_MTASTSTestingModeNoViolationWhenMXMatches(t *testing.T) {
+	cl := NewClient(config.Config{})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx1.example.net", Pref: 10}}, nil
+	}
+	cl.mtaSTS = NewMTASTSResolver(time.Minute, time.Second, func(context.Context, string) (string, error) {
+		return "version: STSv1\nmode: testing\nmx: mx1.example.net\nmax_age: 3600\n", nil
+	})
+
+	var violationCalled bool
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+		return nil
+	}
+	cl.reportMTASTSTestingViolationFn = func(context.Context, string, string, string) {
+		violationCalled = true
+	}
+
+	err := cl.deliverByMX(context.Background(), &model.Message{MailFrom: "sender@example.org", Data: []byte("x")}, "user@example.org")
+	if err != nil {
+		t.Fatalf("deliverByMX: %v", err)
+	}
+	if violationCalled {
+		t.Fatal("did not expect testing mode violation report when mx matches policy")
+	}
+}
