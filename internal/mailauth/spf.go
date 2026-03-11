@@ -5,10 +5,23 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/util"
+)
+
+var (
+	spfLookupTXT = func(ctx context.Context, domain string) ([]string, error) {
+		return net.DefaultResolver.LookupTXT(ctx, domain)
+	}
+	spfLookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+		return net.DefaultResolver.LookupIP(ctx, "ip", host)
+	}
+	spfLookupMX = func(ctx context.Context, domain string) ([]*net.MX, error) {
+		return net.DefaultResolver.LookupMX(ctx, domain)
+	}
 )
 
 func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
@@ -19,7 +32,7 @@ func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
 	if remoteIP == nil {
 		return SPFResult{Domain: domain, Result: "temperror", Reason: "missing remote ip"}
 	}
-	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, 0)
+	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, mailFrom, helo, 0)
 	return SPFResult{Domain: domain, Result: res, Reason: reason}
 }
 
@@ -30,7 +43,7 @@ func spfDomain(mailFrom, helo string) string {
 	return strings.ToLower(strings.TrimSpace(helo))
 }
 
-func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain string, depth int) (string, string) {
+func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo string, depth int) (string, string) {
 	if depth > 10 {
 		return "permerror", "include recursion too deep"
 	}
@@ -58,7 +71,8 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain string, depth in
 			t = t[1:]
 		}
 		name, arg, prefix := parseMechanism(t)
-		match, ok, err := matchMechanism(ctx, remoteIP, domain, name, arg, prefix, depth)
+		arg = expandSPFMacros(arg, sender, domain, helo, remoteIP)
+		match, ok, err := matchMechanism(ctx, remoteIP, domain, sender, helo, name, arg, prefix, depth)
 		if err != nil {
 			return "temperror", err.Error()
 		}
@@ -75,7 +89,7 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain string, depth in
 func lookupSPFRecord(ctx context.Context, domain string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	txt, err := net.DefaultResolver.LookupTXT(ctx, domain)
+	txt, err := spfLookupTXT(ctx, domain)
 	if err != nil {
 		return "", false, err
 	}
@@ -117,7 +131,7 @@ func qualifierResult(q rune) string {
 	}
 }
 
-func matchMechanism(ctx context.Context, remoteIP net.IP, domain, name, arg string, prefix, depth int) (bool, bool, error) {
+func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, name, arg string, prefix, depth int) (bool, bool, error) {
 	switch name {
 	case "all":
 		return true, true, nil
@@ -145,7 +159,7 @@ func matchMechanism(ctx context.Context, remoteIP net.IP, domain, name, arg stri
 		if arg == "" {
 			return false, true, nil
 		}
-		res, _ := evalSPFDomain(ctx, remoteIP, arg, depth+1)
+		res, _ := evalSPFDomain(ctx, remoteIP, arg, sender, helo, depth+1)
 		if res == "pass" {
 			return true, true, nil
 		}
@@ -177,7 +191,7 @@ func matchIPMechanism(remoteIP net.IP, cidr string) (bool, error) {
 func matchHostIPs(ctx context.Context, remoteIP net.IP, host string, prefix int) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	ips, err := spfLookupIP(ctx, host)
 	if err != nil {
 		return false, err
 	}
@@ -197,7 +211,7 @@ func matchHostIPs(ctx context.Context, remoteIP net.IP, host string, prefix int)
 func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	mx, err := net.DefaultResolver.LookupMX(ctx, domain)
+	mx, err := spfLookupMX(ctx, domain)
 	if err != nil {
 		return false, err
 	}
@@ -212,6 +226,97 @@ func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int) (b
 		}
 	}
 	return false, nil
+}
+
+func expandSPFMacros(spec, sender, domain, helo string, remoteIP net.IP) string {
+	if spec == "" {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < len(spec); i++ {
+		ch := spec[i]
+		if ch != '%' {
+			b.WriteByte(ch)
+			continue
+		}
+		if i+1 >= len(spec) {
+			break
+		}
+		next := spec[i+1]
+		i++
+		switch next {
+		case '%':
+			b.WriteByte('%')
+		case '_':
+			b.WriteByte(' ')
+		case '-':
+			b.WriteString("%20")
+		case '{':
+			end := strings.IndexByte(spec[i+1:], '}')
+			if end < 0 {
+				continue
+			}
+			token := spec[i+1 : i+1+end]
+			i += end + 1
+			b.WriteString(spfMacroValue(token, sender, domain, helo, remoteIP))
+		default:
+			b.WriteByte(next)
+		}
+	}
+	return b.String()
+}
+
+func spfMacroValue(token, sender, domain, helo string, remoteIP net.IP) string {
+	if token == "" {
+		return ""
+	}
+	letter := token[0]
+	switch letter {
+	case 's', 'S':
+		return strings.ToLower(strings.TrimSpace(sender))
+	case 'l', 'L':
+		local, _, ok := strings.Cut(strings.TrimSpace(sender), "@")
+		if !ok {
+			return ""
+		}
+		return strings.ToLower(local)
+	case 'o', 'O':
+		_, d, ok := strings.Cut(strings.TrimSpace(sender), "@")
+		if !ok {
+			return ""
+		}
+		return strings.ToLower(d)
+	case 'd', 'D':
+		return strings.ToLower(strings.TrimSpace(domain))
+	case 'h', 'H':
+		return strings.ToLower(strings.TrimSpace(helo))
+	case 'i', 'I':
+		if remoteIP == nil {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(remoteIP.String()))
+	case 'v', 'V':
+		if remoteIP == nil {
+			return ""
+		}
+		if remoteIP.To4() != nil {
+			return "in-addr"
+		}
+		return "ip6"
+	case 'p', 'P':
+		return "unknown"
+	case 'c', 'C':
+		if remoteIP == nil {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(remoteIP.String()))
+	case 'r', 'R':
+		return "unknown"
+	case 't', 'T':
+		return strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	default:
+		return ""
+	}
 }
 
 func matchPrefix(a, b net.IP, p int) bool {
