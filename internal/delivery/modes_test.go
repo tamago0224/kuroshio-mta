@@ -42,7 +42,7 @@ func TestDeliverRelayUsesConfiguredTarget(t *testing.T) {
 	cfg := config.Config{DeliveryMode: "relay", RelayHost: "relay.example.net", RelayPort: 2525, RelayRequireTLS: true}
 	cl := NewClient(cfg)
 	called := false
-	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool) error {
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool, _ *DANEResult) error {
 		called = true
 		if host != "relay.example.net" || port != 2525 {
 			t.Fatalf("unexpected relay target host=%s port=%d", host, port)

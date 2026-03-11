@@ -2,6 +2,10 @@ package delivery
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"crypto/subtle"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -74,6 +78,63 @@ func isSupportedTLSAProfile(rec TLSARecord) bool {
 	default:
 		return false
 	}
+}
+
+func verifyPeerCertificatesWithTLSA(peerCerts []*x509.Certificate, records []TLSARecord) error {
+	if len(peerCerts) == 0 {
+		return errors.New("no peer certificates")
+	}
+	if len(records) == 0 {
+		return errors.New("no tlsa records")
+	}
+	for _, rec := range records {
+		if !isSupportedTLSAProfile(rec) {
+			continue
+		}
+		candidates := peerCertCandidatesForUsage(peerCerts, rec.Usage)
+		for _, cert := range candidates {
+			if matchTLSARecord(cert, rec) {
+				return nil
+			}
+		}
+	}
+	return errors.New("no matching tlsa record for peer certificates")
+}
+
+func peerCertCandidatesForUsage(peerCerts []*x509.Certificate, usage uint8) []*x509.Certificate {
+	switch usage {
+	case 3: // DANE-EE: leaf certificate.
+		return peerCerts[:1]
+	case 2: // DANE-TA: trust anchor candidates from chain.
+		return peerCerts
+	default:
+		return nil
+	}
+}
+
+func matchTLSARecord(cert *x509.Certificate, rec TLSARecord) bool {
+	var selected []byte
+	switch rec.Selector {
+	case 0:
+		selected = cert.Raw
+	case 1:
+		selected = cert.RawSubjectPublicKeyInfo
+	default:
+		return false
+	}
+
+	var digested []byte
+	switch rec.MatchingType {
+	case 1:
+		sum := sha256.Sum256(selected)
+		digested = sum[:]
+	case 2:
+		sum := sha512.Sum512(selected)
+		digested = sum[:]
+	default:
+		return false
+	}
+	return subtle.ConstantTimeCompare(digested, rec.CertificateAssociation) == 1
 }
 
 type DANEResolver struct {

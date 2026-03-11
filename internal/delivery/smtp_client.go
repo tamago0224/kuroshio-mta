@@ -30,7 +30,7 @@ type Client struct {
 	mtaSTS                         *MTASTSResolver
 	signer                         messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
-	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool) error
+	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
 	spoolWriteFn                   func(*model.Message, string) error
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
 }
@@ -77,7 +77,7 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		if port <= 0 {
 			port = 25
 		}
-		return c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS)
+		return c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
 	default:
 		return fmt.Errorf("unknown delivery mode: %s", mode)
 	}
@@ -94,6 +94,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	}
 	requireTLS := false
 	daneActive := false
+	daneByHost := map[string]DANEResult{}
 	var mtaSTSTestingPolicy *MTASTSPolicy
 	daneCandidates := make([]router.MXHost, 0, len(mxHosts))
 	if c.dane != nil {
@@ -104,6 +105,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 			}
 			if res.HasUsableTLSAWithTrustModel(c.cfg.DANEDNSSECTrustModel) {
 				daneCandidates = append(daneCandidates, mx)
+				daneByHost[mx.Host] = res
 			}
 		}
 	}
@@ -137,7 +139,14 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		if mtaSTSTestingPolicy != nil && !mtaSTSTestingPolicy.AllowsMX(mx.Host) && c.reportMTASTSTestingViolationFn != nil {
 			c.reportMTASTSTestingViolationFn(ctx, domain, mx.Host, "mx_mismatch")
 		}
-		err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS)
+		var daneRes *DANEResult
+		if daneActive {
+			if res, ok := daneByHost[mx.Host]; ok {
+				cp := res
+				daneRes = &cp
+			}
+		}
+		err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS, daneRes)
 		if daneActive {
 			err = classifyDANEFailure(err)
 		}
@@ -168,7 +177,7 @@ func classifyDANEFailure(err error) error {
 	return err
 }
 
-func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool) error {
+func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool, daneRes *DANEResult) error {
 	if port <= 0 {
 		port = 25
 	}
@@ -216,6 +225,12 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 					return &SMTPResponseError{Code: 454, Line: "starttls handshake failed"}
 				}
 				return err
+			}
+			if daneRes != nil {
+				state := tlsConn.ConnectionState()
+				if err := verifyPeerCertificatesWithTLSA(state.PeerCertificates, daneRes.Records); err != nil {
+					return &SMTPResponseError{Code: 550, Line: "dane authentication failed"}
+				}
 			}
 			conn = tlsConn
 			r = bufio.NewReader(conn)
