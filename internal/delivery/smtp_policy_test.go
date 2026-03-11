@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -166,5 +167,58 @@ func TestDeliverByMX_DANETrustModelAllowsUnsignedWhenConfigured(t *testing.T) {
 	}
 	if !requireTLS {
 		t.Fatal("expected TLS required when insecure_allow_unsigned trust model is configured")
+	}
+}
+
+func TestDeliverByMX_DANEFailureBecomesHardFailOnTLSAuthError(t *testing.T) {
+	cl := NewClient(config.Config{})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx1.example.net", Pref: 10}}, nil
+	}
+	cl.dane = NewDANEResolver(time.Second, func(_ context.Context, host string, _ int) (DANEResult, error) {
+		return DANEResult{
+			AuthenticatedData: true,
+			Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0x01}}},
+		}, nil
+	})
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+		return &SMTPResponseError{Code: 454, Line: "starttls handshake failed"}
+	}
+
+	err := cl.deliverByMX(context.Background(), &model.Message{MailFrom: "sender@example.org", Data: []byte("x")}, "user@example.org")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var smtpErr *SMTPResponseError
+	if !errors.As(err, &smtpErr) {
+		t.Fatalf("expected SMTPResponseError, got %T", err)
+	}
+	if !smtpErr.Permanent() {
+		t.Fatalf("expected hard/permanent fail, got code=%d line=%q", smtpErr.Code, smtpErr.Line)
+	}
+}
+
+func TestDeliverByMX_DANEFailureKeepsTemporaryForNetworkError(t *testing.T) {
+	cl := NewClient(config.Config{})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx1.example.net", Pref: 10}}, nil
+	}
+	cl.dane = NewDANEResolver(time.Second, func(_ context.Context, host string, _ int) (DANEResult, error) {
+		return DANEResult{
+			AuthenticatedData: true,
+			Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0x01}}},
+		}, nil
+	})
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, msg *model.Message, rcpt string, reqTLS bool) error {
+		return errors.New("dial timeout")
+	}
+
+	err := cl.deliverByMX(context.Background(), &model.Message{MailFrom: "sender@example.org", Data: []byte("x")}, "user@example.org")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var smtpErr *SMTPResponseError
+	if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+		t.Fatalf("expected temporary/non-permanent failure for network error, got code=%d", smtpErr.Code)
 	}
 }

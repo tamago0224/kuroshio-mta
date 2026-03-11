@@ -93,6 +93,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
 	requireTLS := false
+	daneActive := false
 	var mtaSTSTestingPolicy *MTASTSPolicy
 	daneCandidates := make([]router.MXHost, 0, len(mxHosts))
 	if c.dane != nil {
@@ -109,6 +110,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	if len(daneCandidates) > 0 {
 		// RFC 7672 precedence: if usable DANE is available, apply it before MTA-STS.
 		requireTLS = true
+		daneActive = true
 		mxHosts = daneCandidates
 	} else if c.mtaSTS != nil {
 		if p, pErr := c.mtaSTS.Lookup(ctx, domain); pErr == nil {
@@ -135,7 +137,11 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		if mtaSTSTestingPolicy != nil && !mtaSTSTestingPolicy.AllowsMX(mx.Host) && c.reportMTASTSTestingViolationFn != nil {
 			c.reportMTASTSTestingViolationFn(ctx, domain, mx.Host, "mx_mismatch")
 		}
-		if err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS); err == nil {
+		err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS)
+		if daneActive {
+			err = classifyDANEFailure(err)
+		}
+		if err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -145,6 +151,21 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		lastErr = errors.New("no mx targets")
 	}
 	return lastErr
+}
+
+func classifyDANEFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	var smtpErr *SMTPResponseError
+	if !errors.As(err, &smtpErr) {
+		return err
+	}
+	line := strings.ToLower(strings.TrimSpace(smtpErr.Line))
+	if smtpErr.Temporary() && (line == "starttls handshake failed" || line == "mta-sts enforce requires starttls") {
+		return &SMTPResponseError{Code: 550, Line: "dane authentication failed"}
+	}
+	return err
 }
 
 func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool) error {
