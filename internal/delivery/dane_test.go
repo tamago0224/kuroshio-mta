@@ -6,15 +6,62 @@ import (
 )
 
 func TestDANEResultHasUsableTLSA(t *testing.T) {
-	ok := DANEResult{
-		AuthenticatedData: true,
-		Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}}},
+	cases := []struct {
+		name   string
+		record TLSARecord
+		want   bool
+	}{
+		{
+			name:   "3-1-1 (DANE-EE SPKI SHA-256)",
+			record: TLSARecord{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}},
+			want:   true,
+		},
+		{
+			name:   "3-0-1 (DANE-EE Cert SHA-256)",
+			record: TLSARecord{Usage: 3, Selector: 0, MatchingType: 1, CertificateAssociation: []byte{0xaa}},
+			want:   true,
+		},
+		{
+			name:   "2-0-1 (DANE-TA Cert SHA-256)",
+			record: TLSARecord{Usage: 2, Selector: 0, MatchingType: 1, CertificateAssociation: []byte{0xaa}},
+			want:   true,
+		},
+		{
+			name:   "2-1-1 (DANE-TA SPKI SHA-256)",
+			record: TLSARecord{Usage: 2, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}},
+			want:   true,
+		},
+		{
+			name:   "unsupported matching type",
+			record: TLSARecord{Usage: 3, Selector: 1, MatchingType: 0, CertificateAssociation: []byte{0xaa}},
+			want:   false,
+		},
+		{
+			name:   "unsupported usage",
+			record: TLSARecord{Usage: 1, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}},
+			want:   false,
+		},
+		{
+			name:   "empty association",
+			record: TLSARecord{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: nil},
+			want:   false,
+		},
 	}
-	if !ok.HasUsableTLSA() {
-		t.Fatal("expected usable tlsa")
-	}
-	if (DANEResult{AuthenticatedData: false, Records: ok.Records}).HasUsableTLSA() {
-		t.Fatal("dnssec ad=false must not be treated as usable")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := DANEResult{
+				AuthenticatedData: true,
+				Records:           []TLSARecord{tc.record},
+			}
+			got := res.HasUsableTLSA()
+			if got != tc.want {
+				t.Fatalf("HasUsableTLSA()=%v want=%v record=%+v", got, tc.want, tc.record)
+			}
+			if (DANEResult{AuthenticatedData: false, Records: []TLSARecord{tc.record}}).HasUsableTLSA() {
+				t.Fatal("dnssec ad=false must not be treated as usable")
+			}
+		})
 	}
 }
 
