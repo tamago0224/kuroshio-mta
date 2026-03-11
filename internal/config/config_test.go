@@ -89,6 +89,20 @@ func TestLoadSubmissionConfig(t *testing.T) {
 	}
 }
 
+func TestLoadSubmissionUsersFromFile(t *testing.T) {
+	fp := t.TempDir() + "/submission_users.txt"
+	if err := os.WriteFile(fp, []byte("fileuser@example.com:filepass\n"), 0o644); err != nil {
+		t.Fatalf("write users file: %v", err)
+	}
+	t.Setenv("MTA_SUBMISSION_USERS", "envuser@example.com:envpass")
+	t.Setenv("MTA_SUBMISSION_USERS_FILE", fp)
+
+	cfg := Load()
+	if cfg.SubmissionUsers != "fileuser@example.com:filepass" {
+		t.Fatalf("submission users should prefer file value, got=%q", cfg.SubmissionUsers)
+	}
+}
+
 func TestLoadLogLevel(t *testing.T) {
 	t.Setenv("MTA_LOG_LEVEL", "debug")
 	cfg := Load()

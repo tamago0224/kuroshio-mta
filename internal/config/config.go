@@ -65,7 +65,7 @@ func Load() Config {
 		ListenAddr:         env("MTA_LISTEN_ADDR", ":2525"),
 		SubmissionAddr:     env("MTA_SUBMISSION_ADDR", ""),
 		SubmissionAuth:     envBool("MTA_SUBMISSION_AUTH_REQUIRED", true),
-		SubmissionUsers:    env("MTA_SUBMISSION_USERS", ""),
+		SubmissionUsers:    envOrFile("MTA_SUBMISSION_USERS", "MTA_SUBMISSION_USERS_FILE", ""),
 		SubmissionSenderID: envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", true),
 		LogLevel:           env("MTA_LOG_LEVEL", "info"),
 		ObservabilityAddr:  env("MTA_OBSERVABILITY_ADDR", ":9090"),
@@ -124,6 +124,19 @@ func env(k, def string) string {
 		return def
 	}
 	return v
+}
+
+func envOrFile(k, fileK, def string) string {
+	if fp := strings.TrimSpace(os.Getenv(fileK)); fp != "" {
+		b, err := os.ReadFile(fp)
+		if err == nil {
+			s := strings.TrimSpace(string(b))
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return env(k, def)
 }
 
 func envInt(k string, def int) int {
