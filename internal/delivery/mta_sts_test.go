@@ -158,18 +158,29 @@ func TestMTASTSResolverRefreshesPolicyWhenTXTIDChanges(t *testing.T) {
 		PolicyID:  "old-id",
 	}
 
-	p, err := r.Lookup(context.Background(), "example.com")
+	p1, err := r.Lookup(context.Background(), "example.com")
 	if err != nil {
-		t.Fatalf("lookup: %v", err)
+		t.Fatalf("lookup1: %v", err)
 	}
 	if fetchCalls != 1 {
 		t.Fatalf("expected refresh fetch due to id mismatch, calls=%d", fetchCalls)
 	}
-	if len(p.MX) != 1 || p.MX[0] != "mx2.example.net" {
-		t.Fatalf("expected refreshed policy, got %+v", p)
+	if len(p1.MX) != 1 || p1.MX[0] != "mx1.example.net" {
+		t.Fatalf("expected previous policy at first rollover observation, got %+v", p1)
 	}
-	if p.PolicyID != "new-id" {
-		t.Fatalf("expected policy id to update, got %q", p.PolicyID)
+
+	p2, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup2: %v", err)
+	}
+	if fetchCalls != 2 {
+		t.Fatalf("expected second fetch confirmation, calls=%d", fetchCalls)
+	}
+	if len(p2.MX) != 1 || p2.MX[0] != "mx2.example.net" {
+		t.Fatalf("expected refreshed policy after confirmation, got %+v", p2)
+	}
+	if p2.PolicyID != "new-id" {
+		t.Fatalf("expected policy id to update, got %q", p2.PolicyID)
 	}
 }
 
@@ -202,5 +213,75 @@ func TestMTASTSResolverKeepsCachedPolicyWhenTXTLookupFails(t *testing.T) {
 	}
 	if len(p.MX) != 1 || p.MX[0] != "mx1.example.net" {
 		t.Fatalf("expected cached policy, got %+v", p)
+	}
+}
+
+func TestMTASTSResolverSafeRolloverRequiresTwoConsistentFetches(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	fetchCalls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		fetchCalls++
+		return "version: STSv1\nmode: enforce\nmx: mx-new.example.net\nmax_age: 120\n", nil
+	})
+	r.nowFn = func() time.Time { return now }
+	r.lookupTXT = func(context.Context, string) ([]string, error) {
+		return []string{"v=STSv1; id=new-id"}, nil
+	}
+	r.cache["example.com"] = MTASTSPolicy{
+		Version:   "STSv1",
+		Mode:      "enforce",
+		MX:        []string{"mx-old.example.net"},
+		MaxAge:    time.Hour,
+		ExpiresAt: now.Add(time.Hour),
+		PolicyID:  "old-id",
+	}
+
+	p1, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup1: %v", err)
+	}
+	if fetchCalls != 1 {
+		t.Fatalf("expected first fetch, calls=%d", fetchCalls)
+	}
+	if len(p1.MX) != 1 || p1.MX[0] != "mx-old.example.net" {
+		t.Fatalf("expected old policy on first observed rollover, got %+v", p1)
+	}
+
+	p2, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup2: %v", err)
+	}
+	if fetchCalls != 2 {
+		t.Fatalf("expected second fetch confirmation, calls=%d", fetchCalls)
+	}
+	if len(p2.MX) != 1 || p2.MX[0] != "mx-new.example.net" {
+		t.Fatalf("expected new policy after confirmation, got %+v", p2)
+	}
+	if p2.PolicyID != "new-id" {
+		t.Fatalf("expected switched policy id, got %q", p2.PolicyID)
+	}
+}
+
+func TestMTASTSResolverSafeRolloverAppliesImmediatelyWithoutPreviousPolicy(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	fetchCalls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		fetchCalls++
+		return "version: STSv1\nmode: enforce\nmx: mx-new.example.net\nmax_age: 120\n", nil
+	})
+	r.nowFn = func() time.Time { return now }
+	r.lookupTXT = func(context.Context, string) ([]string, error) {
+		return []string{"v=STSv1; id=new-id"}, nil
+	}
+
+	p, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if fetchCalls != 1 {
+		t.Fatalf("expected single fetch, calls=%d", fetchCalls)
+	}
+	if len(p.MX) != 1 || p.MX[0] != "mx-new.example.net" {
+		t.Fatalf("expected immediate apply when no previous policy, got %+v", p)
 	}
 }
