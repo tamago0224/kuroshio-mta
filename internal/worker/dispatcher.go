@@ -14,18 +14,27 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
 type Dispatcher struct {
-	cfg   config.Config
-	queue queue.Backend
-	cl    *delivery.Client
-	sup   *bounce.SuppressionStore
-	m     *observability.Metrics
+	cfg      config.Config
+	queue    queue.Backend
+	cl       *delivery.Client
+	sup      *bounce.SuppressionStore
+	m        *observability.Metrics
+	throttle *domainThrottle
 }
 
 func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics) *Dispatcher {
-	return &Dispatcher{cfg: cfg, queue: q, cl: cl, sup: sup, m: metrics}
+	return &Dispatcher{
+		cfg:      cfg,
+		queue:    q,
+		cl:       cl,
+		sup:      sup,
+		m:        metrics,
+		throttle: newDomainThrottle(cfg.DomainMaxConcurrentDefault, parseDomainRules(cfg.DomainMaxConcurrentRules), cfg.DomainAdaptiveThrottle, cfg.DomainTempFailThreshold, cfg.DomainPenaltyMax),
+	}
 }
 
 func (d *Dispatcher) Run(ctx context.Context) error {
@@ -75,28 +84,45 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		reasons []string
 	)
 	for _, rcpt := range msg.RcptTo {
-		if d.sup != nil && d.sup.IsSuppressed(rcpt) {
-			reasons = append(reasons, rcpt+": suppressed")
-			d.metricInc("worker_suppressed_recipient")
-			continue
+		domain, _ := util.DomainOf(rcpt)
+		release := func() {}
+		if d.throttle != nil {
+			release = d.throttle.acquire(domain)
 		}
-		if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
-			reasons = append(reasons, rcpt+": "+err.Error())
-			var smtpErr *delivery.SMTPResponseError
-			if errors.As(err, &smtpErr) && smtpErr.Permanent() {
-				d.metricInc("worker_permanent_bounce")
-				if d.sup != nil {
-					if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
-						slog.Error("suppression add failed", "component", "worker", "rcpt", rcpt, "msg_id", msg.ID, "error", sErr)
-					}
-				}
-				continue
+		func() {
+			defer release()
+			if d.sup != nil && d.sup.IsSuppressed(rcpt) {
+				reasons = append(reasons, rcpt+": suppressed")
+				d.metricInc("worker_suppressed_recipient")
+				return
 			}
-			d.metricInc("worker_temporary_failure")
-			errs = append(errs, err)
-		} else {
-			d.metricInc("worker_delivery_success")
-		}
+			if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
+				reasons = append(reasons, rcpt+": "+err.Error())
+				var smtpErr *delivery.SMTPResponseError
+				if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+					if d.throttle != nil {
+						d.throttle.observe(domain, false)
+					}
+					d.metricInc("worker_permanent_bounce")
+					if d.sup != nil {
+						if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
+							slog.Error("suppression add failed", "component", "worker", "rcpt", rcpt, "msg_id", msg.ID, "error", sErr)
+						}
+					}
+					return
+				}
+				d.metricInc("worker_temporary_failure")
+				if d.throttle != nil {
+					d.throttle.observe(domain, true)
+				}
+				errs = append(errs, err)
+			} else {
+				if d.throttle != nil {
+					d.throttle.observe(domain, false)
+				}
+				d.metricInc("worker_delivery_success")
+			}
+		}()
 	}
 
 	if len(errs) == 0 {

@@ -8,47 +8,52 @@ import (
 )
 
 type Config struct {
-	ListenAddr         string
-	SubmissionAddr     string
-	SubmissionAuth     bool
-	SubmissionUsers    string
-	SubmissionSenderID bool
-	LogLevel           string
-	ObservabilityAddr  string
-	Hostname           string
-	QueueDir           string
-	QueueBackend       string
-	KafkaBrokers       []string
-	KafkaConsumerGroup string
-	KafkaTopicInbound  string
-	KafkaTopicRetry    string
-	KafkaTopicDLQ      string
-	KafkaTopicSent     string
-	TLSCertFile        string
-	TLSKeyFile         string
-	IngressRateLimit   int
-	RateLimitRules     string
-	DNSBLZones         []string
-	DNSBLCacheTTL      time.Duration
-	MTASTSCacheTTL     time.Duration
-	MTASTSFetchTimeout time.Duration
-	DeliveryMode       string
-	LocalSpoolDir      string
-	RelayHost          string
-	RelayPort          int
-	RelayRequireTLS    bool
-	MaxMessageBytes    int64
-	WorkerCount        int
-	MaxAttempts        int
-	MaxRetryAge        time.Duration
-	RetrySchedule      []time.Duration
-	ScanInterval       time.Duration
-	DialTimeout        time.Duration
-	SendTimeout        time.Duration
-	DKIMSignDomain     string
-	DKIMSignSelector   string
-	DKIMPrivateKeyFile string
-	DKIMSignHeaders    string
+	ListenAddr                 string
+	SubmissionAddr             string
+	SubmissionAuth             bool
+	SubmissionUsers            string
+	SubmissionSenderID         bool
+	LogLevel                   string
+	ObservabilityAddr          string
+	Hostname                   string
+	QueueDir                   string
+	QueueBackend               string
+	KafkaBrokers               []string
+	KafkaConsumerGroup         string
+	KafkaTopicInbound          string
+	KafkaTopicRetry            string
+	KafkaTopicDLQ              string
+	KafkaTopicSent             string
+	TLSCertFile                string
+	TLSKeyFile                 string
+	IngressRateLimit           int
+	RateLimitRules             string
+	DNSBLZones                 []string
+	DNSBLCacheTTL              time.Duration
+	MTASTSCacheTTL             time.Duration
+	MTASTSFetchTimeout         time.Duration
+	DeliveryMode               string
+	LocalSpoolDir              string
+	RelayHost                  string
+	RelayPort                  int
+	RelayRequireTLS            bool
+	MaxMessageBytes            int64
+	WorkerCount                int
+	MaxAttempts                int
+	MaxRetryAge                time.Duration
+	RetrySchedule              []time.Duration
+	ScanInterval               time.Duration
+	DialTimeout                time.Duration
+	SendTimeout                time.Duration
+	DKIMSignDomain             string
+	DKIMSignSelector           string
+	DKIMPrivateKeyFile         string
+	DKIMSignHeaders            string
+	DomainMaxConcurrentDefault int
+	DomainMaxConcurrentRules   string
+	DomainAdaptiveThrottle     bool
+	DomainTempFailThreshold    float64
+	DomainPenaltyMax           time.Duration
 }
 
 func Load() Config {
@@ -90,13 +95,18 @@ func Load() Config {
 			"MTA_RETRY_SCHEDULE",
 			[]time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
 		),
-		ScanInterval:       envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
-		DialTimeout:        envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
-		SendTimeout:        envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
-		DKIMSignDomain:     env("MTA_DKIM_SIGN_DOMAIN", ""),
-		DKIMSignSelector:   env("MTA_DKIM_SIGN_SELECTOR", ""),
-		DKIMPrivateKeyFile: env("MTA_DKIM_PRIVATE_KEY_FILE", ""),
-		DKIMSignHeaders:    env("MTA_DKIM_SIGN_HEADERS", "from:to:subject:date:message-id"),
+		ScanInterval:               envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
+		DialTimeout:                envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
+		SendTimeout:                envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
+		DKIMSignDomain:             env("MTA_DKIM_SIGN_DOMAIN", ""),
+		DKIMSignSelector:           env("MTA_DKIM_SIGN_SELECTOR", ""),
+		DKIMPrivateKeyFile:         env("MTA_DKIM_PRIVATE_KEY_FILE", ""),
+		DKIMSignHeaders:            env("MTA_DKIM_SIGN_HEADERS", "from:to:subject:date:message-id"),
+		DomainMaxConcurrentDefault: envInt("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", 8),
+		DomainMaxConcurrentRules:   env("MTA_DOMAIN_MAX_CONCURRENT_RULES", ""),
+		DomainAdaptiveThrottle:     envBool("MTA_DOMAIN_ADAPTIVE_THROTTLE", true),
+		DomainTempFailThreshold:    envFloat64("MTA_DOMAIN_TEMPFAIL_THRESHOLD", 0.3),
+		DomainPenaltyMax:           envDuration("MTA_DOMAIN_PENALTY_MAX", 5*time.Second),
 	}
 }
 
@@ -196,4 +206,16 @@ func envBool(k string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+func envFloat64(k string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return n
 }
