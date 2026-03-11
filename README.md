@@ -75,6 +75,10 @@ go run ./cmd/mta
 - `MTA_SCAN_INTERVAL` (default: `5s`)
 - `MTA_DIAL_TIMEOUT` (default: `8s`)
 - `MTA_SEND_TIMEOUT` (default: `20s`)
+- `MTA_DKIM_SIGN_DOMAIN` (default: unset)
+- `MTA_DKIM_SIGN_SELECTOR` (default: unset)
+- `MTA_DKIM_PRIVATE_KEY_FILE` (default: unset, PEM RSA private key)
+- `MTA_DKIM_SIGN_HEADERS` (default: `from:to:subject:date:message-id`)
 
 ## 補足
 

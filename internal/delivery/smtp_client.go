@@ -13,15 +13,21 @@ import (
 	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/orinoco-mta/internal/dkim"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/router"
 	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
+type messageSigner interface {
+	Sign(raw []byte) ([]byte, error)
+}
+
 type Client struct {
 	cfg           config.Config
 	dane          *DANEResolver
 	mtaSTS        *MTASTSResolver
+	signer        messageSigner
 	resolveMXFn   func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn func(context.Context, string, int, *model.Message, string, bool) error
 	spoolWriteFn  func(*model.Message, string) error
@@ -33,6 +39,11 @@ func NewClient(cfg config.Config) *Client {
 		dane:        NewDANEResolver(cfg.DialTimeout, nil),
 		mtaSTS:      NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
 		resolveMXFn: router.LookupWithTimeout,
+	}
+	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
+		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
+			c.signer = signer
+		}
 	}
 	c.deliverHostFn = c.deliverHost
 	c.spoolWriteFn = c.writeLocalSpool
@@ -204,7 +215,11 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		return fmt.Errorf("data not accepted: %w", err)
 	}
 
-	data := dotStuff(msg.Data)
+	payload, err := c.prepareOutboundData(msg.Data)
+	if err != nil {
+		return err
+	}
+	data := dotStuff(payload)
 	if _, err := w.Write(data); err != nil {
 		return err
 	}
@@ -236,7 +251,11 @@ func (c *Client) writeLocalSpool(msg *model.Message, rcpt string) error {
 	}
 	name := fmt.Sprintf("%s_%s.eml", id, sanitizeFilename(rcpt))
 	path := filepath.Join(dir, name)
-	return os.WriteFile(path, msg.Data, 0o644)
+	payload, err := c.prepareOutboundData(msg.Data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, payload, 0o644)
 }
 
 func sanitizeFilename(v string) string {
@@ -339,4 +358,11 @@ func dotStuff(data []byte) []byte {
 		}
 	}
 	return []byte(strings.Join(lines, "\r\n"))
+}
+
+func (c *Client) prepareOutboundData(raw []byte) ([]byte, error) {
+	if c.signer == nil {
+		return raw, nil
+	}
+	return c.signer.Sign(raw)
 }

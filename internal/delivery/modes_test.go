@@ -2,8 +2,10 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
@@ -57,4 +59,47 @@ func TestDeliverRelayUsesConfiguredTarget(t *testing.T) {
 	if !called {
 		t.Fatal("relay deliverHostFn should be called")
 	}
+}
+
+func TestDeliverLocalSpoolAppliesDKIMSignerWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cl := NewClient(cfg)
+	cl.signer = testSigner(func(raw []byte) ([]byte, error) {
+		return append([]byte("DKIM-Signature: test\r\n"), raw...), nil
+	})
+	msg := &model.Message{ID: "m3", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err != nil {
+		t.Fatalf("deliver local spool with signer: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read spool dir: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read spool file: %v", err)
+	}
+	if !strings.HasPrefix(string(b), "DKIM-Signature: test\r\n") {
+		t.Fatalf("missing dkim signature prefix: %q", string(b))
+	}
+}
+
+func TestDeliverLocalSpoolReturnsSignerError(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cl := NewClient(cfg)
+	cl.signer = testSigner(func(raw []byte) ([]byte, error) {
+		return nil, errors.New("sign failed")
+	})
+	msg := &model.Message{ID: "m4", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err == nil {
+		t.Fatal("expected signer error")
+	}
+}
+
+type testSigner func([]byte) ([]byte, error)
+
+func (s testSigner) Sign(raw []byte) ([]byte, error) {
+	return s(raw)
 }

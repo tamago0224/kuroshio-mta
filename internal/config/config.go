@@ -45,6 +45,10 @@ type Config struct {
 	ScanInterval       time.Duration
 	DialTimeout        time.Duration
 	SendTimeout        time.Duration
+	DKIMSignDomain     string
+	DKIMSignSelector   string
+	DKIMPrivateKeyFile string
+	DKIMSignHeaders    string
 }
 
 func Load() Config {
@@ -86,9 +90,13 @@ func Load() Config {
 			"MTA_RETRY_SCHEDULE",
 			[]time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
 		),
-		ScanInterval: envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
-		DialTimeout:  envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
-		SendTimeout:  envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
+		ScanInterval:       envDuration("MTA_SCAN_INTERVAL", 5*time.Second),
+		DialTimeout:        envDuration("MTA_DIAL_TIMEOUT", 8*time.Second),
+		SendTimeout:        envDuration("MTA_SEND_TIMEOUT", 20*time.Second),
+		DKIMSignDomain:     env("MTA_DKIM_SIGN_DOMAIN", ""),
+		DKIMSignSelector:   env("MTA_DKIM_SIGN_SELECTOR", ""),
+		DKIMPrivateKeyFile: env("MTA_DKIM_PRIVATE_KEY_FILE", ""),
+		DKIMSignHeaders:    env("MTA_DKIM_SIGN_HEADERS", "from:to:subject:date:message-id"),
 	}
 }
 
