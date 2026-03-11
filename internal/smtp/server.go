@@ -19,6 +19,7 @@ import (
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/ingress"
+	"github.com/tamago0224/orinoco-mta/internal/logging"
 	"github.com/tamago0224/orinoco-mta/internal/mailauth"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
@@ -257,7 +258,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			if remoteIP != nil && s.flexLimiter != nil && !s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC()) {
 				s.metricInc("smtp_reject_rate_limit")
-				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", mailArgs.Address)
+				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
