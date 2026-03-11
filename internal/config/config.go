@@ -30,6 +30,7 @@ type Config struct {
 	RateLimitRules             string
 	DNSBLZones                 []string
 	DNSBLCacheTTL              time.Duration
+	DANEDNSSECTrustModel       string
 	MTASTSCacheTTL             time.Duration
 	MTASTSFetchTimeout         time.Duration
 	DeliveryMode               string
@@ -84,6 +85,11 @@ func Load() Config {
 		RateLimitRules:     env("MTA_RATE_LIMIT_RULES", ""),
 		DNSBLZones:         envCSV("MTA_DNSBL_ZONES", []string{}),
 		DNSBLCacheTTL:      envDuration("MTA_DNSBL_CACHE_TTL", 5*time.Minute),
+		DANEDNSSECTrustModel: envEnum(
+			"MTA_DANE_DNSSEC_TRUST_MODEL",
+			"ad_required",
+			[]string{"ad_required", "insecure_allow_unsigned"},
+		),
 		MTASTSCacheTTL:     envDuration("MTA_MTA_STS_CACHE_TTL", time.Hour),
 		MTASTSFetchTimeout: envDuration("MTA_MTA_STS_FETCH_TIMEOUT", 5*time.Second),
 		DeliveryMode:       env("MTA_DELIVERY_MODE", "mx"),
@@ -116,6 +122,19 @@ func Load() Config {
 		DataRetentionPoison:        envDuration("MTA_DATA_RETENTION_POISON", 180*24*time.Hour),
 		RetentionSweepInterval:     envDuration("MTA_RETENTION_SWEEP_INTERVAL", time.Hour),
 	}
+}
+
+func envEnum(k, def string, allowed []string) string {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
+	if v == "" {
+		return def
+	}
+	for _, a := range allowed {
+		if v == strings.ToLower(strings.TrimSpace(a)) {
+			return v
+		}
+	}
+	return def
 }
 
 func env(k, def string) string {
