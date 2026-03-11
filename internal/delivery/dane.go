@@ -77,8 +77,9 @@ func isSupportedTLSAProfile(rec TLSARecord) bool {
 }
 
 type DANEResolver struct {
-	timeout  time.Duration
-	lookupFn func(context.Context, string, int) (DANEResult, error)
+	timeout       time.Duration
+	lookupFn      func(context.Context, string, int) (DANEResult, error)
+	lookupCNAMEFn func(context.Context, string) (string, error)
 }
 
 func NewDANEResolver(timeout time.Duration, lookupFn func(context.Context, string, int) (DANEResult, error)) *DANEResolver {
@@ -88,7 +89,11 @@ func NewDANEResolver(timeout time.Duration, lookupFn func(context.Context, strin
 	if lookupFn == nil {
 		lookupFn = lookupTLSAUDP(timeout)
 	}
-	return &DANEResolver{timeout: timeout, lookupFn: lookupFn}
+	return &DANEResolver{
+		timeout:       timeout,
+		lookupFn:      lookupFn,
+		lookupCNAMEFn: lookupCNAME,
+	}
 }
 
 func (r *DANEResolver) LookupHost(ctx context.Context, host string, port int) (DANEResult, error) {
@@ -99,7 +104,60 @@ func (r *DANEResolver) LookupHost(ctx context.Context, host string, port int) (D
 	if port <= 0 {
 		port = 25
 	}
-	return r.lookupFn(ctx, host, port)
+	candidates := r.expandDANECandidates(ctx, host)
+	merged := DANEResult{}
+	var lastErr error
+	for _, cand := range candidates {
+		res, err := r.lookupFn(ctx, cand, port)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if res.AuthenticatedData {
+			merged.AuthenticatedData = true
+		}
+		if len(res.Records) > 0 {
+			merged.Records = append(merged.Records, res.Records...)
+		}
+	}
+	if len(merged.Records) > 0 {
+		return merged, nil
+	}
+	if lastErr != nil {
+		return DANEResult{}, lastErr
+	}
+	return DANEResult{}, nil
+}
+
+func (r *DANEResolver) expandDANECandidates(ctx context.Context, host string) []string {
+	out := []string{host}
+	if r.lookupCNAMEFn == nil {
+		return out
+	}
+	seen := map[string]struct{}{host: {}}
+	current := host
+	const maxDepth = 5
+	for i := 0; i < maxDepth; i++ {
+		cname, err := r.lookupCNAMEFn(ctx, current)
+		if err != nil {
+			break
+		}
+		cname = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(cname)), ".")
+		if cname == "" || cname == current {
+			break
+		}
+		if _, ok := seen[cname]; ok {
+			break
+		}
+		seen[cname] = struct{}{}
+		out = append(out, cname)
+		current = cname
+	}
+	return out
+}
+
+func lookupCNAME(ctx context.Context, host string) (string, error) {
+	return net.DefaultResolver.LookupCNAME(ctx, host)
 }
 
 func lookupTLSAUDP(timeout time.Duration) func(context.Context, string, int) (DANEResult, error) {

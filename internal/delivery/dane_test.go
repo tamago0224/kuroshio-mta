@@ -1,8 +1,12 @@
 package delivery
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
+	"reflect"
 	"testing"
+	"time"
 )
 
 func TestDANEResultHasUsableTLSA(t *testing.T) {
@@ -121,5 +125,63 @@ func TestParseTLSAResponse(t *testing.T) {
 	}
 	if binary.BigEndian.Uint16(r.CertificateAssociation) != 0xdead {
 		t.Fatalf("unexpected cert association: %x", r.CertificateAssociation)
+	}
+}
+
+func TestDANEResolverLookupHost_FollowsCNAMEForTLSA(t *testing.T) {
+	var lookedUp []string
+	r := NewDANEResolver(time.Second, func(_ context.Context, host string, _ int) (DANEResult, error) {
+		lookedUp = append(lookedUp, host)
+		if host == "mx.real.example.net" {
+			return DANEResult{
+				AuthenticatedData: true,
+				Records:           []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xaa}}},
+			}, nil
+		}
+		return DANEResult{}, nil
+	})
+	r.lookupCNAMEFn = func(_ context.Context, host string) (string, error) {
+		if host == "mx.alias.example.net" {
+			return "mx.real.example.net.", nil
+		}
+		return "", errors.New("no cname")
+	}
+
+	res, err := r.LookupHost(context.Background(), "mx.alias.example.net", 25)
+	if err != nil {
+		t.Fatalf("LookupHost: %v", err)
+	}
+	if !res.HasUsableTLSA() {
+		t.Fatalf("expected usable TLSA through CNAME, got %+v", res)
+	}
+	wantHosts := []string{"mx.alias.example.net", "mx.real.example.net"}
+	if !reflect.DeepEqual(lookedUp, wantHosts) {
+		t.Fatalf("lookup hosts mismatch got=%v want=%v", lookedUp, wantHosts)
+	}
+}
+
+func TestDANEResolverLookupHost_CNAMEChainLoopStops(t *testing.T) {
+	var lookedUp []string
+	r := NewDANEResolver(time.Second, func(_ context.Context, host string, _ int) (DANEResult, error) {
+		lookedUp = append(lookedUp, host)
+		return DANEResult{}, nil
+	})
+	r.lookupCNAMEFn = func(_ context.Context, host string) (string, error) {
+		switch host {
+		case "mx1.example.net":
+			return "mx2.example.net.", nil
+		case "mx2.example.net":
+			return "mx1.example.net.", nil
+		default:
+			return "", errors.New("no cname")
+		}
+	}
+
+	_, err := r.LookupHost(context.Background(), "mx1.example.net", 25)
+	if err != nil {
+		t.Fatalf("LookupHost should stop loop and return no-record result: %v", err)
+	}
+	if len(lookedUp) > 2 {
+		t.Fatalf("expected loop detection to stop exploration, looked up=%v", lookedUp)
 	}
 }
