@@ -125,3 +125,82 @@ func TestMTASTSResolverUsesCooldownBeforeRetry(t *testing.T) {
 		t.Fatalf("expected retry fetch after cooldown, calls=%d", calls)
 	}
 }
+
+func TestParseMTASTSPolicyID(t *testing.T) {
+	id, ok := parseMTASTSPolicyID([]string{
+		"v=STSv1; id=20260311T120000",
+	})
+	if !ok {
+		t.Fatal("expected id to be parsed")
+	}
+	if id != "20260311T120000" {
+		t.Fatalf("unexpected id: %q", id)
+	}
+}
+
+func TestMTASTSResolverRefreshesPolicyWhenTXTIDChanges(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	fetchCalls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		fetchCalls++
+		return "version: STSv1\nmode: enforce\nmx: mx2.example.net\nmax_age: 120\n", nil
+	})
+	r.nowFn = func() time.Time { return now }
+	r.lookupTXT = func(context.Context, string) ([]string, error) {
+		return []string{"v=STSv1; id=new-id"}, nil
+	}
+	r.cache["example.com"] = MTASTSPolicy{
+		Version:   "STSv1",
+		Mode:      "enforce",
+		MX:        []string{"mx1.example.net"},
+		MaxAge:    time.Hour,
+		ExpiresAt: now.Add(time.Hour),
+		PolicyID:  "old-id",
+	}
+
+	p, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if fetchCalls != 1 {
+		t.Fatalf("expected refresh fetch due to id mismatch, calls=%d", fetchCalls)
+	}
+	if len(p.MX) != 1 || p.MX[0] != "mx2.example.net" {
+		t.Fatalf("expected refreshed policy, got %+v", p)
+	}
+	if p.PolicyID != "new-id" {
+		t.Fatalf("expected policy id to update, got %q", p.PolicyID)
+	}
+}
+
+func TestMTASTSResolverKeepsCachedPolicyWhenTXTLookupFails(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	fetchCalls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		fetchCalls++
+		return "version: STSv1\nmode: enforce\nmx: mx2.example.net\nmax_age: 120\n", nil
+	})
+	r.nowFn = func() time.Time { return now }
+	r.lookupTXT = func(context.Context, string) ([]string, error) {
+		return nil, errors.New("dns failed")
+	}
+	r.cache["example.com"] = MTASTSPolicy{
+		Version:   "STSv1",
+		Mode:      "enforce",
+		MX:        []string{"mx1.example.net"},
+		MaxAge:    time.Hour,
+		ExpiresAt: now.Add(time.Hour),
+		PolicyID:  "old-id",
+	}
+
+	p, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if fetchCalls != 0 {
+		t.Fatalf("expected no refresh fetch when txt lookup fails, calls=%d", fetchCalls)
+	}
+	if len(p.MX) != 1 || p.MX[0] != "mx1.example.net" {
+		t.Fatalf("expected cached policy, got %+v", p)
+	}
+}
