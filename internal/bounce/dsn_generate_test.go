@@ -28,6 +28,9 @@ func TestBuildFailureDSN(t *testing.T) {
 	if !strings.Contains(body, "Action: failed") || !strings.Contains(body, "Status: 5.1.1") {
 		t.Fatalf("unexpected dsn body: %q", body)
 	}
+	if !strings.Contains(body, "Auto-Submitted: auto-generated") {
+		t.Fatalf("dsn must include auto-generated header: %q", body)
+	}
 }
 
 func TestBuildDelayDSN(t *testing.T) {
@@ -50,5 +53,44 @@ func TestBuildDSNRejectsEmptySender(t *testing.T) {
 	orig := &model.Message{MailFrom: ""}
 	if _, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", time.Now()); err == nil {
 		t.Fatal("expected error for empty sender")
+	}
+}
+
+func TestBuildDSNRejectsNullReversePath(t *testing.T) {
+	orig := &model.Message{MailFrom: "<>"}
+	if _, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", time.Now()); err == nil {
+		t.Fatal("expected error for null reverse-path sender")
+	}
+}
+
+func TestBuildDSNRejectsAutoSubmittedMessage(t *testing.T) {
+	orig := &model.Message{
+		MailFrom: "sender@example.com",
+		Data: []byte(strings.Join([]string{
+			"From: sender@example.com",
+			"To: user@example.net",
+			"Auto-Submitted: auto-generated",
+			"",
+			"payload",
+		}, "\r\n")),
+	}
+	if _, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", time.Now()); err == nil {
+		t.Fatal("expected error for auto-submitted original message")
+	}
+}
+
+func TestBuildDSNAllowsAutoSubmittedNo(t *testing.T) {
+	orig := &model.Message{
+		MailFrom: "sender@example.com",
+		Data: []byte(strings.Join([]string{
+			"From: sender@example.com",
+			"To: user@example.net",
+			"Auto-Submitted: no",
+			"",
+			"payload",
+		}, "\r\n")),
+	}
+	if _, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", time.Now()); err != nil {
+		t.Fatalf("auto-submitted=no should be allowed: %v", err)
 	}
 }

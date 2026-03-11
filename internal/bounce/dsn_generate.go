@@ -27,6 +27,9 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 	if mailFrom == "" || mailFrom == "<>" {
 		return nil, fmt.Errorf("original sender is empty")
 	}
+	if hasAutoSubmittedNonNo(original.Data) {
+		return nil, fmt.Errorf("original message is auto-submitted")
+	}
 	if !strings.Contains(mailFrom, "@") {
 		return nil, fmt.Errorf("original sender is invalid")
 	}
@@ -52,7 +55,7 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 		fmt.Sprintf("From: MAILER-DAEMON@%s", host),
 		fmt.Sprintf("To: %s", mailFrom),
 		fmt.Sprintf("Subject: Delivery Status Notification (%s)", strings.ToUpper(action)),
-		"Auto-Submitted: auto-replied",
+		"Auto-Submitted: auto-generated",
 		"MIME-Version: 1.0",
 		fmt.Sprintf(`Content-Type: multipart/report; report-type=delivery-status; boundary="%s"`, boundary),
 		"",
@@ -94,4 +97,49 @@ func extractEnhancedStatus(v string) (string, bool) {
 		return "", false
 	}
 	return m[1], true
+}
+
+func hasAutoSubmittedNonNo(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	header := string(raw)
+	if idx := strings.Index(header, "\r\n\r\n"); idx >= 0 {
+		header = header[:idx]
+	} else if idx := strings.Index(header, "\n\n"); idx >= 0 {
+		header = header[:idx]
+	}
+	lines := strings.Split(strings.ReplaceAll(header, "\r\n", "\n"), "\n")
+	curName := ""
+	curValue := ""
+	flush := func() bool {
+		if !strings.EqualFold(curName, "Auto-Submitted") {
+			return false
+		}
+		v := strings.TrimSpace(strings.ToLower(curValue))
+		return v != "" && v != "no"
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			if curName != "" {
+				curValue += " " + strings.TrimSpace(line)
+			}
+			continue
+		}
+		if curName != "" && flush() {
+			return true
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			curName = ""
+			curValue = ""
+			continue
+		}
+		curName = strings.TrimSpace(parts[0])
+		curValue = strings.TrimSpace(parts[1])
+	}
+	return curName != "" && flush()
 }
