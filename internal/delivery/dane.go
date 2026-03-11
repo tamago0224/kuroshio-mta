@@ -33,11 +33,33 @@ func (r DANEResult) HasUsableTLSA() bool {
 		return false
 	}
 	for _, rec := range r.Records {
-		if rec.Usage == 3 && rec.Selector == 1 && rec.MatchingType == 1 && len(rec.CertificateAssociation) > 0 {
+		if isSupportedTLSAProfile(rec) {
 			return true
 		}
 	}
 	return false
+}
+
+func isSupportedTLSAProfile(rec TLSARecord) bool {
+	if len(rec.CertificateAssociation) == 0 {
+		return false
+	}
+	switch rec.Usage {
+	case 2, 3: // DANE-TA, DANE-EE
+	default:
+		return false
+	}
+	switch rec.Selector {
+	case 0, 1: // Full cert, SPKI
+	default:
+		return false
+	}
+	switch rec.MatchingType {
+	case 1, 2: // SHA-256, SHA-512
+		return true
+	default:
+		return false
+	}
 }
 
 type DANEResolver struct {
