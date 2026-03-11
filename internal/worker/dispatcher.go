@@ -101,6 +101,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				reasons = append(reasons, rcpt+": "+err.Error())
 				var smtpErr *delivery.SMTPResponseError
 				if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+					d.emitHardBounceDSN(ctx, msg, rcpt, smtpErr.Error())
 					if d.throttle != nil {
 						d.throttle.observe(domain, false)
 					}
@@ -113,6 +114,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					return
 				}
 				d.metricInc("worker_temporary_failure")
+				d.emitSoftBounceDSN(ctx, msg, rcpt, err.Error())
 				if d.throttle != nil {
 					d.throttle.observe(domain, true)
 				}
@@ -147,6 +149,36 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		slog.Error("retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
+}
+
+func (d *Dispatcher) emitHardBounceDSN(ctx context.Context, msg *model.Message, rcpt, diagnostic string) {
+	if d.queue == nil {
+		return
+	}
+	dsnMsg, err := bounce.BuildFailureDSN(msg, rcpt, diagnostic, d.cfg.Hostname, time.Now().UTC())
+	if err != nil {
+		return
+	}
+	if err := d.queue.Enqueue(dsnMsg); err != nil {
+		slog.Error("enqueue hard dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+	}
+}
+
+func (d *Dispatcher) emitSoftBounceDSN(ctx context.Context, msg *model.Message, rcpt, diagnostic string) {
+	if d.queue == nil {
+		return
+	}
+	// Send delayed notification once at first temporary failure to avoid excessive notices.
+	if msg.Attempts > 0 {
+		return
+	}
+	dsnMsg, err := bounce.BuildDelayDSN(msg, rcpt, diagnostic, d.cfg.Hostname, time.Now().UTC())
+	if err != nil {
+		return
+	}
+	if err := d.queue.Enqueue(dsnMsg); err != nil {
+		slog.Error("enqueue soft dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+	}
 }
 
 func backoff(attempts int, schedule []time.Duration) time.Duration {
