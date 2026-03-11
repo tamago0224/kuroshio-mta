@@ -16,6 +16,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/logging"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/retention"
 	"github.com/tamago0224/orinoco-mta/internal/smtp"
 	"github.com/tamago0224/orinoco-mta/internal/userauth"
 	"github.com/tamago0224/orinoco-mta/internal/worker"
@@ -24,6 +25,7 @@ import (
 func main() {
 	cfg := config.Load()
 	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout))
+	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", cfg.SubmissionAddr != "", "delivery_mode", cfg.DeliveryMode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -61,6 +63,7 @@ func main() {
 	if submissionServer != nil {
 		workers++
 	}
+	workers++
 	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
 	if submissionServer != nil {
@@ -68,6 +71,14 @@ func main() {
 	}
 	go func() { errCh <- d.Run(ctx) }()
 	go func() { errCh <- observability.RunServer(ctx, cfg.ObservabilityAddr, metrics) }()
+	go func() {
+		errCh <- retention.Run(ctx, cfg.QueueDir, retention.Policy{
+			SentTTL:   cfg.DataRetentionSent,
+			DLQTTL:    cfg.DataRetentionDLQ,
+			PoisonTTL: cfg.DataRetentionPoison,
+			Interval:  cfg.RetentionSweepInterval,
+		})
+	}()
 
 	for i := 0; i < workers; i++ {
 		err := <-errCh

@@ -48,6 +48,10 @@ go run ./cmd/mta
 - `MTA_SLO_MIN_DELIVERY_SUCCESS_RATE` (default: `0.99`)
 - `MTA_SLO_MAX_RETRY_RATE` (default: `0.20`)
 - `MTA_SLO_MAX_QUEUE_BACKLOG` (default: `50000`)
+- `MTA_DATA_RETENTION_SENT` (default: `720h` = 30d)
+- `MTA_DATA_RETENTION_DLQ` (default: `2160h` = 90d)
+- `MTA_DATA_RETENTION_POISON` (default: `4320h` = 180d)
+- `MTA_RETENTION_SWEEP_INTERVAL` (default: `1h`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
 - `MTA_QUEUE_BACKEND` (default: `local`, values: `local` / `kafka`)
@@ -175,3 +179,9 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
   [ha_reference.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/architecture/ha_reference.md)
 - 障害注入ドリル補助スクリプト:
   `scripts/chaos/run_ha_drill.sh`
+
+## Compliance Basics
+
+- ログは `slog(JSON)` で出力
+- メールアドレス等のPIIはログ出力時にマスキング
+- `sent / mail.dlq / mail.dlq/poison` は保持期間ポリシーに基づき自動削除

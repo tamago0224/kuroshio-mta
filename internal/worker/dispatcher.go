@@ -11,6 +11,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
+	"github.com/tamago0224/orinoco-mta/internal/logging"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
@@ -106,7 +107,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					d.metricInc("worker_permanent_bounce")
 					if d.sup != nil {
 						if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
-							slog.Error("suppression add failed", "component", "worker", "rcpt", rcpt, "msg_id", msg.ID, "error", sErr)
+							slog.Error("suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", sErr)
 						}
 					}
 					return

@@ -137,3 +137,23 @@ func TestLoadDomainThrottleConfig(t *testing.T) {
 		t.Fatalf("penalty max=%s", cfg.DomainPenaltyMax)
 	}
 }
+
+func TestLoadRetentionConfig(t *testing.T) {
+	t.Setenv("MTA_DATA_RETENTION_SENT", "720h")
+	t.Setenv("MTA_DATA_RETENTION_DLQ", "2160h")
+	t.Setenv("MTA_DATA_RETENTION_POISON", "4320h")
+	t.Setenv("MTA_RETENTION_SWEEP_INTERVAL", "30m")
+	cfg := Load()
+	if cfg.DataRetentionSent != 720*time.Hour {
+		t.Fatalf("retention sent=%s", cfg.DataRetentionSent)
+	}
+	if cfg.DataRetentionDLQ != 2160*time.Hour {
+		t.Fatalf("retention dlq=%s", cfg.DataRetentionDLQ)
+	}
+	if cfg.DataRetentionPoison != 4320*time.Hour {
+		t.Fatalf("retention poison=%s", cfg.DataRetentionPoison)
+	}
+	if cfg.RetentionSweepInterval != 30*time.Minute {
+		t.Fatalf("retention sweep=%s", cfg.RetentionSweepInterval)
+	}
+}

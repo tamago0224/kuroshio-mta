@@ -54,6 +54,10 @@ type Config struct {
 	DomainAdaptiveThrottle     bool
 	DomainTempFailThreshold    float64
 	DomainPenaltyMax           time.Duration
+	DataRetentionSent          time.Duration
+	DataRetentionDLQ           time.Duration
+	DataRetentionPoison        time.Duration
+	RetentionSweepInterval     time.Duration
 }
 
 func Load() Config {
@@ -107,6 +111,10 @@ func Load() Config {
 		DomainAdaptiveThrottle:     envBool("MTA_DOMAIN_ADAPTIVE_THROTTLE", true),
 		DomainTempFailThreshold:    envFloat64("MTA_DOMAIN_TEMPFAIL_THRESHOLD", 0.3),
 		DomainPenaltyMax:           envDuration("MTA_DOMAIN_PENALTY_MAX", 5*time.Second),
+		DataRetentionSent:          envDuration("MTA_DATA_RETENTION_SENT", 30*24*time.Hour),
+		DataRetentionDLQ:           envDuration("MTA_DATA_RETENTION_DLQ", 90*24*time.Hour),
+		DataRetentionPoison:        envDuration("MTA_DATA_RETENTION_POISON", 180*24*time.Hour),
+		RetentionSweepInterval:     envDuration("MTA_RETENTION_SWEEP_INTERVAL", time.Hour),
 	}
 }
 
