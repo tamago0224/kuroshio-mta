@@ -2,11 +2,14 @@ package delivery
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -309,7 +312,7 @@ func parseMTASTSPolicy(raw string) (MTASTSPolicy, error) {
 }
 
 func fetchMTASTSPolicyTextHTTP(timeout time.Duration) func(context.Context, string) (string, error) {
-	client := &http.Client{Timeout: timeout}
+	client := newMTASTSHTTPClient(timeout)
 	return func(ctx context.Context, domain string) (string, error) {
 		url := fmt.Sprintf("https://mta-sts.%s/.well-known/mta-sts.txt", domain)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -318,6 +321,9 @@ func fetchMTASTSPolicyTextHTTP(timeout time.Duration) func(context.Context, stri
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			if isMTASTSCertificateValidationError(err) {
+				return "", fmt.Errorf("mta-sts https certificate validation failed: %w", err)
+			}
 			return "", err
 		}
 		defer resp.Body.Close()
@@ -330,4 +336,42 @@ func fetchMTASTSPolicyTextHTTP(timeout time.Duration) func(context.Context, stri
 		}
 		return string(b), nil
 	}
+}
+
+func newMTASTSHTTPClient(timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return errors.New("redirect is not allowed for mta-sts policy fetch")
+		},
+	}
+}
+
+func isMTASTSCertificateValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var uErr *url.Error
+	if errors.As(err, &uErr) {
+		err = uErr.Err
+	}
+	var uaErr *x509.UnknownAuthorityError
+	if errors.As(err, &uaErr) {
+		return true
+	}
+	var hnErr *x509.HostnameError
+	if errors.As(err, &hnErr) {
+		return true
+	}
+	var ciErr *x509.CertificateInvalidError
+	if errors.As(err, &ciErr) {
+		return true
+	}
+	return false
 }
