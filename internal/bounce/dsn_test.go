@@ -65,6 +65,19 @@ func TestParseDSN_StrictValidationError(t *testing.T) {
 	}
 }
 
+func TestParseDSN_ActionStatusAlignmentError(t *testing.T) {
+	raw := []byte(
+		"Reporting-MTA: dns; mx.example.net\r\n" +
+			"\r\n" +
+			"Final-Recipient: rfc822; user@example.com\r\n" +
+			"Action: failed\r\n" +
+			"Status: 4.1.1\r\n",
+	)
+	if _, err := ParseDSN(raw); err == nil {
+		t.Fatal("expected action/status alignment error")
+	}
+}
+
 func TestParseDSN_FoldedHeader(t *testing.T) {
 	raw := []byte(
 		"Reporting-MTA: dns; mx.example.net\r\n" +
