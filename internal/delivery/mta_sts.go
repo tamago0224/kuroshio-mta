@@ -56,6 +56,13 @@ type MTASTSResolver struct {
 	retryAt       map[string]time.Time
 	minRetryDelay time.Duration
 	maxRetryDelay time.Duration
+	rollovers     map[string]mtaSTSRolloverState
+	rolloverNeed  int
+}
+
+type mtaSTSRolloverState struct {
+	policy        MTASTSPolicy
+	confirmations int
 }
 
 func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx context.Context, domain string) (string, error)) *MTASTSResolver {
@@ -79,6 +86,8 @@ func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx conte
 		retryAt:       map[string]time.Time{},
 		minRetryDelay: time.Second,
 		maxRetryDelay: 5 * time.Minute,
+		rollovers:     map[string]mtaSTSRolloverState{},
+		rolloverNeed:  2,
 	}
 }
 
@@ -148,11 +157,41 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	}
 
 	r.mu.Lock()
-	r.cache[domain] = p
 	delete(r.retryFailures, domain)
 	delete(r.retryAt, domain)
+	if hasStale && stale.PolicyID != "" && p.PolicyID != "" && p.PolicyID != stale.PolicyID {
+		if !r.observeRolloverLocked(domain, p) {
+			r.mu.Unlock()
+			return stale, nil
+		}
+	} else {
+		delete(r.rollovers, domain)
+	}
+	r.cache[domain] = p
+	delete(r.rollovers, domain)
 	r.mu.Unlock()
 	return p, nil
+}
+
+func (r *MTASTSResolver) observeRolloverLocked(domain string, p MTASTSPolicy) bool {
+	if r.rolloverNeed <= 1 {
+		return true
+	}
+	st, ok := r.rollovers[domain]
+	if !ok || st.policy.PolicyID != p.PolicyID {
+		r.rollovers[domain] = mtaSTSRolloverState{
+			policy:        p,
+			confirmations: 1,
+		}
+		return false
+	}
+	st.confirmations++
+	st.policy = p
+	if st.confirmations >= r.rolloverNeed {
+		return true
+	}
+	r.rollovers[domain] = st
+	return false
 }
 
 func (r *MTASTSResolver) lookupPolicyID(ctx context.Context, domain string) (string, bool) {
