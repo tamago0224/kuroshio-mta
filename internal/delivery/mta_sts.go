@@ -45,9 +45,14 @@ type MTASTSResolver struct {
 	ttl       time.Duration
 	fetchTO   time.Duration
 	fetchFunc func(ctx context.Context, domain string) (string, error)
+	nowFn     func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]MTASTSPolicy
+	mu            sync.Mutex
+	cache         map[string]MTASTSPolicy
+	retryFailures map[string]int
+	retryAt       map[string]time.Time
+	minRetryDelay time.Duration
+	maxRetryDelay time.Duration
 }
 
 func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx context.Context, domain string) (string, error)) *MTASTSResolver {
@@ -60,7 +65,17 @@ func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx conte
 	if fetchTimeout <= 0 {
 		fetchTimeout = 5 * time.Second
 	}
-	return &MTASTSResolver{ttl: ttl, fetchTO: fetchTimeout, fetchFunc: fetchFunc, cache: map[string]MTASTSPolicy{}}
+	return &MTASTSResolver{
+		ttl:           ttl,
+		fetchTO:       fetchTimeout,
+		fetchFunc:     fetchFunc,
+		nowFn:         time.Now,
+		cache:         map[string]MTASTSPolicy{},
+		retryFailures: map[string]int{},
+		retryAt:       map[string]time.Time{},
+		minRetryDelay: time.Second,
+		maxRetryDelay: 5 * time.Minute,
+	}
 }
 
 func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolicy, error) {
@@ -68,20 +83,48 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	if domain == "" {
 		return MTASTSPolicy{}, errors.New("empty domain")
 	}
-	now := time.Now().UTC()
+	now := r.nowFn().UTC()
+
+	var stale MTASTSPolicy
+	hasStale := false
+
 	r.mu.Lock()
-	if p, ok := r.cache[domain]; ok && now.Before(p.ExpiresAt) {
-		r.mu.Unlock()
-		return p, nil
+	if p, ok := r.cache[domain]; ok {
+		if now.Before(p.ExpiresAt) {
+			r.mu.Unlock()
+			return p, nil
+		}
+		stale = p
+		hasStale = true
+		if ra, ok := r.retryAt[domain]; ok && now.Before(ra) {
+			r.mu.Unlock()
+			return stale, nil
+		}
 	}
 	r.mu.Unlock()
 
 	text, err := r.fetchFunc(ctx, domain)
 	if err != nil {
+		if hasStale {
+			r.mu.Lock()
+			failures := r.retryFailures[domain] + 1
+			r.retryFailures[domain] = failures
+			r.retryAt[domain] = now.Add(r.retryDelay(failures))
+			r.mu.Unlock()
+			return stale, nil
+		}
 		return MTASTSPolicy{}, err
 	}
 	p, err := parseMTASTSPolicy(text)
 	if err != nil {
+		if hasStale {
+			r.mu.Lock()
+			failures := r.retryFailures[domain] + 1
+			r.retryFailures[domain] = failures
+			r.retryAt[domain] = now.Add(r.retryDelay(failures))
+			r.mu.Unlock()
+			return stale, nil
+		}
 		return MTASTSPolicy{}, err
 	}
 	expire := now.Add(p.MaxAge)
@@ -92,8 +135,31 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 
 	r.mu.Lock()
 	r.cache[domain] = p
+	delete(r.retryFailures, domain)
+	delete(r.retryAt, domain)
 	r.mu.Unlock()
 	return p, nil
+}
+
+func (r *MTASTSResolver) retryDelay(failures int) time.Duration {
+	if failures <= 0 {
+		return r.minRetryDelay
+	}
+	delay := r.minRetryDelay
+	for i := 1; i < failures; i++ {
+		if delay >= r.maxRetryDelay/2 {
+			delay = r.maxRetryDelay
+			break
+		}
+		delay *= 2
+	}
+	if delay > r.maxRetryDelay {
+		return r.maxRetryDelay
+	}
+	if delay <= 0 {
+		return r.minRetryDelay
+	}
+	return delay
 }
 
 func parseMTASTSPolicy(raw string) (MTASTSPolicy, error) {

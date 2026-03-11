@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -52,5 +53,75 @@ func TestMTASTSResolverCachesResult(t *testing.T) {
 	}
 	if p1.Mode != p2.Mode {
 		t.Fatalf("cached policy mismatch")
+	}
+}
+
+func TestMTASTSResolverReturnsStaleOnFetchFailure(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		calls++
+		return "", errors.New("fetch failed")
+	})
+	r.nowFn = func() time.Time { return now }
+	r.cache["example.com"] = MTASTSPolicy{
+		Version:   "STSv1",
+		Mode:      "enforce",
+		MX:        []string{"mx.example.net"},
+		MaxAge:    time.Hour,
+		ExpiresAt: now.Add(-time.Minute),
+	}
+
+	p, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup should return stale policy on fetch failure: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one fetch attempt, calls=%d", calls)
+	}
+	if p.Mode != "enforce" || len(p.MX) != 1 || p.MX[0] != "mx.example.net" {
+		t.Fatalf("unexpected stale policy: %+v", p)
+	}
+}
+
+func TestMTASTSResolverUsesCooldownBeforeRetry(t *testing.T) {
+	now := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	r := NewMTASTSResolver(5*time.Minute, 2*time.Second, func(ctx context.Context, domain string) (string, error) {
+		calls++
+		return "", errors.New("fetch failed")
+	})
+	r.nowFn = func() time.Time { return now }
+	r.minRetryDelay = 10 * time.Second
+	r.maxRetryDelay = 10 * time.Second
+	r.cache["example.com"] = MTASTSPolicy{
+		Version:   "STSv1",
+		Mode:      "enforce",
+		MX:        []string{"mx.example.net"},
+		MaxAge:    time.Hour,
+		ExpiresAt: now.Add(-time.Minute),
+	}
+
+	if _, err := r.Lookup(context.Background(), "example.com"); err != nil {
+		t.Fatalf("first lookup: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected first fetch attempt, calls=%d", calls)
+	}
+
+	now = now.Add(5 * time.Second)
+	if _, err := r.Lookup(context.Background(), "example.com"); err != nil {
+		t.Fatalf("second lookup during cooldown: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected no fetch during cooldown, calls=%d", calls)
+	}
+
+	now = now.Add(6 * time.Second)
+	if _, err := r.Lookup(context.Background(), "example.com"); err != nil {
+		t.Fatalf("third lookup after cooldown: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected retry fetch after cooldown, calls=%d", calls)
 	}
 }
