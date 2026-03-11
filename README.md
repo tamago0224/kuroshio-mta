@@ -168,3 +168,10 @@ DNS を含む `docker compose` 環境を用意しています。
 - `/slo`: 現在の SLI/SLO 判定結果（JSON, breach時は HTTP 503）
 
 Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/orinoco-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。
+
+## HA Reference
+
+- リファレンス構成とフェイルオーバー手順:
+  [ha_reference.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/architecture/ha_reference.md)
+- 障害注入ドリル補助スクリプト:
+  `scripts/chaos/run_ha_drill.sh`
