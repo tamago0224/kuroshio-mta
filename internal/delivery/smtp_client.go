@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,13 +25,14 @@ type messageSigner interface {
 }
 
 type Client struct {
-	cfg           config.Config
-	dane          *DANEResolver
-	mtaSTS        *MTASTSResolver
-	signer        messageSigner
-	resolveMXFn   func(string, time.Duration) ([]router.MXHost, error)
-	deliverHostFn func(context.Context, string, int, *model.Message, string, bool) error
-	spoolWriteFn  func(*model.Message, string) error
+	cfg                            config.Config
+	dane                           *DANEResolver
+	mtaSTS                         *MTASTSResolver
+	signer                         messageSigner
+	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
+	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool) error
+	spoolWriteFn                   func(*model.Message, string) error
+	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
 }
 
 func NewClient(cfg config.Config) *Client {
@@ -47,6 +49,13 @@ func NewClient(cfg config.Config) *Client {
 	}
 	c.deliverHostFn = c.deliverHost
 	c.spoolWriteFn = c.writeLocalSpool
+	c.reportMTASTSTestingViolationFn = func(ctx context.Context, domain, host, reason string) {
+		slog.WarnContext(ctx, "mta-sts testing policy violation",
+			"domain", domain,
+			"host", host,
+			"reason", reason,
+		)
+	}
 	return c
 }
 
@@ -84,6 +93,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
 	requireTLS := false
+	var mtaSTSTestingPolicy *MTASTSPolicy
 	daneCandidates := make([]router.MXHost, 0, len(mxHosts))
 	if c.dane != nil {
 		for _, mx := range mxHosts {
@@ -114,11 +124,17 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 					return &SMTPResponseError{Code: 454, Line: "mta-sts policy mismatch: no allowed mx"}
 				}
 				mxHosts = filtered
+			} else if p.Mode == "testing" {
+				cp := p
+				mtaSTSTestingPolicy = &cp
 			}
 		}
 	}
 	var lastErr error
 	for _, mx := range mxHosts {
+		if mtaSTSTestingPolicy != nil && !mtaSTSTestingPolicy.AllowsMX(mx.Host) && c.reportMTASTSTestingViolationFn != nil {
+			c.reportMTASTSTestingViolationFn(ctx, domain, mx.Host, "mx_mismatch")
+		}
 		if err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS); err == nil {
 			return nil
 		} else {
