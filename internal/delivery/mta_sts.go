@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ type MTASTSPolicy struct {
 	MX        []string
 	MaxAge    time.Duration
 	ExpiresAt time.Time
+	PolicyID  string
 }
 
 func (p MTASTSPolicy) AllowsMX(host string) bool {
@@ -45,6 +47,7 @@ type MTASTSResolver struct {
 	ttl       time.Duration
 	fetchTO   time.Duration
 	fetchFunc func(ctx context.Context, domain string) (string, error)
+	lookupTXT func(ctx context.Context, name string) ([]string, error)
 	nowFn     func() time.Time
 
 	mu            sync.Mutex
@@ -69,6 +72,7 @@ func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx conte
 		ttl:           ttl,
 		fetchTO:       fetchTimeout,
 		fetchFunc:     fetchFunc,
+		lookupTXT:     net.DefaultResolver.LookupTXT,
 		nowFn:         time.Now,
 		cache:         map[string]MTASTSPolicy{},
 		retryFailures: map[string]int{},
@@ -84,21 +88,28 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 		return MTASTSPolicy{}, errors.New("empty domain")
 	}
 	now := r.nowFn().UTC()
+	policyID, hasPolicyID := r.lookupPolicyID(ctx, domain)
 
 	var stale MTASTSPolicy
 	hasStale := false
 
 	r.mu.Lock()
 	if p, ok := r.cache[domain]; ok {
-		if now.Before(p.ExpiresAt) {
+		refreshByID := hasPolicyID && p.PolicyID != "" && policyID != p.PolicyID
+		if now.Before(p.ExpiresAt) && !refreshByID {
 			r.mu.Unlock()
 			return p, nil
 		}
 		stale = p
 		hasStale = true
-		if ra, ok := r.retryAt[domain]; ok && now.Before(ra) {
-			r.mu.Unlock()
-			return stale, nil
+		if !refreshByID {
+			if ra, ok := r.retryAt[domain]; ok && now.Before(ra) {
+				r.mu.Unlock()
+				return stale, nil
+			}
+		} else {
+			delete(r.retryAt, domain)
+			delete(r.retryFailures, domain)
 		}
 	}
 	r.mu.Unlock()
@@ -132,6 +143,9 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 		expire = ttlExpire
 	}
 	p.ExpiresAt = expire
+	if hasPolicyID {
+		p.PolicyID = policyID
+	}
 
 	r.mu.Lock()
 	r.cache[domain] = p
@@ -139,6 +153,52 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	delete(r.retryAt, domain)
 	r.mu.Unlock()
 	return p, nil
+}
+
+func (r *MTASTSResolver) lookupPolicyID(ctx context.Context, domain string) (string, bool) {
+	if r.lookupTXT == nil {
+		return "", false
+	}
+	name := "_mta-sts." + domain
+	txts, err := r.lookupTXT(ctx, name)
+	if err != nil {
+		return "", false
+	}
+	return parseMTASTSPolicyID(txts)
+}
+
+func parseMTASTSPolicyID(txts []string) (string, bool) {
+	for _, txt := range txts {
+		var versionOK bool
+		var policyID string
+		parts := strings.Split(txt, ";")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			k := strings.ToLower(strings.TrimSpace(kv[0]))
+			v := strings.TrimSpace(kv[1])
+			switch k {
+			case "v":
+				if strings.EqualFold(v, "STSv1") {
+					versionOK = true
+				}
+			case "id":
+				if v != "" {
+					policyID = v
+				}
+			}
+		}
+		if versionOK && policyID != "" {
+			return policyID, true
+		}
+	}
+	return "", false
 }
 
 func (r *MTASTSResolver) retryDelay(failures int) time.Duration {
