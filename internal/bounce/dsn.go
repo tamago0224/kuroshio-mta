@@ -134,6 +134,9 @@ func validateDSNRecipientReport(r DSNReport) error {
 	if !dsnStatusPattern.MatchString(r.Status) {
 		return fmt.Errorf("invalid status: %q", r.Status)
 	}
+	if err := validateActionStatusAlignment(r.Action, r.Status); err != nil {
+		return err
+	}
 	if r.LastAttemptDate != "" {
 		if _, err := mail.ParseDate(r.LastAttemptDate); err != nil {
 			return fmt.Errorf("invalid last-attempt-date: %w", err)
@@ -142,6 +145,25 @@ func validateDSNRecipientReport(r DSNReport) error {
 	if r.WillRetryUntil != "" {
 		if _, err := mail.ParseDate(r.WillRetryUntil); err != nil {
 			return fmt.Errorf("invalid will-retry-until: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateActionStatusAlignment(action, status string) error {
+	statusClass := strings.SplitN(strings.TrimSpace(status), ".", 2)[0]
+	switch strings.TrimSpace(strings.ToLower(action)) {
+	case "failed":
+		if statusClass != "5" {
+			return fmt.Errorf("action/status mismatch: failed requires 5.x.x, got %q", status)
+		}
+	case "delayed":
+		if statusClass != "4" {
+			return fmt.Errorf("action/status mismatch: delayed requires 4.x.x, got %q", status)
+		}
+	case "delivered", "relayed", "expanded":
+		if statusClass != "2" {
+			return fmt.Errorf("action/status mismatch: %s requires 2.x.x, got %q", action, status)
 		}
 	}
 	return nil
