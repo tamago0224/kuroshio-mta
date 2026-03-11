@@ -45,6 +45,9 @@ go run ./cmd/mta
 - `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` (default: `true`, requires `MAIL FROM` domain to match authenticated user domain)
 - `MTA_LOG_LEVEL` (default: `info`, values: `debug` / `info` / `warn` / `error`, logs are JSON via `slog`)
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
+- `MTA_SLO_MIN_DELIVERY_SUCCESS_RATE` (default: `0.99`)
+- `MTA_SLO_MAX_RETRY_RATE` (default: `0.20`)
+- `MTA_SLO_MAX_QUEUE_BACKLOG` (default: `50000`)
 - `MTA_HOSTNAME` (default: `orinoco.local`)
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
 - `MTA_QUEUE_BACKEND` (default: `local`, values: `local` / `kafka`)
@@ -158,3 +161,10 @@ DNS を含む `docker compose` 環境を用意しています。
 ```
 
 詳細は `test/integration/README.md` を参照してください。
+
+## SLO/SLI Monitoring
+
+- `/metrics`: Prometheus metrics
+- `/slo`: 現在の SLI/SLO 判定結果（JSON, breach時は HTTP 503）
+
+Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/orinoco-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。

@@ -1,0 +1,47 @@
+groups:
+  - name: orinoco-slo
+    rules:
+      - alert: OrinocoDeliverySuccessRateLow
+        expr: |
+          (
+            rate(worker_delivery_success_total[5m]) /
+            clamp_min(
+              rate(worker_delivery_success_total[5m]) +
+              rate(worker_temporary_failure_total[5m]) +
+              rate(worker_permanent_bounce_total[5m]),
+              1e-9
+            )
+          ) < 0.99
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Orinoco delivery success rate is below SLO"
+          runbook: "docs/runbooks/slo_delivery.md"
+
+      - alert: OrinocoRetryRateHigh
+        expr: |
+          (
+            rate(worker_temporary_failure_total[10m]) /
+            clamp_min(
+              rate(worker_delivery_success_total[10m]) +
+              rate(worker_temporary_failure_total[10m]) +
+              rate(worker_permanent_bounce_total[10m]),
+              1e-9
+            )
+          ) > 0.20
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "Orinoco retry rate is above SLO"
+          runbook: "docs/runbooks/slo_retry.md"
+
+      - alert: OrinocoQueueBacklogHigh
+        expr: (smtp_queued_messages_total - worker_ack_sent_total - worker_mark_failed_total) > 50000
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Orinoco queue backlog exceeds threshold"
+          runbook: "docs/runbooks/slo_backlog.md"
