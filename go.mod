@@ -1,6 +1,8 @@
 module github.com/tamago0224/orinoco-mta
 
-go 1.23
+go 1.25
+
+toolchain go1.25.8
 
 require (
 	github.com/klauspost/compress v1.15.9 // indirect
