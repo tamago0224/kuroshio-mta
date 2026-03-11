@@ -2,7 +2,10 @@ package delivery
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -283,5 +286,48 @@ func TestMTASTSResolverSafeRolloverAppliesImmediatelyWithoutPreviousPolicy(t *te
 	}
 	if len(p.MX) != 1 || p.MX[0] != "mx-new.example.net" {
 		t.Fatalf("expected immediate apply when no previous policy, got %+v", p)
+	}
+}
+
+func TestNewMTASTSHTTPClientSetsStrictTLSAndNoRedirect(t *testing.T) {
+	cl := newMTASTSHTTPClient(3 * time.Second)
+	if cl.Timeout != 3*time.Second {
+		t.Fatalf("unexpected timeout: %v", cl.Timeout)
+	}
+	if cl.CheckRedirect == nil {
+		t.Fatal("expected redirect policy to be set")
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err := cl.CheckRedirect(req, []*http.Request{req}); err == nil {
+		t.Fatal("expected redirect to be rejected")
+	}
+	tr, ok := cl.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("unexpected transport type: %T", cl.Transport)
+	}
+	if tr.TLSClientConfig == nil {
+		t.Fatal("expected tls config")
+	}
+	if tr.TLSClientConfig.MinVersion != 0x0303 {
+		t.Fatalf("expected TLS1.2 min version, got %x", tr.TLSClientConfig.MinVersion)
+	}
+}
+
+func TestIsMTASTSCertificateValidationError(t *testing.T) {
+	if !isMTASTSCertificateValidationError(&x509.UnknownAuthorityError{}) {
+		t.Fatal("expected unknown authority as cert validation error")
+	}
+	if !isMTASTSCertificateValidationError(&x509.HostnameError{}) {
+		t.Fatal("expected hostname error as cert validation error")
+	}
+	if !isMTASTSCertificateValidationError(&x509.CertificateInvalidError{}) {
+		t.Fatal("expected certificate invalid error as cert validation error")
+	}
+	uErr := &url.Error{Err: &x509.UnknownAuthorityError{}}
+	if !isMTASTSCertificateValidationError(uErr) {
+		t.Fatal("expected wrapped x509 error to be detected")
+	}
+	if isMTASTSCertificateValidationError(errors.New("timeout")) {
+		t.Fatal("did not expect generic error to be cert validation error")
 	}
 }
