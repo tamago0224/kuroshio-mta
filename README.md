@@ -42,6 +42,7 @@ go run ./cmd/mta
 - `MTA_SUBMISSION_ADDR` (default: unset, set e.g. `:587` to enable Submission listener)
 - `MTA_SUBMISSION_AUTH_REQUIRED` (default: `true`)
 - `MTA_SUBMISSION_USERS` (default: unset, format: `user@example.com:password,...`)
+- `MTA_SUBMISSION_USERS_FILE` (default: unset, `MTA_SUBMISSION_USERS` の代替。ファイルからシークレット読込)
 - `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` (default: `true`, requires `MAIL FROM` domain to match authenticated user domain)
 - `MTA_LOG_LEVEL` (default: `info`, values: `debug` / `info` / `warn` / `error`, logs are JSON via `slog`)
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
@@ -185,3 +186,9 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - ログは `slog(JSON)` で出力
 - メールアドレス等のPIIはログ出力時にマスキング
 - `sent / mail.dlq / mail.dlq/poison` は保持期間ポリシーに基づき自動削除
+
+## Security
+
+- 脆弱性スキャン: `.github/workflows/security.yml` で `govulncheck` を実行
+- SBOM生成: `scripts/security/generate_sbom.sh`
+- 詳細方針: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/security/secrets_and_supply_chain.md)
