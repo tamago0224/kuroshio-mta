@@ -113,3 +113,27 @@ func TestLoadDKIMSigningConfig(t *testing.T) {
 		t.Fatalf("headers=%q", cfg.DKIMSignHeaders)
 	}
 }
+
+func TestLoadDomainThrottleConfig(t *testing.T) {
+	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", "4")
+	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_RULES", "gmail.com:2,yahoo.com:1")
+	t.Setenv("MTA_DOMAIN_ADAPTIVE_THROTTLE", "true")
+	t.Setenv("MTA_DOMAIN_TEMPFAIL_THRESHOLD", "0.5")
+	t.Setenv("MTA_DOMAIN_PENALTY_MAX", "3s")
+	cfg := Load()
+	if cfg.DomainMaxConcurrentDefault != 4 {
+		t.Fatalf("default concurrency=%d", cfg.DomainMaxConcurrentDefault)
+	}
+	if cfg.DomainMaxConcurrentRules != "gmail.com:2,yahoo.com:1" {
+		t.Fatalf("rules=%q", cfg.DomainMaxConcurrentRules)
+	}
+	if !cfg.DomainAdaptiveThrottle {
+		t.Fatal("adaptive throttle should be true")
+	}
+	if cfg.DomainTempFailThreshold != 0.5 {
+		t.Fatalf("threshold=%v", cfg.DomainTempFailThreshold)
+	}
+	if cfg.DomainPenaltyMax != 3*time.Second {
+		t.Fatalf("penalty max=%s", cfg.DomainPenaltyMax)
+	}
+}
