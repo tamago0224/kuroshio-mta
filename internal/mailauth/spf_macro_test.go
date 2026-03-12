@@ -44,6 +44,144 @@ func TestEvalSPF_MacroExpansionForAAndInclude(t *testing.T) {
 	}
 }
 
+func TestEvalSPF_ExistsMechanism(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		if strings.EqualFold(domain, "example.com") {
+			return []string{"v=spf1 exists:%{l}.exists.example.net -all"}, nil
+		}
+		return nil, nil
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) {
+		if strings.EqualFold(host, "sender.exists.example.net") {
+			return []net.IP{net.ParseIP("203.0.113.10")}, nil
+		}
+		return nil, nil
+	}
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+	res := EvalSPF(net.ParseIP("192.0.2.1"), "sender@example.com", "mx.example.com")
+	if res.Result != "pass" {
+		t.Fatalf("result=%q reason=%q", res.Result, res.Reason)
+	}
+}
+
+func TestEvalSPF_PTRMechanism(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		if strings.EqualFold(domain, "example.com") {
+			return []string{"v=spf1 ptr:trusted.example.net -all"}, nil
+		}
+		return nil, nil
+	}
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) {
+		if addr == "198.51.100.10" {
+			return []string{"mx.trusted.example.net."}, nil
+		}
+		return nil, nil
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) {
+		if strings.EqualFold(host, "mx.trusted.example.net") {
+			return []net.IP{net.ParseIP("198.51.100.10")}, nil
+		}
+		return nil, nil
+	}
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+
+	res := EvalSPF(net.ParseIP("198.51.100.10"), "sender@example.com", "mx.example.com")
+	if res.Result != "pass" {
+		t.Fatalf("result=%q reason=%q", res.Result, res.Reason)
+	}
+}
+
+func TestEvalSPF_RedirectModifier(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		switch strings.ToLower(domain) {
+		case "example.com":
+			return []string{"v=spf1 redirect=spf.redirect.example.net"}, nil
+		case "spf.redirect.example.net":
+			return []string{"v=spf1 ip4:203.0.113.9 -all"}, nil
+		default:
+			return nil, nil
+		}
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) { return nil, nil }
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+	res := EvalSPF(net.ParseIP("203.0.113.9"), "sender@example.com", "mx.example.com")
+	if res.Result != "pass" {
+		t.Fatalf("result=%q reason=%q", res.Result, res.Reason)
+	}
+}
+
+func TestEvalSPF_ExpModifierForFail(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		switch strings.ToLower(domain) {
+		case "example.com":
+			return []string{"v=spf1 -all exp=explain.example.com"}, nil
+		case "explain.example.com":
+			return []string{"Mail from this source is not permitted."}, nil
+		default:
+			return nil, nil
+		}
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) { return nil, nil }
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+	res := EvalSPF(net.ParseIP("203.0.113.77"), "sender@example.com", "mx.example.com")
+	if res.Result != "fail" {
+		t.Fatalf("result=%q reason=%q", res.Result, res.Reason)
+	}
+	if !strings.Contains(res.Reason, "not permitted") {
+		t.Fatalf("unexpected exp reason=%q", res.Reason)
+	}
+}
+
 func TestExpandSPFMacros_BasicTokens(t *testing.T) {
 	ip := net.ParseIP("203.0.113.7")
 	got := expandSPFMacros("%{s}/%{l}/%{o}/%{d}/%{h}/%{i}/%{v}/%%/%_/%-", "Alice@Example.com", "example.com", "Mail.EXAMPLE.com", ip)

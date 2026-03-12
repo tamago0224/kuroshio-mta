@@ -22,6 +22,9 @@ var (
 	spfLookupMX = func(ctx context.Context, domain string) ([]*net.MX, error) {
 		return net.DefaultResolver.LookupMX(ctx, domain)
 	}
+	spfLookupAddr = func(ctx context.Context, addr string) ([]string, error) {
+		return net.DefaultResolver.LookupAddr(ctx, addr)
+	}
 )
 
 func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
@@ -58,6 +61,24 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 	if len(terms) == 0 || strings.ToLower(terms[0]) != "v=spf1" {
 		return "permerror", "invalid spf header"
 	}
+	redirectDomain := ""
+	explanationDomain := ""
+	for _, t := range terms[1:] {
+		if t == "" || !strings.Contains(t, "=") {
+			continue
+		}
+		k, v, ok := strings.Cut(t, "=")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "redirect":
+			redirectDomain = expandSPFMacros(strings.TrimSpace(v), sender, domain, helo, remoteIP)
+		case "exp":
+			explanationDomain = expandSPFMacros(strings.TrimSpace(v), sender, domain, helo, remoteIP)
+		}
+	}
+
 	for _, t := range terms[1:] {
 		if t == "" {
 			continue
@@ -80,8 +101,21 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 			continue
 		}
 		if match {
-			return qualifierResult(qualifier), fmt.Sprintf("matched %s", name)
+			result := qualifierResult(qualifier)
+			if result == "fail" && explanationDomain != "" {
+				if exp, ok := lookupSPFExplanation(ctx, explanationDomain); ok {
+					return result, exp
+				}
+			}
+			return result, fmt.Sprintf("matched %s", name)
 		}
+	}
+	if redirectDomain != "" {
+		res, reason := evalSPFDomain(ctx, remoteIP, redirectDomain, sender, helo, depth+1)
+		if res == "none" {
+			return "permerror", "redirect target has no spf record"
+		}
+		return res, reason
 	}
 	return "neutral", "no mechanism matched"
 }
@@ -164,6 +198,19 @@ func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, 
 			return true, true, nil
 		}
 		return false, true, nil
+	case "exists":
+		if arg == "" {
+			return false, true, nil
+		}
+		ok, err := matchExists(ctx, arg)
+		return ok, true, err
+	case "ptr":
+		host := domain
+		if arg != "" {
+			host = arg
+		}
+		ok, err := matchPTR(ctx, remoteIP, host)
+		return ok, true, err
 	default:
 		return false, false, nil
 	}
@@ -226,6 +273,55 @@ func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int) (b
 		}
 	}
 	return false, nil
+}
+
+func matchExists(ctx context.Context, host string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	ips, err := spfLookupIP(ctx, host)
+	if err != nil {
+		return false, err
+	}
+	return len(ips) > 0, nil
+}
+
+func matchPTR(ctx context.Context, remoteIP net.IP, targetDomain string) (bool, error) {
+	if remoteIP == nil {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	names, err := spfLookupAddr(ctx, remoteIP.String())
+	if err != nil {
+		return false, err
+	}
+	targetDomain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(targetDomain), "."))
+	for _, n := range names {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(n), "."))
+		if !domainMatches(host, targetDomain) {
+			continue
+		}
+		ips, err := spfLookupIP(ctx, host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			if ip.Equal(remoteIP) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func domainMatches(host, domain string) bool {
+	if host == "" || domain == "" {
+		return false
+	}
+	if host == domain {
+		return true
+	}
+	return strings.HasSuffix(host, "."+domain)
 }
 
 func expandSPFMacros(spec, sender, domain, helo string, remoteIP net.IP) string {
@@ -330,4 +426,24 @@ func matchPrefix(a, b net.IP, p int) bool {
 	}
 	pref := netip.PrefixFrom(aa.Unmap(), p)
 	return pref.Contains(bb.Unmap())
+}
+
+func lookupSPFExplanation(ctx context.Context, domain string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	txt, err := spfLookupTXT(ctx, domain)
+	if err != nil || len(txt) == 0 {
+		return "", false
+	}
+	for _, v := range txt {
+		s := strings.TrimSpace(v)
+		if s == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(s), "v=spf1") {
+			continue
+		}
+		return s, true
+	}
+	return "", false
 }
