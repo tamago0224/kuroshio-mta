@@ -2,6 +2,7 @@ package mailauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,6 +11,16 @@ import (
 	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/util"
+)
+
+const (
+	spfMaxDNSLookups  = 10
+	spfMaxVoidLookups = 2
+)
+
+var (
+	errSPFLookupLimit     = errors.New("spf dns lookup limit exceeded")
+	errSPFVoidLookupLimit = errors.New("spf void lookup limit exceeded")
 )
 
 var (
@@ -35,7 +46,8 @@ func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
 	if remoteIP == nil {
 		return SPFResult{Domain: domain, Result: "temperror", Reason: "missing remote ip"}
 	}
-	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, mailFrom, helo, 0)
+	state := &spfEvalState{}
+	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, mailFrom, helo, 0, state)
 	return SPFResult{Domain: domain, Result: res, Reason: reason}
 }
 
@@ -46,12 +58,15 @@ func spfDomain(mailFrom, helo string) string {
 	return strings.ToLower(strings.TrimSpace(helo))
 }
 
-func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo string, depth int) (string, string) {
+func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo string, depth int, st *spfEvalState) (string, string) {
 	if depth > 10 {
 		return "permerror", "include recursion too deep"
 	}
-	record, ok, err := lookupSPFRecord(ctx, domain)
+	record, ok, err := lookupSPFRecord(ctx, domain, st)
 	if err != nil {
+		if errors.Is(err, errSPFLookupLimit) || errors.Is(err, errSPFVoidLookupLimit) {
+			return "permerror", err.Error()
+		}
 		return "temperror", err.Error()
 	}
 	if !ok {
@@ -93,8 +108,11 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 		}
 		name, arg, prefix := parseMechanism(t)
 		arg = expandSPFMacros(arg, sender, domain, helo, remoteIP)
-		match, ok, err := matchMechanism(ctx, remoteIP, domain, sender, helo, name, arg, prefix, depth)
+		match, ok, err := matchMechanism(ctx, remoteIP, domain, sender, helo, name, arg, prefix, depth, st)
 		if err != nil {
+			if errors.Is(err, errSPFLookupLimit) || errors.Is(err, errSPFVoidLookupLimit) {
+				return "permerror", err.Error()
+			}
 			return "temperror", err.Error()
 		}
 		if !ok {
@@ -111,7 +129,7 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 		}
 	}
 	if redirectDomain != "" {
-		res, reason := evalSPFDomain(ctx, remoteIP, redirectDomain, sender, helo, depth+1)
+		res, reason := evalSPFDomain(ctx, remoteIP, redirectDomain, sender, helo, depth+1, st)
 		if res == "none" {
 			return "permerror", "redirect target has no spf record"
 		}
@@ -120,10 +138,10 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 	return "neutral", "no mechanism matched"
 }
 
-func lookupSPFRecord(ctx context.Context, domain string) (string, bool, error) {
+func lookupSPFRecord(ctx context.Context, domain string, st *spfEvalState) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	txt, err := spfLookupTXT(ctx, domain)
+	txt, err := lookupTXT(ctx, domain, st)
 	if err != nil {
 		return "", false, err
 	}
@@ -165,7 +183,7 @@ func qualifierResult(q rune) string {
 	}
 }
 
-func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, name, arg string, prefix, depth int) (bool, bool, error) {
+func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, name, arg string, prefix, depth int, st *spfEvalState) (bool, bool, error) {
 	switch name {
 	case "all":
 		return true, true, nil
@@ -180,20 +198,20 @@ func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, 
 		if arg != "" {
 			host = arg
 		}
-		ok, err := matchHostIPs(ctx, remoteIP, host, prefix)
+		ok, err := matchHostIPs(ctx, remoteIP, host, prefix, st)
 		return ok, true, err
 	case "mx":
 		host := domain
 		if arg != "" {
 			host = arg
 		}
-		ok, err := matchMX(ctx, remoteIP, host, prefix)
+		ok, err := matchMX(ctx, remoteIP, host, prefix, st)
 		return ok, true, err
 	case "include":
 		if arg == "" {
 			return false, true, nil
 		}
-		res, _ := evalSPFDomain(ctx, remoteIP, arg, sender, helo, depth+1)
+		res, _ := evalSPFDomain(ctx, remoteIP, arg, sender, helo, depth+1, st)
 		if res == "pass" {
 			return true, true, nil
 		}
@@ -202,14 +220,14 @@ func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, 
 		if arg == "" {
 			return false, true, nil
 		}
-		ok, err := matchExists(ctx, arg)
+		ok, err := matchExists(ctx, arg, st)
 		return ok, true, err
 	case "ptr":
 		host := domain
 		if arg != "" {
 			host = arg
 		}
-		ok, err := matchPTR(ctx, remoteIP, host)
+		ok, err := matchPTR(ctx, remoteIP, host, st)
 		return ok, true, err
 	default:
 		return false, false, nil
@@ -235,10 +253,10 @@ func matchIPMechanism(remoteIP net.IP, cidr string) (bool, error) {
 	return prefix.Contains(addr.Unmap()), nil
 }
 
-func matchHostIPs(ctx context.Context, remoteIP net.IP, host string, prefix int) (bool, error) {
+func matchHostIPs(ctx context.Context, remoteIP net.IP, host string, prefix int, st *spfEvalState) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	ips, err := spfLookupIP(ctx, host)
+	ips, err := lookupIP(ctx, host, st)
 	if err != nil {
 		return false, err
 	}
@@ -255,16 +273,16 @@ func matchHostIPs(ctx context.Context, remoteIP net.IP, host string, prefix int)
 	return false, nil
 }
 
-func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int) (bool, error) {
+func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int, st *spfEvalState) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	mx, err := spfLookupMX(ctx, domain)
+	mx, err := lookupMX(ctx, domain, st)
 	if err != nil {
 		return false, err
 	}
 	for _, m := range mx {
 		host := strings.TrimSuffix(m.Host, ".")
-		ok, err := matchHostIPs(ctx, remoteIP, host, prefix)
+		ok, err := matchHostIPs(ctx, remoteIP, host, prefix, st)
 		if err != nil {
 			continue
 		}
@@ -275,23 +293,23 @@ func matchMX(ctx context.Context, remoteIP net.IP, domain string, prefix int) (b
 	return false, nil
 }
 
-func matchExists(ctx context.Context, host string) (bool, error) {
+func matchExists(ctx context.Context, host string, st *spfEvalState) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	ips, err := spfLookupIP(ctx, host)
+	ips, err := lookupIP(ctx, host, st)
 	if err != nil {
 		return false, err
 	}
 	return len(ips) > 0, nil
 }
 
-func matchPTR(ctx context.Context, remoteIP net.IP, targetDomain string) (bool, error) {
+func matchPTR(ctx context.Context, remoteIP net.IP, targetDomain string, st *spfEvalState) (bool, error) {
 	if remoteIP == nil {
 		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	names, err := spfLookupAddr(ctx, remoteIP.String())
+	names, err := lookupAddr(ctx, remoteIP.String(), st)
 	if err != nil {
 		return false, err
 	}
@@ -301,7 +319,7 @@ func matchPTR(ctx context.Context, remoteIP net.IP, targetDomain string) (bool, 
 		if !domainMatches(host, targetDomain) {
 			continue
 		}
-		ips, err := spfLookupIP(ctx, host)
+		ips, err := lookupIP(ctx, host, st)
 		if err != nil {
 			continue
 		}
@@ -446,4 +464,95 @@ func lookupSPFExplanation(ctx context.Context, domain string) (string, bool) {
 		return s, true
 	}
 	return "", false
+}
+
+type spfEvalState struct {
+	lookups     int
+	voidLookups int
+}
+
+func (s *spfEvalState) consumeLookup() error {
+	if s == nil {
+		return nil
+	}
+	s.lookups++
+	if s.lookups > spfMaxDNSLookups {
+		return errSPFLookupLimit
+	}
+	return nil
+}
+
+func (s *spfEvalState) consumeVoid() error {
+	if s == nil {
+		return nil
+	}
+	s.voidLookups++
+	if s.voidLookups > spfMaxVoidLookups {
+		return errSPFVoidLookupLimit
+	}
+	return nil
+}
+
+func lookupTXT(ctx context.Context, domain string, st *spfEvalState) ([]string, error) {
+	if err := st.consumeLookup(); err != nil {
+		return nil, err
+	}
+	txt, err := spfLookupTXT(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+	if len(txt) == 0 {
+		if err := st.consumeVoid(); err != nil {
+			return nil, err
+		}
+	}
+	return txt, nil
+}
+
+func lookupIP(ctx context.Context, host string, st *spfEvalState) ([]net.IP, error) {
+	if err := st.consumeLookup(); err != nil {
+		return nil, err
+	}
+	ips, err := spfLookupIP(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		if err := st.consumeVoid(); err != nil {
+			return nil, err
+		}
+	}
+	return ips, nil
+}
+
+func lookupMX(ctx context.Context, domain string, st *spfEvalState) ([]*net.MX, error) {
+	if err := st.consumeLookup(); err != nil {
+		return nil, err
+	}
+	mx, err := spfLookupMX(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+	if len(mx) == 0 {
+		if err := st.consumeVoid(); err != nil {
+			return nil, err
+		}
+	}
+	return mx, nil
+}
+
+func lookupAddr(ctx context.Context, addr string, st *spfEvalState) ([]string, error) {
+	if err := st.consumeLookup(); err != nil {
+		return nil, err
+	}
+	names, err := spfLookupAddr(ctx, addr)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		if err := st.consumeVoid(); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
 }
