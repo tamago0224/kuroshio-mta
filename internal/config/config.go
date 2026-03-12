@@ -50,6 +50,8 @@ type Config struct {
 	DKIMSignSelector           string
 	DKIMPrivateKeyFile         string
 	DKIMSignHeaders            string
+	SPFHeloPolicy              string
+	SPFMailFromPolicy          string
 	DomainMaxConcurrentDefault int
 	DomainMaxConcurrentRules   string
 	DomainAdaptiveThrottle     bool
@@ -112,6 +114,8 @@ func Load() Config {
 		DKIMSignSelector:           env("MTA_DKIM_SIGN_SELECTOR", ""),
 		DKIMPrivateKeyFile:         env("MTA_DKIM_PRIVATE_KEY_FILE", ""),
 		DKIMSignHeaders:            env("MTA_DKIM_SIGN_HEADERS", "from:to:subject:date:message-id"),
+		SPFHeloPolicy:              envEnum("MTA_SPF_HELO_POLICY", "advisory", []string{"off", "advisory", "enforce"}),
+		SPFMailFromPolicy:          envEnum("MTA_SPF_MAILFROM_POLICY", "advisory", []string{"off", "advisory", "enforce"}),
 		DomainMaxConcurrentDefault: envInt("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", 8),
 		DomainMaxConcurrentRules:   env("MTA_DOMAIN_MAX_CONCURRENT_RULES", ""),
 		DomainAdaptiveThrottle:     envBool("MTA_DOMAIN_ADAPTIVE_THROTTLE", true),

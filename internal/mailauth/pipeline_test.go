@@ -1,6 +1,8 @@
 package mailauth
 
 import (
+	"context"
+	"net"
 	"strings"
 	"testing"
 )
@@ -42,5 +44,89 @@ func TestInjectHeaders(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "\r\n\r\nbody") {
 		t.Fatalf("body separator not preserved: %q", got)
+	}
+}
+
+func TestEvaluateWithPolicy_SeparateHeloAndMailFromModes(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		switch strings.ToLower(domain) {
+		case "bad-helo.example.net":
+			return []string{"v=spf1 -all"}, nil
+		case "example.com":
+			return []string{"v=spf1 ip4:192.0.2.10 -all"}, nil
+		default:
+			return nil, nil
+		}
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) { return nil, nil }
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: x\r\n\r\nbody")
+
+	heloEnforce := EvaluateWithPolicy(net.ParseIP("192.0.2.10"), "bad-helo.example.net", "sender@example.com", raw, SPFPolicy{
+		HeloMode:     "enforce",
+		MailFromMode: "advisory",
+	})
+	if heloEnforce.Action != ActionReject || heloEnforce.Reason != "spf helo policy" {
+		t.Fatalf("helo enforce should reject, action=%s reason=%q", heloEnforce.Action, heloEnforce.Reason)
+	}
+	if heloEnforce.SPFHelo.Result != "fail" || heloEnforce.SPFMailFrom.Result != "pass" {
+		t.Fatalf("unexpected spf results: helo=%+v mailfrom=%+v", heloEnforce.SPFHelo, heloEnforce.SPFMailFrom)
+	}
+
+	heloAdvisory := EvaluateWithPolicy(net.ParseIP("192.0.2.10"), "bad-helo.example.net", "sender@example.com", raw, SPFPolicy{
+		HeloMode:     "advisory",
+		MailFromMode: "advisory",
+	})
+	if heloAdvisory.Action == ActionReject && heloAdvisory.Reason == "spf helo policy" {
+		t.Fatalf("helo advisory should not enforce reject")
+	}
+}
+
+func TestEvaluateWithPolicy_MailFromEnforce(t *testing.T) {
+	origTXT := spfLookupTXT
+	origIP := spfLookupIP
+	origMX := spfLookupMX
+	origAddr := spfLookupAddr
+	t.Cleanup(func() {
+		spfLookupTXT = origTXT
+		spfLookupIP = origIP
+		spfLookupMX = origMX
+		spfLookupAddr = origAddr
+	})
+
+	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
+		switch strings.ToLower(domain) {
+		case "ok-helo.example.net":
+			return []string{"v=spf1 ip4:198.51.100.20 -all"}, nil
+		case "example.com":
+			return []string{"v=spf1 -all"}, nil
+		default:
+			return nil, nil
+		}
+	}
+	spfLookupIP = func(_ context.Context, host string) ([]net.IP, error) { return nil, nil }
+	spfLookupMX = func(_ context.Context, domain string) ([]*net.MX, error) { return nil, nil }
+	spfLookupAddr = func(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: x\r\n\r\nbody")
+	res := EvaluateWithPolicy(net.ParseIP("198.51.100.20"), "ok-helo.example.net", "sender@example.com", raw, SPFPolicy{
+		HeloMode:     "off",
+		MailFromMode: "enforce",
+	})
+	if res.Action != ActionReject || res.Reason != "spf mailfrom policy" {
+		t.Fatalf("mailfrom enforce should reject, action=%s reason=%q", res.Action, res.Reason)
 	}
 }

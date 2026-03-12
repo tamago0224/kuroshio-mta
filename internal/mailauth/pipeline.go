@@ -6,7 +6,32 @@ import (
 	"strings"
 )
 
+type SPFPolicy struct {
+	HeloMode     string
+	MailFromMode string
+}
+
+func DefaultSPFPolicy() SPFPolicy {
+	return SPFPolicy{
+		HeloMode:     "advisory",
+		MailFromMode: "advisory",
+	}
+}
+
+func normalizeSPFMode(v, def string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "advisory", "enforce":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return def
+	}
+}
+
 func Evaluate(remoteIP net.IP, helo, mailFrom string, raw []byte) Result {
+	return EvaluateWithPolicy(remoteIP, helo, mailFrom, raw, DefaultSPFPolicy())
+}
+
+func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, policy SPFPolicy) Result {
 	headerPart, bodyPart, err := SplitMessage(raw)
 	if err != nil {
 		return Result{Action: ActionReject, Reason: "invalid message format"}
@@ -16,13 +41,46 @@ func Evaluate(remoteIP net.IP, helo, mailFrom string, raw []byte) Result {
 		return Result{Action: ActionReject, Reason: "invalid headers"}
 	}
 
-	spf := EvalSPF(remoteIP, mailFrom, helo)
+	heloMode := normalizeSPFMode(policy.HeloMode, "advisory")
+	mailFromMode := normalizeSPFMode(policy.MailFromMode, "advisory")
+
+	spfHelo := SPFResult{Result: "none", Reason: "helo spf disabled"}
+	if heloMode != "off" {
+		spfHelo = EvalSPFHelo(remoteIP, helo)
+	}
+	spfMailFrom := SPFResult{Result: "none", Reason: "mailfrom spf disabled"}
+	if mailFromMode != "off" {
+		spfMailFrom = EvalSPFMailFrom(remoteIP, mailFrom, helo)
+	}
+	effectiveSPF := spfMailFrom
+	if strings.TrimSpace(mailFrom) == "" || mailFromMode == "off" {
+		effectiveSPF = spfHelo
+	}
+
 	dkim := EvalDKIM(headers, bodyPart)
 	arc := EvalARC(headers)
 	fromDomain := ExtractFromDomain(headers)
-	dmarc := EvalDMARC(fromDomain, spf, dkim)
+	dmarc := EvalDMARC(fromDomain, effectiveSPF, dkim)
 
-	result := Result{SPF: spf, DKIM: dkim, ARC: arc, DMARC: dmarc, Action: ActionAccept}
+	result := Result{
+		SPF:         effectiveSPF,
+		SPFHelo:     spfHelo,
+		SPFMailFrom: spfMailFrom,
+		DKIM:        dkim,
+		ARC:         arc,
+		DMARC:       dmarc,
+		Action:      ActionAccept,
+	}
+	if heloMode == "enforce" && spfRejected(spfHelo.Result) {
+		result.Action = ActionReject
+		result.Reason = "spf helo policy"
+		return result
+	}
+	if mailFromMode == "enforce" && strings.TrimSpace(mailFrom) != "" && spfRejected(spfMailFrom.Result) {
+		result.Action = ActionReject
+		result.Reason = "spf mailfrom policy"
+		return result
+	}
 	switch strings.ToLower(dmarc.Result) {
 	case "pass", "none":
 		result.Action = ActionAccept
@@ -41,6 +99,15 @@ func Evaluate(remoteIP net.IP, helo, mailFrom string, raw []byte) Result {
 		result.Action = ActionAccept
 	}
 	return result
+}
+
+func spfRejected(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "fail", "softfail", "permerror", "temperror":
+		return true
+	default:
+		return false
+	}
 }
 
 func BuildAuthResultsHeader(hostname string, res Result, mailFrom string) string {

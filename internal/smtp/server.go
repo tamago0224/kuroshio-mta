@@ -320,7 +320,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			if msgRemoteIP == nil {
 				msgRemoteIP = parseRemoteIP(ss.remote)
 			}
-			authRes := mailauth.Evaluate(msgRemoteIP, ss.helo, ss.mailFrom, ss.data)
+			authRes := mailauth.EvaluateWithPolicy(msgRemoteIP, ss.helo, ss.mailFrom, ss.data, mailauth.SPFPolicy{
+				HeloMode:     s.cfg.SPFHeloPolicy,
+				MailFromMode: s.cfg.SPFMailFromPolicy,
+			})
 			switch authRes.Action {
 			case mailauth.ActionReject:
 				writeResp(w, 550, "message rejected by auth policy")
