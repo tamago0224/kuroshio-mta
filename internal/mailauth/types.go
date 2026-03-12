@@ -9,12 +9,14 @@ const (
 )
 
 type Result struct {
-	SPF    SPFResult
-	DKIM   DKIMResult
-	DMARC  DMARCResult
-	ARC    ARCResult
-	Action Action
-	Reason string
+	SPF         SPFResult
+	SPFHelo     SPFResult
+	SPFMailFrom SPFResult
+	DKIM        DKIMResult
+	DMARC       DMARCResult
+	ARC         ARCResult
+	Action      Action
+	Reason      string
 }
 
 type SPFResult struct {

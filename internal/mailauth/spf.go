@@ -40,8 +40,15 @@ var (
 )
 
 func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
-	domain := spfDomain(mailFrom, helo)
-	if domain == "" {
+	if strings.TrimSpace(mailFrom) != "" {
+		return EvalSPFMailFrom(remoteIP, mailFrom, helo)
+	}
+	return EvalSPFHelo(remoteIP, helo)
+}
+
+func EvalSPFMailFrom(remoteIP net.IP, mailFrom, helo string) SPFResult {
+	domain, ok := util.DomainOf(mailFrom)
+	if !ok {
 		return SPFResult{Result: "none", Reason: "no domain"}
 	}
 	if remoteIP == nil {
@@ -49,6 +56,19 @@ func EvalSPF(remoteIP net.IP, mailFrom, helo string) SPFResult {
 	}
 	state := &spfEvalState{}
 	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, mailFrom, helo, 0, state)
+	return SPFResult{Domain: domain, Result: res, Reason: reason}
+}
+
+func EvalSPFHelo(remoteIP net.IP, helo string) SPFResult {
+	domain := strings.ToLower(strings.TrimSpace(helo))
+	if domain == "" {
+		return SPFResult{Result: "none", Reason: "no domain"}
+	}
+	if remoteIP == nil {
+		return SPFResult{Domain: domain, Result: "temperror", Reason: "missing remote ip"}
+	}
+	state := &spfEvalState{}
+	res, reason := evalSPFDomain(context.Background(), remoteIP, domain, "", helo, 0, state)
 	return SPFResult{Domain: domain, Result: res, Reason: reason}
 }
 

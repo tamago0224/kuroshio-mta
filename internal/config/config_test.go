@@ -128,6 +128,28 @@ func TestLoadDKIMSigningConfig(t *testing.T) {
 	}
 }
 
+func TestLoadSPFPolicyConfig(t *testing.T) {
+	t.Setenv("MTA_SPF_HELO_POLICY", "off")
+	t.Setenv("MTA_SPF_MAILFROM_POLICY", "advisory")
+	cfg := Load()
+	if cfg.SPFHeloPolicy != "off" {
+		t.Fatalf("helo policy=%q", cfg.SPFHeloPolicy)
+	}
+	if cfg.SPFMailFromPolicy != "advisory" {
+		t.Fatalf("mailfrom policy=%q", cfg.SPFMailFromPolicy)
+	}
+
+	t.Setenv("MTA_SPF_HELO_POLICY", "invalid")
+	t.Setenv("MTA_SPF_MAILFROM_POLICY", "invalid")
+	cfg = Load()
+	if cfg.SPFHeloPolicy != "advisory" {
+		t.Fatalf("helo invalid should fallback, got=%q", cfg.SPFHeloPolicy)
+	}
+	if cfg.SPFMailFromPolicy != "advisory" {
+		t.Fatalf("mailfrom invalid should fallback, got=%q", cfg.SPFMailFromPolicy)
+	}
+}
+
 func TestLoadDomainThrottleConfig(t *testing.T) {
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", "4")
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_RULES", "gmail.com:2,yahoo.com:1")
