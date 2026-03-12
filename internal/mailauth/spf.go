@@ -21,6 +21,7 @@ const (
 var (
 	errSPFLookupLimit     = errors.New("spf dns lookup limit exceeded")
 	errSPFVoidLookupLimit = errors.New("spf void lookup limit exceeded")
+	errSPFCyclicReference = errors.New("spf cyclic include/redirect detected")
 )
 
 var (
@@ -62,8 +63,21 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 	if depth > 10 {
 		return "permerror", "include recursion too deep"
 	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return "permerror", "invalid domain"
+	}
+	if !st.enterDomain(domain) {
+		return "permerror", errSPFCyclicReference.Error()
+	}
+	defer st.leaveDomain(domain)
+
 	record, ok, err := lookupSPFRecord(ctx, domain, st)
 	if err != nil {
+		var rerr *spfResultError
+		if errors.As(err, &rerr) {
+			return rerr.Result, rerr.Reason
+		}
 		if errors.Is(err, errSPFLookupLimit) || errors.Is(err, errSPFVoidLookupLimit) {
 			return "permerror", err.Error()
 		}
@@ -110,6 +124,10 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 		arg = expandSPFMacros(arg, sender, domain, helo, remoteIP)
 		match, ok, err := matchMechanism(ctx, remoteIP, domain, sender, helo, name, arg, prefix, depth, st)
 		if err != nil {
+			var rerr *spfResultError
+			if errors.As(err, &rerr) {
+				return rerr.Result, rerr.Reason
+			}
 			if errors.Is(err, errSPFLookupLimit) || errors.Is(err, errSPFVoidLookupLimit) {
 				return "permerror", err.Error()
 			}
@@ -211,9 +229,12 @@ func matchMechanism(ctx context.Context, remoteIP net.IP, domain, sender, helo, 
 		if arg == "" {
 			return false, true, nil
 		}
-		res, _ := evalSPFDomain(ctx, remoteIP, arg, sender, helo, depth+1, st)
+		res, reason := evalSPFDomain(ctx, remoteIP, arg, sender, helo, depth+1, st)
 		if res == "pass" {
 			return true, true, nil
+		}
+		if res == "permerror" || res == "temperror" {
+			return false, true, &spfResultError{Result: res, Reason: reason}
 		}
 		return false, true, nil
 	case "exists":
@@ -469,6 +490,37 @@ func lookupSPFExplanation(ctx context.Context, domain string) (string, bool) {
 type spfEvalState struct {
 	lookups     int
 	voidLookups int
+	active      map[string]struct{}
+}
+
+type spfResultError struct {
+	Result string
+	Reason string
+}
+
+func (e *spfResultError) Error() string {
+	return e.Result + ": " + e.Reason
+}
+
+func (s *spfEvalState) enterDomain(domain string) bool {
+	if s == nil {
+		return true
+	}
+	if s.active == nil {
+		s.active = map[string]struct{}{}
+	}
+	if _, exists := s.active[domain]; exists {
+		return false
+	}
+	s.active[domain] = struct{}{}
+	return true
+}
+
+func (s *spfEvalState) leaveDomain(domain string) {
+	if s == nil || s.active == nil {
+		return
+	}
+	delete(s.active, domain)
 }
 
 func (s *spfEvalState) consumeLookup() error {
