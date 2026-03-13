@@ -1,6 +1,13 @@
 package mailauth
 
 import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -180,4 +187,111 @@ func TestBuildSignedDataUsesHeadersFromBottom(t *testing.T) {
 	if strings.Contains(got, "Subject:first\r\n") {
 		t.Fatalf("signed data should use bottom-most subject, got=%q", got)
 	}
+}
+
+func TestLookupDKIMKeyClassifiesDNSAndKeyErrors(t *testing.T) {
+	origLookup := dkimLookupTXT
+	t.Cleanup(func() {
+		dkimLookupTXT = origLookup
+	})
+
+	tests := []struct {
+		name    string
+		txt     []string
+		err     error
+		wantRes string
+	}{
+		{
+			name:    "dns error is temperror",
+			err:     errors.New("dns timeout"),
+			wantRes: "temperror",
+		},
+		{
+			name:    "missing p tag is permerror",
+			txt:     []string{"v=DKIM1; k=rsa;"},
+			wantRes: "permerror",
+		},
+		{
+			name:    "invalid p tag is permerror",
+			txt:     []string{"v=DKIM1; k=rsa; p=!!!"},
+			wantRes: "permerror",
+		},
+		{
+			name:    "non rsa key is permerror",
+			txt:     []string{"v=DKIM1; k=rsa; p=" + mustEncodeEd25519PublicKey(t)},
+			wantRes: "permerror",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dkimLookupTXT = func(_ context.Context, name string) ([]string, error) {
+				return tc.txt, tc.err
+			}
+			_, err := lookupDKIMKey("example.com", "s1")
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if tc.wantRes == "temperror" {
+				if _, ok := err.(*dkimLookupError); ok {
+					t.Fatalf("dns error should remain generic, got typed error: %v", err)
+				}
+				return
+			}
+			lerr, ok := err.(*dkimLookupError)
+			if !ok {
+				t.Fatalf("expected dkimLookupError, got %T", err)
+			}
+			if lerr.Result != tc.wantRes {
+				t.Fatalf("result=%q want=%q", lerr.Result, tc.wantRes)
+			}
+		})
+	}
+}
+
+func TestLookupDKIMKeyValidRSAKey(t *testing.T) {
+	origLookup := dkimLookupTXT
+	t.Cleanup(func() {
+		dkimLookupTXT = origLookup
+	})
+
+	pubDER := mustEncodeRSAPublicKey(t)
+	dkimLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		return []string{"v=DKIM1; k=rsa; p=" + pubDER}, nil
+	}
+
+	pub, err := lookupDKIMKey("example.com", "s1")
+	if err != nil {
+		t.Fatalf("lookupDKIMKey: %v", err)
+	}
+	if pub == nil {
+		t.Fatal("expected rsa public key")
+	}
+}
+
+func mustEncodeRSAPublicKey(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(der)
+}
+
+func mustEncodeEd25519PublicKey(t *testing.T) string {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(der)
 }
