@@ -10,6 +10,10 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
+var dmarcLookupTXT = func(ctx context.Context, name string) ([]string, error) {
+	return net.DefaultResolver.LookupTXT(ctx, name)
+}
+
 func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	if fromDomain == "" {
 		return DMARCResult{Result: "permerror", Reason: "missing From domain"}
@@ -19,7 +23,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 		return DMARCResult{Domain: fromDomain, Result: "temperror", Reason: err.Error()}
 	}
 	if !ok {
-		return DMARCResult{Domain: fromDomain, Result: "none", Policy: "none", Reason: "no dmarc record"}
+		return DMARCResult{Domain: fromDomain, Result: "none", Policy: "none", SubdomainPolicy: "none", Percent: 100, ReportInterval: 86400, Reason: "no dmarc record"}
 	}
 	pol := parseTagList(rec)
 	aspf := pol["aspf"]
@@ -34,6 +38,16 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	if policy == "" {
 		policy = "none"
 	}
+	subPolicy := strings.ToLower(pol["sp"])
+	if subPolicy == "" {
+		subPolicy = policy
+	}
+	percent := parseDMARCInt(pol["pct"], 100)
+	ri := parseDMARCInt(pol["ri"], 86400)
+	fo := parseDMARCList(pol["fo"], []string{"0"})
+	rf := parseDMARCList(pol["rf"], []string{"afrf"})
+	rua := parseDMARCList(pol["rua"], nil)
+	ruf := parseDMARCList(pol["ruf"], nil)
 
 	spfAligned := strings.EqualFold(spf.Result, "pass") && aligned(fromDomain, spf.Domain, aspf)
 	dkimAligned := false
@@ -44,9 +58,32 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 		}
 	}
 	if spfAligned || dkimAligned {
-		return DMARCResult{Domain: fromDomain, Result: "pass", Policy: policy}
+		return DMARCResult{
+			Domain:          fromDomain,
+			Result:          "pass",
+			Policy:          policy,
+			SubdomainPolicy: subPolicy,
+			Percent:         percent,
+			FailureOptions:  fo,
+			ReportFormat:    rf,
+			ReportInterval:  ri,
+			AggregateReport: rua,
+			FailureReport:   ruf,
+		}
 	}
-	return DMARCResult{Domain: fromDomain, Result: "fail", Policy: policy, Reason: "alignment failed"}
+	return DMARCResult{
+		Domain:          fromDomain,
+		Result:          "fail",
+		Policy:          policy,
+		SubdomainPolicy: subPolicy,
+		Percent:         percent,
+		FailureOptions:  fo,
+		ReportFormat:    rf,
+		ReportInterval:  ri,
+		AggregateReport: rua,
+		FailureReport:   ruf,
+		Reason:          "alignment failed",
+	}
 }
 
 func ExtractFromDomain(headers []Header) string {
@@ -81,7 +118,7 @@ func aligned(fromDomain, authDomain, mode string) bool {
 func lookupDMARC(domain string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	txt, err := net.DefaultResolver.LookupTXT(ctx, "_dmarc."+domain)
+	txt, err := dmarcLookupTXT(ctx, "_dmarc."+domain)
 	if err != nil {
 		return "", false, err
 	}
@@ -116,4 +153,44 @@ func organizationalDomain(domain string) string {
 		return labels[len(labels)-3] + "." + publicSuffix2
 	}
 	return publicSuffix2
+}
+
+func parseDMARCInt(v string, def int) int {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return def
+	}
+	n := 0
+	for _, ch := range v {
+		if ch < '0' || ch > '9' {
+			return def
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n
+}
+
+func parseDMARCList(v string, def []string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		if def == nil {
+			return nil
+		}
+		out := make([]string, len(def))
+		copy(out, def)
+		return out
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 && def != nil {
+		out = make([]string, len(def))
+		copy(out, def)
+	}
+	return out
 }
