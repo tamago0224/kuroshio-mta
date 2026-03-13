@@ -1,6 +1,10 @@
 package mailauth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestAggregateDKIMResults(t *testing.T) {
 	tests := []struct {
@@ -74,5 +78,40 @@ func TestEvalDKIMWithoutSignatureReturnsNone(t *testing.T) {
 	}
 	if len(got.Sigs) != 0 {
 		t.Fatalf("len(sigs)=%d want=0", len(got.Sigs))
+	}
+}
+
+func TestCanonicalizeBodyWithLength(t *testing.T) {
+	got, err := canonicalizeBodyWithLength("a\r\nb\r\n", "simple", "3")
+	if err != nil {
+		t.Fatalf("canonicalizeBodyWithLength: %v", err)
+	}
+	if string(got) != "a\r\n" {
+		t.Fatalf("got=%q want=%q", string(got), "a\r\n")
+	}
+}
+
+func TestCanonicalizeBodyWithLengthRejectsInvalidTag(t *testing.T) {
+	if _, err := canonicalizeBodyWithLength("a\r\n", "simple", "-1"); err == nil {
+		t.Fatal("expected invalid l tag error")
+	}
+	if _, err := canonicalizeBodyWithLength("a\r\n", "simple", "999"); err == nil {
+		t.Fatal("expected oversized l tag error")
+	}
+}
+
+func TestValidateDKIMTimeTags(t *testing.T) {
+	now := time.Unix(200, 0).UTC()
+	if err := validateDKIMTimeTags(map[string]string{"t": "100", "x": "300"}, now); err != nil {
+		t.Fatalf("validateDKIMTimeTags valid: %v", err)
+	}
+	if err := validateDKIMTimeTags(map[string]string{"t": "300", "x": "200"}, now); err == nil {
+		t.Fatal("expected x earlier than t")
+	}
+	if err := validateDKIMTimeTags(map[string]string{"x": "150"}, now); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expected expired signature error, got=%v", err)
+	}
+	if err := validateDKIMTimeTags(map[string]string{"t": "bad"}, now); err == nil {
+		t.Fatal("expected invalid t tag")
 	}
 }
