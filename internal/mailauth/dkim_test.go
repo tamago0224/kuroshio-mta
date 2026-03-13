@@ -7,10 +7,15 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	dkimsigner "github.com/tamago0224/orinoco-mta/internal/dkim"
 )
 
 func TestAggregateDKIMResults(t *testing.T) {
@@ -294,4 +299,98 @@ func mustEncodeEd25519PublicKey(t *testing.T) string {
 		t.Fatalf("MarshalPKIXPublicKey: %v", err)
 	}
 	return base64.StdEncoding.EncodeToString(der)
+}
+
+func TestDKIMSignerAndVerifierInteropPass(t *testing.T) {
+	origLookup := dkimLookupTXT
+	t.Cleanup(func() {
+		dkimLookupTXT = origLookup
+	})
+
+	keyPath, pubB64 := writeInteropRSAKey(t)
+	signer, err := dkimsigner.NewFileSigner("example.com", "s1", keyPath, "from:to:subject")
+	if err != nil {
+		t.Fatalf("NewFileSigner: %v", err)
+	}
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: hi\r\n\r\nhello world")
+	signed, err := signer.Sign(raw)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	dkimLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name == "s1._domainkey.example.com" {
+			return []string{"v=DKIM1; k=rsa; p=" + pubB64}, nil
+		}
+		return nil, nil
+	}
+
+	headerPart, bodyPart, err := SplitMessage(signed)
+	if err != nil {
+		t.Fatalf("SplitMessage: %v", err)
+	}
+	headers, err := ParseHeaders(headerPart)
+	if err != nil {
+		t.Fatalf("ParseHeaders: %v", err)
+	}
+	got := EvalDKIM(headers, bodyPart)
+	if got.Result != "pass" {
+		t.Fatalf("result=%q reason=%+v", got.Result, got.Sigs)
+	}
+}
+
+func TestDKIMSignerAndVerifierInteropFailOnBodyTamper(t *testing.T) {
+	origLookup := dkimLookupTXT
+	t.Cleanup(func() {
+		dkimLookupTXT = origLookup
+	})
+
+	keyPath, pubB64 := writeInteropRSAKey(t)
+	signer, err := dkimsigner.NewFileSigner("example.com", "s1", keyPath, "from:to:subject")
+	if err != nil {
+		t.Fatalf("NewFileSigner: %v", err)
+	}
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: hi\r\n\r\nhello world")
+	signed, err := signer.Sign(raw)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	tampered := strings.Replace(string(signed), "hello world", "tampered world", 1)
+	dkimLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name == "s1._domainkey.example.com" {
+			return []string{"v=DKIM1; k=rsa; p=" + pubB64}, nil
+		}
+		return nil, nil
+	}
+
+	headerPart, bodyPart, err := SplitMessage([]byte(tampered))
+	if err != nil {
+		t.Fatalf("SplitMessage: %v", err)
+	}
+	headers, err := ParseHeaders(headerPart)
+	if err != nil {
+		t.Fatalf("ParseHeaders: %v", err)
+	}
+	got := EvalDKIM(headers, bodyPart)
+	if got.Result != "fail" {
+		t.Fatalf("result=%q want=fail details=%+v", got.Result, got.Sigs)
+	}
+}
+
+func writeInteropRSAKey(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	privDER := x509.MarshalPKCS1PrivateKey(key)
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER})
+	keyPath := filepath.Join(t.TempDir(), "dkim.pem")
+	if err := os.WriteFile(keyPath, privPEM, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+	return keyPath, base64.StdEncoding.EncodeToString(pubDER)
 }
