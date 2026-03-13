@@ -115,3 +115,69 @@ func TestValidateDKIMTimeTags(t *testing.T) {
 		t.Fatal("expected invalid t tag")
 	}
 }
+
+func TestCanonicalizeBodySimplePreservesWhitespace(t *testing.T) {
+	got := canonicalizeBody(" line with  spaces \r\n\r\n", "simple")
+	want := " line with  spaces \r\n"
+	if string(got) != want {
+		t.Fatalf("got=%q want=%q", string(got), want)
+	}
+}
+
+func TestCanonicalizeBodyRelaxedCollapsesWhitespace(t *testing.T) {
+	got := canonicalizeBody(" line with \t spaces \t\r\nnext\tline \t\r\n\r\n", "relaxed")
+	want := "line with spaces\r\nnext line\r\n"
+	if string(got) != want {
+		t.Fatalf("got=%q want=%q", string(got), want)
+	}
+}
+
+func TestCanonicalizeBodyEmptyBecomesCRLF(t *testing.T) {
+	got := canonicalizeBody("", "simple")
+	if string(got) != "\r\n" {
+		t.Fatalf("got=%q want=%q", string(got), "\r\n")
+	}
+}
+
+func TestCanonHeaderSimplePreservesNameAndSpacing(t *testing.T) {
+	got := canonHeader("Subject", "  Hello   World  ", "simple")
+	want := "Subject:  Hello   World  \r\n"
+	if got != want {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+}
+
+func TestCanonHeaderRelaxedNormalizesNameAndSpacing(t *testing.T) {
+	got := canonHeader("SuBject", "  Hello \t  World  ", "relaxed")
+	want := "subject:Hello World\r\n"
+	if got != want {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+}
+
+func TestBuildSignedDataUsesHeadersFromBottom(t *testing.T) {
+	headers := []Header{
+		{Name: "Received", Value: "from a"},
+		{Name: "Subject", Value: "first"},
+		{Name: "Subject", Value: "second"},
+		{Name: "From", Value: "sender@example.com"},
+	}
+
+	got, err := buildSignedData(headers, "subject:from", "v=1; a=rsa-sha256; b=abc123; h=subject:from", "simple")
+	if err != nil {
+		t.Fatalf("buildSignedData: %v", err)
+	}
+	wantContains := []string{
+		"Subject:second\r\n",
+		"From:sender@example.com\r\n",
+		"DKIM-Signature:v=1; a=rsa-sha256; b=; h=subject:from\r\n",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(got, want) {
+			t.Fatalf("signed data missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "Subject:first\r\n") {
+		t.Fatalf("signed data should use bottom-most subject, got=%q", got)
+	}
+}
