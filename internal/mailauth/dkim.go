@@ -19,19 +19,42 @@ func EvalDKIM(headers []Header, body string) DKIMResult {
 		return DKIMResult{Result: "none"}
 	}
 	results := make([]DKIMSigResult, 0, len(dkims))
-	pass := false
 	for _, sig := range dkims {
 		r := verifyDKIMSig(headers, body, sig)
-		if r.Result == "pass" {
-			pass = true
-		}
 		results = append(results, r)
 	}
-	out := "fail"
-	if pass {
-		out = "pass"
+	return DKIMResult{Result: aggregateDKIMResults(results), Sigs: results}
+}
+
+func aggregateDKIMResults(results []DKIMSigResult) string {
+	if len(results) == 0 {
+		return "none"
 	}
-	return DKIMResult{Result: out, Sigs: results}
+	hasPermerror := false
+	hasTemperror := false
+	hasNeutral := false
+	for _, r := range results {
+		switch strings.ToLower(strings.TrimSpace(r.Result)) {
+		case "pass":
+			return "pass"
+		case "temperror":
+			hasTemperror = true
+		case "permerror":
+			hasPermerror = true
+		case "none":
+			hasNeutral = true
+		}
+	}
+	if hasTemperror {
+		return "temperror"
+	}
+	if hasPermerror {
+		return "permerror"
+	}
+	if hasNeutral {
+		return "none"
+	}
+	return "fail"
 }
 
 func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
