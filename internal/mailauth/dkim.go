@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -65,9 +66,18 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 	if tags["v"] != "1" || domain == "" || selector == "" || algo != "rsa-sha256" {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "unsupported signature parameters"}
 	}
+	if strings.TrimSpace(tags["h"]) == "" {
+		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "missing h tag"}
+	}
+	if err := validateDKIMTimeTags(tags, time.Now().UTC()); err != nil {
+		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: err.Error()}
+	}
 	canonH, canonB := parseCanon(tags["c"])
 
-	canonBody := canonicalizeBody(body, canonB)
+	canonBody, err := canonicalizeBodyWithLength(body, canonB, tags["l"])
+	if err != nil {
+		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: err.Error()}
+	}
 	h := sha256.Sum256(canonBody)
 	bh := strings.TrimSpace(tags["bh"])
 	expectedBH, err := base64.StdEncoding.DecodeString(bh)
@@ -125,6 +135,11 @@ func parseCanon(c string) (string, string) {
 }
 
 func canonicalizeBody(body, mode string) []byte {
+	out, _ := canonicalizeBodyWithLength(body, mode, "")
+	return out
+}
+
+func canonicalizeBodyWithLength(body, mode, bodyLength string) ([]byte, error) {
 	lines := splitLines(strings.ReplaceAll(body, "\r\n", "\n"))
 	for i := range lines {
 		lines[i] = strings.TrimSuffix(lines[i], "\r")
@@ -136,9 +151,20 @@ func canonicalizeBody(body, mode string) []byte {
 		lines = lines[:len(lines)-1]
 	}
 	if len(lines) == 0 {
-		return []byte("\r\n")
+		return []byte("\r\n"), nil
 	}
-	return []byte(strings.Join(lines, "\r\n") + "\r\n")
+	out := []byte(strings.Join(lines, "\r\n") + "\r\n")
+	if strings.TrimSpace(bodyLength) == "" {
+		return out, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(bodyLength))
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("invalid l tag")
+	}
+	if n > len(out) {
+		return nil, fmt.Errorf("invalid l tag")
+	}
+	return out[:n], nil
 }
 
 func buildSignedData(headers []Header, hTag, dkimSigValue, canon string) (string, error) {
@@ -241,4 +267,36 @@ func equalBytes(a, b []byte) bool {
 		x |= a[i] ^ b[i]
 	}
 	return x == 0
+}
+
+func validateDKIMTimeTags(tags map[string]string, now time.Time) error {
+	tVal := strings.TrimSpace(tags["t"])
+	xVal := strings.TrimSpace(tags["x"])
+	var (
+		tUnix int64
+		xUnix int64
+		hasT  bool
+	)
+	if tVal != "" {
+		n, err := strconv.ParseInt(tVal, 10, 64)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid t tag")
+		}
+		tUnix = n
+		hasT = true
+	}
+	if xVal != "" {
+		n, err := strconv.ParseInt(xVal, 10, 64)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid x tag")
+		}
+		xUnix = n
+		if hasT && xUnix < tUnix {
+			return fmt.Errorf("x tag is earlier than t tag")
+		}
+		if now.Unix() > xUnix {
+			return fmt.Errorf("signature expired")
+		}
+	}
+	return nil
 }
