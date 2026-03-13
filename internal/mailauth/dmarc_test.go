@@ -82,3 +82,51 @@ func TestParseDMARCHelpers(t *testing.T) {
 		t.Fatalf("parseDMARCList fallback=%v", got)
 	}
 }
+
+func TestEvalDMARC_SubdomainUsesSPTag(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+
+	dmarcLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		switch name {
+		case "_dmarc.mail.example.com":
+			return nil, nil
+		case "_dmarc.example.com":
+			return []string{"v=DMARC1; p=reject; sp=quarantine"}, nil
+		default:
+			return nil, nil
+		}
+	}
+
+	res := EvalDMARC("mail.example.com", SPFResult{Result: "fail", Domain: "other.example"}, DKIMResult{})
+	if res.Policy != "quarantine" {
+		t.Fatalf("policy=%q want=quarantine", res.Policy)
+	}
+	if res.SubdomainPolicy != "quarantine" {
+		t.Fatalf("sp=%q want=quarantine", res.SubdomainPolicy)
+	}
+}
+
+func TestEvalDMARC_ExactDomainUsesPTag(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+
+	dmarcLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name == "_dmarc.example.com" {
+			return []string{"v=DMARC1; p=reject; sp=quarantine"}, nil
+		}
+		return nil, nil
+	}
+
+	res := EvalDMARC("example.com", SPFResult{Result: "fail", Domain: "other.example"}, DKIMResult{})
+	if res.Policy != "reject" {
+		t.Fatalf("policy=%q want=reject", res.Policy)
+	}
+	if res.SubdomainPolicy != "quarantine" {
+		t.Fatalf("sp=%q want=quarantine", res.SubdomainPolicy)
+	}
+}

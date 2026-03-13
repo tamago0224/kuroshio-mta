@@ -18,7 +18,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	if fromDomain == "" {
 		return DMARCResult{Result: "permerror", Reason: "missing From domain"}
 	}
-	rec, ok, err := lookupDMARC(fromDomain)
+	rec, policyDomain, ok, err := lookupDMARC(fromDomain)
 	if err != nil {
 		return DMARCResult{Domain: fromDomain, Result: "temperror", Reason: err.Error()}
 	}
@@ -42,6 +42,10 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	if subPolicy == "" {
 		subPolicy = policy
 	}
+	effectivePolicy := policy
+	if !strings.EqualFold(strings.TrimSpace(fromDomain), strings.TrimSpace(policyDomain)) {
+		effectivePolicy = subPolicy
+	}
 	percent := parseDMARCInt(pol["pct"], 100)
 	ri := parseDMARCInt(pol["ri"], 86400)
 	fo := parseDMARCList(pol["fo"], []string{"0"})
@@ -61,7 +65,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 		return DMARCResult{
 			Domain:          fromDomain,
 			Result:          "pass",
-			Policy:          policy,
+			Policy:          effectivePolicy,
 			SubdomainPolicy: subPolicy,
 			Percent:         percent,
 			FailureOptions:  fo,
@@ -74,7 +78,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	return DMARCResult{
 		Domain:          fromDomain,
 		Result:          "fail",
-		Policy:          policy,
+		Policy:          effectivePolicy,
 		SubdomainPolicy: subPolicy,
 		Percent:         percent,
 		FailureOptions:  fo,
@@ -115,7 +119,23 @@ func aligned(fromDomain, authDomain, mode string) bool {
 	return organizationalDomain(fromDomain) == organizationalDomain(authDomain)
 }
 
-func lookupDMARC(domain string) (string, bool, error) {
+func lookupDMARC(domain string) (record string, policyDomain string, ok bool, err error) {
+	domain = strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
+	if domain == "" {
+		return "", "", false, nil
+	}
+	if rec, ok, err := lookupDMARCAt(domain); err != nil || ok {
+		return rec, domain, ok, err
+	}
+	org := organizationalDomain(domain)
+	if org != "" && org != domain {
+		rec, ok, err := lookupDMARCAt(org)
+		return rec, org, ok, err
+	}
+	return "", "", false, nil
+}
+
+func lookupDMARCAt(domain string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	txt, err := dmarcLookupTXT(ctx, "_dmarc."+domain)
