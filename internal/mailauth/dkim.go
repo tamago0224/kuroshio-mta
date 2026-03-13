@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+var dkimLookupTXT = func(ctx context.Context, name string) ([]string, error) {
+	return net.DefaultResolver.LookupTXT(ctx, name)
+}
+
 func EvalDKIM(headers []Header, body string) DKIMResult {
 	dkims := HeaderValues(headers, "DKIM-Signature")
 	if len(dkims) == 0 {
@@ -91,6 +95,9 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 	}
 	pub, err := lookupDKIMKey(domain, selector)
 	if err != nil {
+		if lerr, ok := err.(*dkimLookupError); ok {
+			return DKIMSigResult{Domain: domain, Selector: selector, Result: lerr.Result, Reason: lerr.Reason}
+		}
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "temperror", Reason: err.Error()}
 	}
 	sigBytes, err := base64.StdEncoding.DecodeString(compactBTag(tags["b"]))
@@ -233,7 +240,7 @@ func lookupDKIMKey(domain, selector string) (*rsa.PublicKey, error) {
 	q := selector + "._domainkey." + domain
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	txt, err := net.DefaultResolver.LookupTXT(ctx, q)
+	txt, err := dkimLookupTXT(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -241,19 +248,19 @@ func lookupDKIMKey(domain, selector string) (*rsa.PublicKey, error) {
 	tags := parseTagList(all)
 	p := tags["p"]
 	if p == "" {
-		return nil, fmt.Errorf("missing p tag")
+		return nil, &dkimLookupError{Result: "permerror", Reason: "missing p tag"}
 	}
 	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(p))
 	if err != nil {
-		return nil, err
+		return nil, &dkimLookupError{Result: "permerror", Reason: "invalid p tag"}
 	}
 	pubAny, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
-		return nil, err
+		return nil, &dkimLookupError{Result: "permerror", Reason: "invalid public key"}
 	}
 	pub, ok := pubAny.(*rsa.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("non-rsa dkim key")
+		return nil, &dkimLookupError{Result: "permerror", Reason: "non-rsa dkim key"}
 	}
 	return pub, nil
 }
@@ -267,6 +274,15 @@ func equalBytes(a, b []byte) bool {
 		x |= a[i] ^ b[i]
 	}
 	return x == 0
+}
+
+type dkimLookupError struct {
+	Result string
+	Reason string
+}
+
+func (e *dkimLookupError) Error() string {
+	return e.Reason
 }
 
 func validateDKIMTimeTags(tags map[string]string, now time.Time) error {
