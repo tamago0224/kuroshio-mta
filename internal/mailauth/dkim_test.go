@@ -175,7 +175,7 @@ func TestBuildSignedDataUsesHeadersFromBottom(t *testing.T) {
 		{Name: "From", Value: "sender@example.com"},
 	}
 
-	got, err := buildSignedData(headers, "subject:from", "v=1; a=rsa-sha256; b=abc123; h=subject:from", "simple")
+	got, err := buildSignedData(headers, "subject:from", "v=1; a=rsa-sha256; b=abc123; h=subject:from", "simple", "DKIM-Signature")
 	if err != nil {
 		t.Fatalf("buildSignedData: %v", err)
 	}
