@@ -326,6 +326,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				HeloMode:     s.cfg.SPFHeloPolicy,
 				MailFromMode: s.cfg.SPFMailFromPolicy,
 			})
+			s.metricAuthResult(authRes)
 			switch authRes.Action {
 			case mailauth.ActionReject:
 				writeResp(w, 550, "message rejected by auth policy")
@@ -443,6 +444,12 @@ func (s *Server) metricInc(name string) {
 	if s.metrics != nil {
 		s.metrics.Counter(name).Inc()
 	}
+}
+
+func (s *Server) metricAuthResult(res mailauth.Result) {
+	s.metricInc("smtp_auth_action_" + sanitizeMetricToken(string(res.Action)))
+	s.metricInc("smtp_auth_dmarc_result_" + sanitizeMetricToken(res.DMARC.Result))
+	s.metricInc("smtp_auth_dmarc_policy_" + sanitizeMetricToken(res.DMARC.Policy))
 }
 
 func (s *Server) enqueue(ss *session, id string) error {
@@ -912,4 +919,25 @@ func sanitizeHeaderValue(v string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", "")
 	return s
+}
+
+func sanitizeMetricToken(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' {
+			b.WriteByte(ch)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "unknown"
+	}
+	return out
 }

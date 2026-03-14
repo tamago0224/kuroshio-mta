@@ -172,6 +172,10 @@ DNS を含む `docker compose` 環境を用意しています。
 
 - `/metrics`: Prometheus metrics
 - `/slo`: 現在の SLI/SLO 判定結果（JSON, breach時は HTTP 503）
+- DMARC集計メトリクス（受信時）:
+  - `smtp_auth_dmarc_result_<result>_total`（例: `fail`, `pass`, `none`）
+  - `smtp_auth_dmarc_policy_<policy>_total`（例: `reject`, `quarantine`, `none`）
+  - `smtp_auth_action_<action>_total`（例: `accept`, `quarantine`, `reject`）
 
 Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/orinoco-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。
 
