@@ -59,7 +59,7 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 	}
 
 	dkim := EvalDKIM(headers, bodyPart)
-	arc := EvalARC(headers)
+	arc := EvalARC(headers, bodyPart)
 	fromDomain := ExtractFromDomain(headers)
 	dmarc := EvalDMARC(fromDomain, effectiveSPF, dkim)
 

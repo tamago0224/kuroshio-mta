@@ -89,7 +89,7 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "fail", Reason: "body hash mismatch"}
 	}
 
-	signedData, err := buildSignedData(headers, tags["h"], sig, canonH)
+	signedData, err := buildSignedData(headers, tags["h"], sig, canonH, "DKIM-Signature")
 	if err != nil {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: err.Error()}
 	}
@@ -174,7 +174,7 @@ func canonicalizeBodyWithLength(body, mode, bodyLength string) ([]byte, error) {
 	return out[:n], nil
 }
 
-func buildSignedData(headers []Header, hTag, dkimSigValue, canon string) (string, error) {
+func buildSignedData(headers []Header, hTag, sigValue, canon, sigHeaderName string) (string, error) {
 	headerNames := strings.Split(strings.ToLower(hTag), ":")
 	if len(headerNames) == 0 {
 		return "", fmt.Errorf("h tag missing")
@@ -193,8 +193,8 @@ func buildSignedData(headers []Header, hTag, dkimSigValue, canon string) (string
 		used[idx] = true
 		out.WriteString(canonHeader(headers[idx].Name, headers[idx].Value, canon))
 	}
-	stripped := stripBTag(dkimSigValue)
-	out.WriteString(canonHeader("DKIM-Signature", stripped, canon))
+	stripped := stripBTag(sigValue)
+	out.WriteString(canonHeader(sigHeaderName, stripped, canon))
 	return out.String(), nil
 }
 
