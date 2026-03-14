@@ -98,6 +98,30 @@ func TestDeliverLocalSpoolReturnsSignerError(t *testing.T) {
 	}
 }
 
+func TestDeliverLocalSpoolAppliesARCSignerWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cl := NewClient(cfg)
+	cl.arcSigner = testSigner(func(raw []byte) ([]byte, error) {
+		return append([]byte("ARC-Seal: test\r\n"), raw...), nil
+	})
+	msg := &model.Message{ID: "m5", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err != nil {
+		t.Fatalf("deliver local spool with arc signer: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read spool dir: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read spool file: %v", err)
+	}
+	if !strings.HasPrefix(string(b), "ARC-Seal: test\r\n") {
+		t.Fatalf("missing arc seal prefix: %q", string(b))
+	}
+}
+
 type testSigner func([]byte) ([]byte, error)
 
 func (s testSigner) Sign(raw []byte) ([]byte, error) {
