@@ -23,7 +23,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `all` を評価 |
 | RFC 6376 | DKIM | 一部対応 | DKIM署名検証（`rsa-sha256`）を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment と `p` ポリシー評価を実装 |
-| RFC 8617 | ARC | 一部対応 | ARCセットの構造検証（チェーン整合）を実装 |
+| RFC 8617 | ARC | 一部対応 | ARCセットの構造検証、AMS/AS検証、送信時の i=1 ARC付与を実装 |
 | RFC 8461 | MTA-STS | 一部対応 | policy取得・キャッシュ・enforce適用を実装 |
 | RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得と優先適用（DANE > MTA-STS）を実装 |
 | RFC 3464 | DSN | 一部対応 | DSNパースと suppression 連携を実装 |

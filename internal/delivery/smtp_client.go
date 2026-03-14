@@ -29,6 +29,7 @@ type Client struct {
 	dane                           *DANEResolver
 	mtaSTS                         *MTASTSResolver
 	signer                         messageSigner
+	arcSigner                      messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
 	spoolWriteFn                   func(*model.Message, string) error
@@ -45,6 +46,9 @@ func NewClient(cfg config.Config) *Client {
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
 		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
 			c.signer = signer
+		}
+		if arcSigner, err := dkim.NewARCFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.Hostname, cfg.DKIMSignHeaders); err == nil {
+			c.arcSigner = arcSigner
 		}
 	}
 	c.deliverHostFn = c.deliverHost
@@ -413,8 +417,20 @@ func dotStuff(data []byte) []byte {
 }
 
 func (c *Client) prepareOutboundData(raw []byte) ([]byte, error) {
-	if c.signer == nil {
-		return raw, nil
+	signed := raw
+	if c.signer != nil {
+		var err error
+		signed, err = c.signer.Sign(signed)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return c.signer.Sign(raw)
+	if c.arcSigner != nil {
+		var err error
+		signed, err = c.arcSigner.Sign(signed)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return signed, nil
 }
