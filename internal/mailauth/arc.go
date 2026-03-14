@@ -20,52 +20,55 @@ func EvalARC(headers []Header, body string) ARCResult {
 	if len(seals) != len(msgs) || len(seals) != len(aars) {
 		return ARCResult{Result: "fail", Reason: "arc set counts mismatch"}
 	}
+	sealMap, err := buildARCInstanceMap(seals)
+	if err != nil {
+		return ARCResult{Result: "fail", Reason: "invalid arc-seal instances: " + err.Error()}
+	}
+	msgMap, err := buildARCInstanceMap(msgs)
+	if err != nil {
+		return ARCResult{Result: "fail", Reason: "invalid arc-message-signature instances: " + err.Error()}
+	}
+	aarMap, err := buildARCInstanceMap(aars)
+	if err != nil {
+		return ARCResult{Result: "fail", Reason: "invalid arc-authentication-results instances: " + err.Error()}
+	}
 	n := len(seals)
 	for i := 1; i <= n; i++ {
-		if !hasInstance(seals, i) || !hasInstance(msgs, i) || !hasInstance(aars, i) {
+		ams, okMsg := msgMap[i]
+		seal, okSeal := sealMap[i]
+		_, okAAR := aarMap[i]
+		if !okSeal || !okMsg || !okAAR {
 			return ARCResult{Result: "fail", Reason: fmt.Sprintf("missing instance i=%d", i)}
-		}
-		ams, ok := valueByInstance(msgs, i)
-		if !ok {
-			return ARCResult{Result: "fail", Reason: fmt.Sprintf("missing arc message signature i=%d", i)}
 		}
 		if err := verifyARCMessageSignature(headers, body, ams); err != nil {
 			return ARCResult{Result: "fail", Reason: fmt.Sprintf("arc message signature verify failed i=%d: %v", i, err)}
-		}
-		seal, ok := valueByInstance(seals, i)
-		if !ok {
-			return ARCResult{Result: "fail", Reason: fmt.Sprintf("missing arc seal i=%d", i)}
 		}
 		if err := verifyARCSeal(headers, seal, i); err != nil {
 			return ARCResult{Result: "fail", Reason: fmt.Sprintf("arc seal verify failed i=%d: %v", i, err)}
 		}
 	}
-	if !strings.Contains(strings.ToLower(seals[n-1]), "cv=") {
-		return ARCResult{Result: "fail", Reason: "missing cv in latest seal"}
-	}
 	return ARCResult{Result: "pass", Reason: "arc chain cryptographically valid"}
 }
 
-func hasInstance(values []string, want int) bool {
+func buildARCInstanceMap(values []string) (map[int]string, error) {
+	out := make(map[int]string, len(values))
 	for _, v := range values {
 		tags := parseTagList(v)
-		i, _ := strconv.Atoi(tags["i"])
-		if i == want {
-			return true
+		i, err := strconv.Atoi(strings.TrimSpace(tags["i"]))
+		if err != nil || i <= 0 {
+			return nil, fmt.Errorf("invalid i tag")
+		}
+		if _, exists := out[i]; exists {
+			return nil, fmt.Errorf("duplicate i=%d", i)
+		}
+		out[i] = v
+	}
+	for i := 1; i <= len(values); i++ {
+		if _, ok := out[i]; !ok {
+			return nil, fmt.Errorf("missing i=%d", i)
 		}
 	}
-	return false
-}
-
-func valueByInstance(values []string, want int) (string, bool) {
-	for _, v := range values {
-		tags := parseTagList(v)
-		i, _ := strconv.Atoi(tags["i"])
-		if i == want {
-			return v, true
-		}
-	}
-	return "", false
+	return out, nil
 }
 
 func verifyARCMessageSignature(headers []Header, body, sig string) error {
@@ -112,14 +115,19 @@ func verifyARCMessageSignature(headers []Header, body, sig string) error {
 
 func verifyARCSeal(headers []Header, seal string, instance int) error {
 	tags := parseTagList(seal)
+	iVal, err := strconv.Atoi(strings.TrimSpace(tags["i"]))
+	if err != nil || iVal != instance {
+		return fmt.Errorf("invalid i tag")
+	}
 	domain := strings.ToLower(tags["d"])
 	selector := tags["s"]
 	algo := strings.ToLower(tags["a"])
 	if tags["i"] == "" || domain == "" || selector == "" || algo != "rsa-sha256" {
 		return fmt.Errorf("unsupported seal parameters")
 	}
-	if strings.TrimSpace(tags["cv"]) == "" {
-		return fmt.Errorf("missing cv tag")
+	cv := strings.ToLower(strings.TrimSpace(tags["cv"]))
+	if !validSealCV(cv, instance) {
+		return fmt.Errorf("invalid cv tag")
 	}
 	chainData, err := buildARCSealSignedData(headers, instance)
 	if err != nil {
@@ -138,6 +146,13 @@ func verifyARCSeal(headers []Header, seal string, instance int) error {
 		return fmt.Errorf("seal verify failed")
 	}
 	return nil
+}
+
+func validSealCV(cv string, instance int) bool {
+	if instance <= 1 {
+		return cv == "none"
+	}
+	return cv == "pass" || cv == "fail"
 }
 
 func buildARCSealSignedData(headers []Header, maxInstance int) (string, error) {

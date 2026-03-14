@@ -28,6 +28,32 @@ func TestEvalARC(t *testing.T) {
 			t.Fatalf("result=%s", res.Result)
 		}
 	})
+	t.Run("duplicate_instance_fails", func(t *testing.T) {
+		h := []Header{
+			{Name: "ARC-Authentication-Results", Value: "i=1; mx=example"},
+			{Name: "ARC-Authentication-Results", Value: "i=1; mx=example-dup"},
+			{Name: "ARC-Message-Signature", Value: "i=1; d=example.com; a=rsa-sha256; s=s1; h=from; bh=x; b=y"},
+			{Name: "ARC-Seal", Value: "i=1; cv=none; d=example.com; a=rsa-sha256; s=s1; b=z"},
+		}
+		res := EvalARC(h, "")
+		if res.Result != "fail" {
+			t.Fatalf("result=%s reason=%s", res.Result, res.Reason)
+		}
+	})
+	t.Run("missing_sequence_fails", func(t *testing.T) {
+		h := []Header{
+			{Name: "ARC-Authentication-Results", Value: "i=1; mx=example"},
+			{Name: "ARC-Authentication-Results", Value: "i=3; mx=example"},
+			{Name: "ARC-Message-Signature", Value: "i=1; d=example.com; a=rsa-sha256; s=s1; h=from; bh=x; b=y"},
+			{Name: "ARC-Message-Signature", Value: "i=3; d=example.com; a=rsa-sha256; s=s1; h=from; bh=x; b=y"},
+			{Name: "ARC-Seal", Value: "i=1; cv=none; d=example.com; a=rsa-sha256; s=s1; b=z"},
+			{Name: "ARC-Seal", Value: "i=3; cv=pass; d=example.com; a=rsa-sha256; s=s1; b=z"},
+		}
+		res := EvalARC(h, "")
+		if res.Result != "fail" {
+			t.Fatalf("result=%s reason=%s", res.Result, res.Reason)
+		}
+	})
 	t.Run("fail_without_crypto", func(t *testing.T) {
 		h := []Header{
 			{Name: "ARC-Authentication-Results", Value: "i=1; mx=example"},
@@ -39,6 +65,21 @@ func TestEvalARC(t *testing.T) {
 			t.Fatalf("result=%s reason=%s", res.Result, res.Reason)
 		}
 	})
+}
+
+func TestVerifyARCSealCVRules(t *testing.T) {
+	if !validSealCV("none", 1) {
+		t.Fatal("i=1 must allow cv=none")
+	}
+	if validSealCV("pass", 1) {
+		t.Fatal("i=1 must not allow cv=pass")
+	}
+	if !validSealCV("pass", 2) || !validSealCV("fail", 2) {
+		t.Fatal("i>1 must allow cv=pass/fail")
+	}
+	if validSealCV("none", 2) {
+		t.Fatal("i>1 must not allow cv=none")
+	}
 }
 
 func TestEvalARCCryptoPass(t *testing.T) {
