@@ -8,15 +8,21 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 type ARCFileSigner struct {
-	domain     string
-	selector   string
-	authserv   string
-	headers    []string
+	domain   string
+	selector string
+	authserv string
+	headers  []string
+	keyFile  string
+
+	mu         sync.RWMutex
+	mtime      time.Time
 	privateKey *rsa.PrivateKey
 }
 
@@ -31,24 +37,27 @@ func NewARCFileSigner(domain, selector, keyFile, authservID, headers string) (*A
 	if a == "" {
 		a = "orinoco.local"
 	}
-	key, err := loadPrivateKey(k)
-	if err != nil {
-		return nil, err
-	}
 	h := parseHeaderList(headers)
 	if len(h) == 0 {
 		h = []string{"from", "to", "subject", "date", "message-id"}
 	}
-	return &ARCFileSigner{
-		domain:     d,
-		selector:   s,
-		authserv:   a,
-		headers:    h,
-		privateKey: key,
-	}, nil
+	signer := &ARCFileSigner{
+		domain:   d,
+		selector: s,
+		authserv: a,
+		headers:  h,
+		keyFile:  k,
+	}
+	if err := signer.reloadIfNeeded(); err != nil {
+		return nil, err
+	}
+	return signer, nil
 }
 
 func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
+	if err := s.reloadIfNeeded(); err != nil {
+		return nil, err
+	}
 	headerPart, bodyPart, ok := splitMessage(raw)
 	if !ok {
 		return nil, errors.New("invalid message format")
@@ -84,7 +93,10 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 		bh,
 	)
 	amsSigningData := signedHeaderPart + canonHeaderRelaxed("ARC-Message-Signature", amsBase)
-	amsSig, err := signPKCS1v15SHA256(s.privateKey, []byte(amsSigningData))
+	s.mu.RLock()
+	key := s.privateKey
+	s.mu.RUnlock()
+	amsSig, err := signPKCS1v15SHA256(key, []byte(amsSigningData))
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +106,7 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	sealSigningData := canonHeaderRelaxed("ARC-Authentication-Results", aarValue) +
 		canonHeaderRelaxed("ARC-Message-Signature", amsValue) +
 		canonHeaderRelaxed("ARC-Seal", sealBase)
-	sealSig, err := signPKCS1v15SHA256(s.privateKey, []byte(sealSigningData))
+	sealSig, err := signPKCS1v15SHA256(key, []byte(sealSigningData))
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +126,28 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	out.WriteString("\r\n\r\n")
 	out.WriteString(bodyPart)
 	return []byte(out.String()), nil
+}
+
+func (s *ARCFileSigner) reloadIfNeeded() error {
+	st, err := os.Stat(s.keyFile)
+	if err != nil {
+		return err
+	}
+	s.mu.RLock()
+	needs := s.privateKey == nil || st.ModTime().After(s.mtime)
+	s.mu.RUnlock()
+	if !needs {
+		return nil
+	}
+	key, err := loadPrivateKey(s.keyFile)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.privateKey = key
+	s.mtime = st.ModTime()
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *ARCFileSigner) buildAARValue(headers []rawHeader) string {
