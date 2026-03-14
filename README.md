@@ -93,6 +93,7 @@ go run ./cmd/mta
 - `MTA_DKIM_SIGN_SELECTOR` (default: unset)
 - `MTA_DKIM_PRIVATE_KEY_FILE` (default: unset, PEM RSA private key)
 - `MTA_DKIM_SIGN_HEADERS` (default: `from:to:subject:date:message-id`)
+  - ARC署名も同じ鍵設定を利用し、鍵ファイル更新時は送信時に自動リロード
 
 ## 補足
 
