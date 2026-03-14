@@ -2,6 +2,7 @@ package mailauth
 
 import (
 	"fmt"
+	"hash/fnv"
 	"net"
 	"strings"
 )
@@ -85,6 +86,11 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 	case "pass", "none":
 		result.Action = ActionAccept
 	case "fail":
+		if isEnforcingDMARCPolicy(dmarc.Policy) && !shouldApplyDMARCPolicy(dmarc, helo, mailFrom, raw) {
+			result.Action = ActionAccept
+			result.Reason = fmt.Sprintf("dmarc policy sampled out (pct=%d)", dmarc.Percent)
+			return result
+		}
 		switch strings.ToLower(dmarc.Policy) {
 		case "reject":
 			result.Action = ActionReject
@@ -99,6 +105,44 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 		result.Action = ActionAccept
 	}
 	return result
+}
+
+func isEnforcingDMARCPolicy(policy string) bool {
+	switch strings.ToLower(strings.TrimSpace(policy)) {
+	case "reject", "quarantine":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldApplyDMARCPolicy(dmarc DMARCResult, helo, mailFrom string, raw []byte) bool {
+	if !isEnforcingDMARCPolicy(dmarc.Policy) {
+		return false
+	}
+	if dmarc.Percent >= 100 {
+		return true
+	}
+	if dmarc.Percent <= 0 {
+		return false
+	}
+	return dmarcSamplingBucket(helo, mailFrom, raw) < dmarc.Percent
+}
+
+func dmarcSamplingBucket(helo, mailFrom string, raw []byte) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(strings.TrimSpace(helo))))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(strings.ToLower(strings.TrimSpace(mailFrom))))
+	_, _ = h.Write([]byte{0})
+	limit := len(raw)
+	if limit > 4096 {
+		limit = 4096
+	}
+	if limit > 0 {
+		_, _ = h.Write(raw[:limit])
+	}
+	return int(h.Sum32() % 100)
 }
 
 func spfRejected(v string) bool {

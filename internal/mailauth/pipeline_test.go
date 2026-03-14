@@ -130,3 +130,65 @@ func TestEvaluateWithPolicy_MailFromEnforce(t *testing.T) {
 		t.Fatalf("mailfrom enforce should reject, action=%s reason=%q", res.Action, res.Reason)
 	}
 }
+
+func TestEvaluateWithPolicy_DMARCRejectPctZeroSampledOut(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+	dmarcLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if strings.EqualFold(name, "_dmarc.example.com") {
+			return []string{"v=DMARC1; p=reject; pct=0"}, nil
+		}
+		return nil, nil
+	}
+
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: x\r\n\r\nbody")
+	res := EvaluateWithPolicy(nil, "mx.sender.test", "sender@example.com", raw, DefaultSPFPolicy())
+	if res.DMARC.Result != "fail" {
+		t.Fatalf("dmarc result=%s want=fail", res.DMARC.Result)
+	}
+	if res.Action != ActionAccept {
+		t.Fatalf("action=%s want=%s", res.Action, ActionAccept)
+	}
+	if !strings.Contains(res.Reason, "sampled out") {
+		t.Fatalf("reason=%q want contains sampled out", res.Reason)
+	}
+}
+
+func TestEvaluateWithPolicy_DMARCRejectPctHundredEnforced(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+	dmarcLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if strings.EqualFold(name, "_dmarc.example.com") {
+			return []string{"v=DMARC1; p=reject; pct=100"}, nil
+		}
+		return nil, nil
+	}
+
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\nSubject: x\r\n\r\nbody")
+	res := EvaluateWithPolicy(nil, "mx.sender.test", "sender@example.com", raw, DefaultSPFPolicy())
+	if res.DMARC.Result != "fail" {
+		t.Fatalf("dmarc result=%s want=fail", res.DMARC.Result)
+	}
+	if res.Action != ActionReject {
+		t.Fatalf("action=%s want=%s", res.Action, ActionReject)
+	}
+	if res.Reason != "dmarc reject policy" {
+		t.Fatalf("reason=%q want=%q", res.Reason, "dmarc reject policy")
+	}
+}
+
+func TestDMARCSamplingBucketDeterministic(t *testing.T) {
+	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\n\r\nbody")
+	a := dmarcSamplingBucket("mx.example.net", "sender@example.com", raw)
+	b := dmarcSamplingBucket("mx.example.net", "sender@example.com", raw)
+	if a != b {
+		t.Fatalf("bucket must be deterministic: %d != %d", a, b)
+	}
+	if a < 0 || a > 99 {
+		t.Fatalf("bucket out of range: %d", a)
+	}
+}
