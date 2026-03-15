@@ -150,6 +150,20 @@ func TestLoadSPFPolicyConfig(t *testing.T) {
 	}
 }
 
+func TestLoadARCFailurePolicyConfig(t *testing.T) {
+	t.Setenv("MTA_ARC_FAILURE_POLICY", "reject")
+	cfg := Load()
+	if cfg.ARCFailurePolicy != "reject" {
+		t.Fatalf("arc policy=%q", cfg.ARCFailurePolicy)
+	}
+
+	t.Setenv("MTA_ARC_FAILURE_POLICY", "invalid")
+	cfg = Load()
+	if cfg.ARCFailurePolicy != "accept" {
+		t.Fatalf("arc invalid should fallback, got=%q", cfg.ARCFailurePolicy)
+	}
+}
+
 func TestLoadDomainThrottleConfig(t *testing.T) {
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", "4")
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_RULES", "gmail.com:2,yahoo.com:1")

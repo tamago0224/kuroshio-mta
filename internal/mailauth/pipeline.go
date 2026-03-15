@@ -8,20 +8,31 @@ import (
 )
 
 type SPFPolicy struct {
-	HeloMode     string
-	MailFromMode string
+	HeloMode       string
+	MailFromMode   string
+	ARCFailureMode string
 }
 
 func DefaultSPFPolicy() SPFPolicy {
 	return SPFPolicy{
-		HeloMode:     "advisory",
-		MailFromMode: "advisory",
+		HeloMode:       "advisory",
+		MailFromMode:   "advisory",
+		ARCFailureMode: "accept",
 	}
 }
 
 func normalizeSPFMode(v, def string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "off", "advisory", "enforce":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return def
+	}
+}
+
+func normalizeARCFailureMode(v, def string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "accept", "quarantine", "reject":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return def
@@ -44,6 +55,7 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 
 	heloMode := normalizeSPFMode(policy.HeloMode, "advisory")
 	mailFromMode := normalizeSPFMode(policy.MailFromMode, "advisory")
+	arcFailureMode := normalizeARCFailureMode(policy.ARCFailureMode, "accept")
 
 	spfHelo := SPFResult{Result: "none", Reason: "helo spf disabled"}
 	if heloMode != "off" {
@@ -103,6 +115,16 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 		}
 	default:
 		result.Action = ActionAccept
+	}
+	if result.Action == ActionAccept && strings.EqualFold(strings.TrimSpace(arc.Result), "fail") {
+		switch arcFailureMode {
+		case "reject":
+			result.Action = ActionReject
+			result.Reason = "arc failure policy"
+		case "quarantine":
+			result.Action = ActionQuarantine
+			result.Reason = "arc failure policy"
+		}
 	}
 	return result
 }

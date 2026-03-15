@@ -323,8 +323,9 @@ func (s *Server) handleConn(conn net.Conn) {
 				msgRemoteIP = parseRemoteIP(ss.remote)
 			}
 			authRes := evaluateAuthWithPolicy(msgRemoteIP, ss.helo, ss.mailFrom, ss.data, mailauth.SPFPolicy{
-				HeloMode:     s.cfg.SPFHeloPolicy,
-				MailFromMode: s.cfg.SPFMailFromPolicy,
+				HeloMode:       s.cfg.SPFHeloPolicy,
+				MailFromMode:   s.cfg.SPFMailFromPolicy,
+				ARCFailureMode: s.cfg.ARCFailurePolicy,
 			})
 			s.metricAuthResult(authRes)
 			switch authRes.Action {

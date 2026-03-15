@@ -94,6 +94,8 @@ go run ./cmd/mta
 - `MTA_DKIM_PRIVATE_KEY_FILE` (default: unset, PEM RSA private key)
 - `MTA_DKIM_SIGN_HEADERS` (default: `from:to:subject:date:message-id`)
   - ARC署名も同じ鍵設定を利用し、鍵ファイル更新時は送信時に自動リロード
+- `MTA_ARC_FAILURE_POLICY` (default: `accept`, values: `accept` / `quarantine` / `reject`)
+- `MTA_ARC_FAILURE_POLICY` (default: `accept`, values: `accept` / `quarantine` / `reject`)
 
 ## 補足
 
