@@ -189,6 +189,15 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - 障害注入ドリル補助スクリプト:
   `scripts/chaos/run_ha_drill.sh`
 
+## Load / Chaos Testing
+
+- 負荷試験 runbook:
+  [load_chaos.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/load_chaos.md)
+- 単体シナリオ実行:
+  `scripts/load/run_smtp_load.sh normal 127.0.0.1:2525`
+- カオス併用スイート:
+  `scripts/chaos/run_load_chaos_suite.sh 127.0.0.1:2525 --apply`
+
 ## DR Backup / Restore
 
 - DR（Disaster Recovery, 災害対策）向け runbook:
