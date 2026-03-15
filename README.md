@@ -189,6 +189,17 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - 障害注入ドリル補助スクリプト:
   `scripts/chaos/run_ha_drill.sh`
 
+## DR Backup / Restore
+
+- DR（Disaster Recovery, 災害対策）向け runbook:
+  [dr_backup_restore.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/dr_backup_restore.md)
+- バックアップ:
+  `scripts/dr/backup_queue.sh ./var/queue ./var/backups`
+- リストア:
+  `scripts/dr/restore_queue.sh ./var/backups/orinoco-queue-<timestamp>.tar.gz ./var/queue --force`
+- DRドリル:
+  `scripts/chaos/run_dr_drill.sh ./var/queue ./var/backups --apply`
+
 ## Compliance Basics
 
 - ログは `slog(JSON)` で出力
