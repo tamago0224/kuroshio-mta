@@ -192,3 +192,101 @@ func TestDMARCSamplingBucketDeterministic(t *testing.T) {
 		t.Fatalf("bucket out of range: %d", a)
 	}
 }
+
+func TestEvaluateWithPolicy_ARCFailurePolicyReject(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+	dmarcLookupTXT = func(_ context.Context, _ string) ([]string, error) {
+		return nil, nil
+	}
+
+	raw := []byte("From: sender@example.com\r\nARC-Seal: i=1; cv=none\r\n\r\nbody")
+	res := EvaluateWithPolicy(nil, "mx.example.net", "sender@example.com", raw, SPFPolicy{
+		HeloMode:       "off",
+		MailFromMode:   "off",
+		ARCFailureMode: "reject",
+	})
+	if res.ARC.Result != "fail" {
+		t.Fatalf("arc result=%s want=fail", res.ARC.Result)
+	}
+	if res.Action != ActionReject {
+		t.Fatalf("action=%s want=%s", res.Action, ActionReject)
+	}
+	if res.Reason != "arc failure policy" {
+		t.Fatalf("reason=%q", res.Reason)
+	}
+}
+
+func TestEvaluateWithPolicy_ARCFailurePolicyQuarantine(t *testing.T) {
+	origLookup := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origLookup
+	})
+	dmarcLookupTXT = func(_ context.Context, _ string) ([]string, error) {
+		return nil, nil
+	}
+
+	raw := []byte("From: sender@example.com\r\nARC-Seal: i=1; cv=none\r\n\r\nbody")
+	res := EvaluateWithPolicy(nil, "mx.example.net", "sender@example.com", raw, SPFPolicy{
+		HeloMode:       "off",
+		MailFromMode:   "off",
+		ARCFailureMode: "quarantine",
+	})
+	if res.ARC.Result != "fail" {
+		t.Fatalf("arc result=%s want=fail", res.ARC.Result)
+	}
+	if res.Action != ActionQuarantine {
+		t.Fatalf("action=%s want=%s", res.Action, ActionQuarantine)
+	}
+	if res.Reason != "arc failure policy" {
+		t.Fatalf("reason=%q", res.Reason)
+	}
+}
+
+func TestEvaluateWithPolicy_ARCFailurePolicy(t *testing.T) {
+	origDMARC := dmarcLookupTXT
+	t.Cleanup(func() {
+		dmarcLookupTXT = origDMARC
+	})
+	dmarcLookupTXT = func(_ context.Context, _ string) ([]string, error) {
+		return nil, nil
+	}
+
+	raw := []byte(strings.Join([]string{
+		"From: sender@example.com",
+		"To: rcpt@example.net",
+		"Subject: x",
+		"ARC-Authentication-Results: i=1; mx=example.net; dmarc=pass",
+		"ARC-Message-Signature: i=1; a=rsa-sha256; d=example.com; s=s1; h=from; bh=abc; b=abc",
+		"ARC-Seal: i=1; cv=none; a=rsa-sha256; d=example.com; s=s1; b=abc",
+		"",
+		"body",
+	}, "\r\n"))
+
+	tests := []struct {
+		mode       string
+		wantAction Action
+	}{
+		{mode: "accept", wantAction: ActionAccept},
+		{mode: "quarantine", wantAction: ActionQuarantine},
+		{mode: "reject", wantAction: ActionReject},
+	}
+	for _, tt := range tests {
+		res := EvaluateWithPolicy(nil, "mx.sender.test", "sender@example.com", raw, SPFPolicy{
+			HeloMode:       "advisory",
+			MailFromMode:   "advisory",
+			ARCFailureMode: tt.mode,
+		})
+		if res.ARC.Result != "fail" {
+			t.Fatalf("mode=%s arc result=%s want=fail", tt.mode, res.ARC.Result)
+		}
+		if res.Action != tt.wantAction {
+			t.Fatalf("mode=%s action=%s want=%s", tt.mode, res.Action, tt.wantAction)
+		}
+		if tt.wantAction != ActionAccept && res.Reason != "arc failure policy" {
+			t.Fatalf("mode=%s reason=%q", tt.mode, res.Reason)
+		}
+	}
+}
