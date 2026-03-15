@@ -18,5 +18,23 @@ if [[ "$branch_name" == "main" || "$branch_name" == "master" ]]; then
   exit 1
 fi
 
-git switch -c "$branch_name"
-echo "Created and switched to branch: $branch_name"
+if git rev-parse --verify --quiet "refs/heads/$branch_name" >/dev/null; then
+  git switch "$branch_name"
+  echo "Switched to existing branch: $branch_name"
+  exit 0
+fi
+
+if git switch -c "$branch_name"; then
+  echo "Created and switched to branch: $branch_name"
+  exit 0
+fi
+
+cat >&2 <<EOF
+Failed to create branch: $branch_name
+
+Troubleshooting:
+- Ensure the branch name is valid and not blocked by repository settings.
+- Try a branch name without "/" (for example: feature-foo) if your environment has ref path restrictions.
+- This script intentionally does not modify .git internals directly.
+EOF
+exit 1
