@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCENARIO="${1:-normal}"
 ADDR="${2:-127.0.0.1:2525}"
+OUT_FILE="${3:-}"
 
 case "${SCENARIO}" in
   normal)
@@ -28,9 +29,15 @@ esac
 
 echo "scenario=${SCENARIO} addr=${ADDR} concurrency=${CONCURRENCY} messages=${MESSAGES}"
 
-go run ./cmd/smtpload \
+RESULT="$(go run ./cmd/smtpload \
   -addr "${ADDR}" \
   -concurrency "${CONCURRENCY}" \
   -messages "${MESSAGES}" \
   -from "loadtest@orinoco.local" \
-  -to "receiver@orinoco.local"
+  -to "receiver@orinoco.local")"
+
+echo "${RESULT}"
+
+if [[ -n "${OUT_FILE}" ]]; then
+  echo "${RESULT}" | jq --arg scenario "${SCENARIO}" '. + {scenario: $scenario}' >> "${OUT_FILE}"
+fi

@@ -196,7 +196,9 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - 単体シナリオ実行:
   `scripts/load/run_smtp_load.sh normal 127.0.0.1:2525`
 - カオス併用スイート:
-  `scripts/chaos/run_load_chaos_suite.sh 127.0.0.1:2525 --apply`
+  `scripts/chaos/run_load_chaos_suite.sh 127.0.0.1:2525 --apply ./var/load-chaos/results.ndjson`
+- 容量計画表への整形:
+  `scripts/load/plan_capacity.sh ./var/load-chaos/results.ndjson`
 
 ## DR Backup / Restore
 
