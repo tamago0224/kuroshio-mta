@@ -380,6 +380,56 @@ func TestQueueMessageInjectsReceivedHeader(t *testing.T) {
 	}
 }
 
+func TestQueueMessageWithHELOInjectsSMTPReceivedHeader(t *testing.T) {
+	q := &recordingQueue{}
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "HELO client.example")
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("helo code=%d want=250", code)
+	}
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "DATA")
+	_, dataCode := readSMTPResponse(t, r)
+	if dataCode != 354 {
+		t.Fatalf("data code=%d want=354", dataCode)
+	}
+
+	data := "From: alice@invalid.invalid\r\nTo: bob@invalid.invalid\r\nSubject: test\r\n\r\nhello\r\n.\r\n"
+	if _, err := w.WriteString(data); err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush data: %v", err)
+	}
+	_, code = readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+	if len(q.msgs) != 1 {
+		t.Fatalf("queued=%d want=1", len(q.msgs))
+	}
+	msg := string(q.msgs[0].Data)
+	if !strings.Contains(msg, "by mx.example.test with SMTP id ") {
+		t.Fatalf("missing expected SMTP trace fields: %q", msg)
+	}
+	if strings.Contains(msg, "with ESMTP id ") {
+		t.Fatalf("HELO session must not be marked as ESMTP: %q", msg)
+	}
+}
+
 func TestQueueMessageEnqueuesDMARCReports(t *testing.T) {
 	origEval := evaluateAuthWithPolicy
 	evaluateAuthWithPolicy = func(_ net.IP, _, _ string, _ []byte, _ mailauth.SPFPolicy) mailauth.Result {
@@ -524,6 +574,7 @@ func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
 		"127.0.0.1:2525\r\nX:evil",
 		"id-123\r\nInjected",
 		time.Date(2026, 3, 10, 12, 30, 0, 0, time.UTC),
+		true,
 		false,
 	)
 	if strings.Contains(got, "\r") || strings.Contains(got, "\n") {
@@ -534,6 +585,9 @@ func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
 	}
 	if !strings.Contains(got, "Received: from client.exampleBcc_evil@example.net") {
 		t.Fatalf("unexpected header content: %q", got)
+	}
+	if !strings.Contains(got, " by mx.example.test with ESMTP id id-123Injected; ") {
+		t.Fatalf("unexpected protocol marker: %q", got)
 	}
 }
 

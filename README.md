@@ -8,25 +8,35 @@ Orinoco は南米を流れる川の名前で、
 ## 現在の実装範囲
 
 - SMTP受信サーバー（自前パーサー）
+- Submission サーバー（SMTP AUTH PLAIN / LOGIN）
 - ローカル永続キュー（`var/queue`）
 - MX解決による配送先ルーティング
 - SMTP配送ワーカー（再送バックオフ付き）
 - STARTTLS対応先への送信時TLS昇格
+- DKIM / ARC 送信署名、SPF / DKIM / DMARC / ARC 受信評価
 
 ## RFC対応状況（現時点）
 
+注記:
+- `対応済み（実装範囲内）` は、現行の Orinoco MTA が対象としている機能範囲では実装済みであることを示します。
+- 周辺RFCとの完全な相互運用や、未採用オプションまで含む全面実装を意味するものではありません。
+
 | RFC | 技術 | 対応状況 | 補足 |
 | --- | --- | --- | --- |
-| RFC 5321 | SMTP | 一部対応 | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT` を実装 |
+| RFC 5321 | SMTP | 一部対応 | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502`、一部拡張は別RFCとして実装 |
 | RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
+| RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | `SIZE` パラメータと最大メッセージサイズ制限を実装 |
+| RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | `BODY=8BITMIME` と 8bit 本文受信を実装 |
+| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN` を実装 |
+| RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約を実装 |
 | RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
-| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `all` を評価 |
-| RFC 6376 | DKIM | 一部対応 | DKIM署名検証（`rsa-sha256`）を実装 |
-| RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment と `p` ポリシー評価を実装 |
-| RFC 8617 | ARC | 一部対応 | ARCセットの構造検証、AMS/AS検証、送信時の i=1 ARC付与を実装 |
-| RFC 8461 | MTA-STS | 一部対応 | policy取得・キャッシュ・enforce適用を実装 |
+| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, macro 展開、lookup 制限、HELO/MAIL FROM ポリシー分離を実装 |
+| RFC 6376 | DKIM | 一部対応 | 受信時の DKIM 検証、複数署名評価、`l/t/x/h`、canonicalization、送信時 DKIM 署名を実装 |
+| RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、集計/失敗レポート生成を実装 |
+| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、送信/中継時の ARC 署名付与、失敗時ポリシーを実装 |
+| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、stale 利用、`mode=enforce/testing`、安全なロールオーバーを実装 |
 | RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得と優先適用（DANE > MTA-STS）を実装 |
-| RFC 3464 | DSN | 一部対応 | DSNパースと suppression 連携を実装 |
+| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、相互運用テストを実装 |
 
 ## 実行方法
 
@@ -101,7 +111,6 @@ go run ./cmd/mta
 - `MTA_DKIM_PRIVATE_KEY_FILE` (default: unset, PEM RSA private key)
 - `MTA_DKIM_SIGN_HEADERS` (default: `from:to:subject:date:message-id`)
   - ARC署名も同じ鍵設定を利用し、鍵ファイル更新時は送信時に自動リロード
-- `MTA_ARC_FAILURE_POLICY` (default: `accept`, values: `accept` / `quarantine` / `reject`)
 - `MTA_ARC_FAILURE_POLICY` (default: `accept`, values: `accept` / `quarantine` / `reject`)
 
 ## 補足
