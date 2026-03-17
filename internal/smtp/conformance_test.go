@@ -41,6 +41,34 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.1.5", "DATA after RSET", code, 503)
 	})
 
+	t.Run("RFC5321-4.1.1.3-RCPT-before-MAIL-must-fail-503", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.3", "RCPT before MAIL", code, 503)
+	})
+
+	t.Run("RFC5321-4.1.1.4-DATA-before-RCPT-must-fail-503", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "DATA")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.4", "DATA before RCPT", code, 503)
+	})
+
 	t.Run("RFC1870-6-SIZE-over-limit-must-fail-552", func(t *testing.T) {
 		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}})
 		defer cleanup()
