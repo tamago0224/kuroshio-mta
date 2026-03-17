@@ -83,6 +83,62 @@ func (s *Store) Due(limit int) ([]*model.Message, error) {
 	return out, nil
 }
 
+func (s *Store) ListState(state string, limit int) ([]*model.Message, error) {
+	dir, err := s.dirForState(state)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]*model.Message, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		msg, err := s.read(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, msg)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Message, error) {
+	dir, err := s.dirForState(state)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, id+".json")
+	msg, err := s.read(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	msg.UpdatedAt = now.UTC()
+	msg.NextAttempt = now.UTC()
+	if err := s.write(filepath.Join(s.inbound, id+".json"), msg); err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
 func (s *Store) AckSent(id string, msg *model.Message) error {
 	st, err := s.messageState(id)
 	if err != nil {
@@ -254,4 +310,19 @@ func (s *Store) messageState(id string) (string, error) {
 		}
 	}
 	return "none", nil
+}
+
+func (s *Store) dirForState(state string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "inbound":
+		return s.inbound, nil
+	case "retry":
+		return s.retry, nil
+	case "dlq":
+		return s.dlq, nil
+	case "sent":
+		return s.sent, nil
+	default:
+		return "", errors.New("unknown queue state: " + state)
+	}
 }

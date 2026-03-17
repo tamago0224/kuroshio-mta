@@ -15,6 +15,8 @@ type Config struct {
 	SubmissionSenderID         bool
 	LogLevel                   string
 	ObservabilityAddr          string
+	AdminAddr                  string
+	AdminTokens                string
 	Hostname                   string
 	QueueDir                   string
 	QueueBackend               string
@@ -73,6 +75,8 @@ func Load() Config {
 		SubmissionSenderID: envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", true),
 		LogLevel:           env("MTA_LOG_LEVEL", "info"),
 		ObservabilityAddr:  env("MTA_OBSERVABILITY_ADDR", ":9090"),
+		AdminAddr:          env("MTA_ADMIN_ADDR", ""),
+		AdminTokens:        envOrFile("MTA_ADMIN_TOKENS", "MTA_ADMIN_TOKENS_FILE", ""),
 		Hostname:           env("MTA_HOSTNAME", "orinoco.local"),
 		QueueDir:           env("MTA_QUEUE_DIR", "./var/queue"),
 		QueueBackend:       env("MTA_QUEUE_BACKEND", "local"),

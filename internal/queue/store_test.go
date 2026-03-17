@@ -195,3 +195,61 @@ func TestStoreDueReadsLegacyPending(t *testing.T) {
 		t.Fatalf("expected legacy message due, got=%v", due)
 	}
 }
+
+func TestStoreRequeueFromRetryAndDLQ(t *testing.T) {
+	d := t.TempDir()
+	s, err := New(filepath.Join(d, "queue"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+
+	retryMsg := &model.Message{ID: "m-retry", MailFrom: "sender@example.com", RcptTo: []string{"r@example.net"}, Data: []byte("x")}
+	if err := s.Enqueue(retryMsg); err != nil {
+		t.Fatalf("enqueue retry: %v", err)
+	}
+	if err := s.Retry(retryMsg, time.Hour, "temp"); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if _, err := s.RequeueFromState("retry", "m-retry", time.Now()); err != nil {
+		t.Fatalf("requeue retry: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.inbound", "m-retry.json")); err != nil {
+		t.Fatalf("requeued inbound not found: %v", err)
+	}
+
+	dlqMsg := &model.Message{ID: "m-dlq", MailFrom: "sender@example.com", RcptTo: []string{"r@example.net"}, Data: []byte("x")}
+	if err := s.Enqueue(dlqMsg); err != nil {
+		t.Fatalf("enqueue dlq: %v", err)
+	}
+	if err := s.Fail(dlqMsg, "perm"); err != nil {
+		t.Fatalf("fail: %v", err)
+	}
+	if _, err := s.RequeueFromState("dlq", "m-dlq", time.Now()); err != nil {
+		t.Fatalf("requeue dlq: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "queue", "mail.inbound", "m-dlq.json")); err != nil {
+		t.Fatalf("requeued inbound from dlq not found: %v", err)
+	}
+}
+
+func TestStoreListState(t *testing.T) {
+	d := t.TempDir()
+	s, err := New(filepath.Join(d, "queue"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	msg := &model.Message{ID: "m-list", MailFrom: "sender@example.com", RcptTo: []string{"r@example.net"}, Data: []byte("x")}
+	if err := s.Enqueue(msg); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if err := s.Retry(msg, time.Hour, "temp"); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	list, err := s.ListState("retry", 10)
+	if err != nil {
+		t.Fatalf("list retry: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != "m-list" {
+		t.Fatalf("list=%v", list)
+	}
+}

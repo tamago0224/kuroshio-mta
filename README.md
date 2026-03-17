@@ -46,6 +46,8 @@ go run ./cmd/mta
 - `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` (default: `true`, requires `MAIL FROM` domain to match authenticated user domain)
 - `MTA_LOG_LEVEL` (default: `info`, values: `debug` / `info` / `warn` / `error`, logs are JSON via `slog`)
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
+- `MTA_ADMIN_ADDR` (default: unset)
+- `MTA_ADMIN_TOKENS` (default: unset, format: `viewer-token:viewer,operator-token:operator`)
 - `MTA_SLO_MIN_DELIVERY_SUCCESS_RATE` (default: `0.99`)
 - `MTA_SLO_MAX_RETRY_RATE` (default: `0.20`)
 - `MTA_SLO_MAX_QUEUE_BACKLOG` (default: `50000`)
@@ -199,6 +201,17 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
   `scripts/chaos/run_load_chaos_suite.sh 127.0.0.1:2525 --apply ./var/load-chaos/results.ndjson`
 - 容量計画表への整形:
   `scripts/load/plan_capacity.sh ./var/load-chaos/results.ndjson`
+
+## Admin API
+
+- runbook:
+  [admin_api.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/admin_api.md)
+- 最小CLI:
+  `scripts/admin/orinoco_admin.sh`
+- 対応操作:
+  `suppression` 一覧/追加/削除、`retry` / `dlq` 一覧、再投入
+- 認可:
+  Bearer token + role（`viewer` / `operator` / `admin`）
 
 ## DR Backup / Restore
 
