@@ -15,6 +15,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 	"github.com/tamago0224/orinoco-mta/internal/util"
 )
 
@@ -25,9 +26,10 @@ type Dispatcher struct {
 	sup      *bounce.SuppressionStore
 	m        *observability.Metrics
 	throttle *domainThrottle
+	rep      *reputation.Tracker
 }
 
-func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics) *Dispatcher {
+func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics, rep *reputation.Tracker) *Dispatcher {
 	return &Dispatcher{
 		cfg:      cfg,
 		queue:    q,
@@ -35,6 +37,7 @@ func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.Su
 		sup:      sup,
 		m:        metrics,
 		throttle: newDomainThrottle(cfg.DomainMaxConcurrentDefault, parseDomainRules(cfg.DomainMaxConcurrentRules), cfg.DomainAdaptiveThrottle, cfg.DomainTempFailThreshold, cfg.DomainPenaltyMax),
+		rep:      rep,
 	}
 }
 
@@ -92,6 +95,22 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		}
 		func() {
 			defer release()
+			if d.rep != nil {
+				if ok, reason := d.rep.Admit(domain, time.Now().UTC()); !ok {
+					reasons = append(reasons, rcpt+": reputation "+reason)
+					d.metricInc("worker_reputation_block")
+					switch reason {
+					case "warmup_limit":
+						d.metricInc("reputation_warmup_limit")
+					case "bounce_rate":
+						d.metricInc("reputation_bounce_rate_block")
+					case "complaint_rate":
+						d.metricInc("reputation_complaint_rate_block")
+					}
+					errs = append(errs, errors.New("reputation "+reason))
+					return
+				}
+			}
 			if d.sup != nil && d.sup.IsSuppressed(rcpt) {
 				reasons = append(reasons, rcpt+": suppressed")
 				d.metricInc("worker_suppressed_recipient")
@@ -101,6 +120,9 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				reasons = append(reasons, rcpt+": "+err.Error())
 				var smtpErr *delivery.SMTPResponseError
 				if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+					if d.rep != nil {
+						d.rep.ObserveDelivery(domain, false, true)
+					}
 					d.emitHardBounceDSN(ctx, msg, rcpt, smtpErr.Error())
 					if d.throttle != nil {
 						d.throttle.observe(domain, false)
@@ -114,12 +136,18 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					return
 				}
 				d.metricInc("worker_temporary_failure")
+				if d.rep != nil {
+					d.rep.ObserveDelivery(domain, true, false)
+				}
 				d.emitSoftBounceDSN(ctx, msg, rcpt, err.Error())
 				if d.throttle != nil {
 					d.throttle.observe(domain, true)
 				}
 				errs = append(errs, err)
 			} else {
+				if d.rep != nil {
+					d.rep.ObserveDelivery(domain, false, false)
+				}
 				if d.throttle != nil {
 					d.throttle.observe(domain, false)
 				}

@@ -19,6 +19,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 	"github.com/tamago0224/orinoco-mta/internal/retention"
 	"github.com/tamago0224/orinoco-mta/internal/smtp"
 	"github.com/tamago0224/orinoco-mta/internal/userauth"
@@ -47,8 +48,15 @@ func main() {
 		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
+	rep := reputation.New(reputation.Config{
+		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),
+		WarmupRules:        reputation.ParseWarmupRules(cfg.ReputationWarmupRules),
+		BounceThreshold:    cfg.ReputationBounceThreshold,
+		ComplaintThreshold: cfg.ReputationComplaintThresh,
+		MinSamples:         cfg.ReputationMinSamples,
+	})
 
-	d := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics)
+	d := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics, rep)
 	s := smtp.NewServer(cfg, q, metrics)
 	var submissionServer *smtp.Server
 	if cfg.SubmissionAddr != "" {
@@ -76,7 +84,7 @@ func main() {
 		go func() { errCh <- submissionServer.Run(ctx) }()
 	}
 	go func() { errCh <- d.Run(ctx) }()
-	go func() { errCh <- observability.RunServer(ctx, cfg.ObservabilityAddr, metrics) }()
+	go func() { errCh <- observability.RunServerWithReputation(ctx, cfg.ObservabilityAddr, metrics, rep) }()
 	if cfg.AdminAddr != "" {
 		var queueAdmin interface {
 			ListState(state string, limit int) ([]*model.Message, error)
@@ -85,7 +93,7 @@ func main() {
 		if localQueue, ok := q.(*queue.Store); ok {
 			queueAdmin = localQueue
 		}
-		go func() { errCh <- admin.RunServer(ctx, cfg.AdminAddr, cfg.AdminTokens, sup, queueAdmin) }()
+		go func() { errCh <- admin.RunServer(ctx, cfg.AdminAddr, cfg.AdminTokens, sup, queueAdmin, rep) }()
 	}
 	go func() {
 		errCh <- retention.Run(ctx, cfg.QueueDir, retention.Policy{

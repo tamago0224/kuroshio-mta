@@ -12,6 +12,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 )
 
 func TestSuppressionsAPIRequiresBearerToken(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSuppressionsAPIRequiresBearerToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new suppression store: %v", err)
 	}
-	api := NewAPI(s, nil, "viewer-token:viewer")
+	api := NewAPI(s, nil, nil, "viewer-token:viewer")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/suppressions", nil)
 	rec := httptest.NewRecorder()
@@ -35,7 +36,7 @@ func TestSuppressionsAPIAddAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new suppression store: %v", err)
 	}
-	api := NewAPI(s, nil, "operator-token:operator")
+	api := NewAPI(s, nil, nil, "operator-token:operator")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/suppressions", strings.NewReader(`{"address":"user@example.com","reason":"manual"}`))
 	req.Header.Set("Authorization", "Bearer operator-token")
@@ -73,7 +74,7 @@ func TestQueueAPIListAndRequeue(t *testing.T) {
 		t.Fatalf("fail: %v", err)
 	}
 
-	api := NewAPI(nil, store, "viewer-token:viewer,operator-token:operator")
+	api := NewAPI(nil, store, nil, "viewer-token:viewer,operator-token:operator")
 	api.now = func() time.Time { return time.Unix(1700000000, 0).UTC() }
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/queue/dlq?limit=10", nil)
@@ -106,5 +107,34 @@ func TestQueueAPIListAndRequeue(t *testing.T) {
 	}
 	if len(inbound) != 1 || inbound[0].ID != "m1" {
 		t.Fatalf("inbound items=%+v", inbound)
+	}
+}
+
+func TestReputationAPIRecordsComplaintAndTLSReport(t *testing.T) {
+	rep := reputation.New(reputation.Config{MinSamples: 1})
+	api := NewAPI(nil, nil, rep, "operator-token:operator")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/reputation/complaints", strings.NewReader(`{"domain":"gmail.com"}`))
+	req.Header.Set("Authorization", "Bearer operator-token")
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complaint status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/reputation/tlsrpt", strings.NewReader(`{"domain":"gmail.com","success":false}`))
+	req.Header.Set("Authorization", "Bearer operator-token")
+	rec = httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tlsrpt status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	snap := rep.Snapshot(time.Now().UTC())
+	if len(snap) != 1 {
+		t.Fatalf("snapshot len=%d", len(snap))
+	}
+	if snap[0].Complaints != 1 || snap[0].TLSRPTFailures != 1 {
+		t.Fatalf("snapshot=%+v", snap[0])
 	}
 }

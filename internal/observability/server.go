@@ -4,9 +4,16 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 )
 
 func RunServer(ctx context.Context, addr string, m *Metrics) error {
+	return RunServerWithReputation(ctx, addr, m, nil)
+}
+
+func RunServerWithReputation(ctx context.Context, addr string, m *Metrics, rep *reputation.Tracker) error {
 	if addr == "" {
 		return nil
 	}
@@ -37,6 +44,15 @@ func RunServer(ctx context.Context, addr string, m *Metrics) error {
 			w.WriteHeader(http.StatusOK)
 		}
 		_, _ = w.Write(report.JSON())
+	})
+	mux.HandleFunc("/reputation", func(w http.ResponseWriter, r *http.Request) {
+		if rep == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(rep.JSON(time.Now().UTC()))
 	})
 
 	srv := &http.Server{Addr: addr, Handler: mux}

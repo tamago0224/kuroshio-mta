@@ -56,6 +56,19 @@ case "${cmd}" in
     fi
     curl -fsS "${auth_args[@]}" -X POST "${url}"
     ;;
+  record-complaint)
+    domain="${1:-}"
+    curl -fsS "${auth_args[@]}" -X POST \
+      -d "{\"domain\":\"${domain}\"}" \
+      "${BASE_URL}/api/v1/reputation/complaints"
+    ;;
+  record-tlsrpt)
+    domain="${1:-}"
+    success="${2:-true}"
+    curl -fsS "${auth_args[@]}" -X POST \
+      -d "{\"domain\":\"${domain}\",\"success\":${success}}" \
+      "${BASE_URL}/api/v1/reputation/tlsrpt"
+    ;;
   *)
     echo "unknown command: ${cmd}" >&2
     exit 2

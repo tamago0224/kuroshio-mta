@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 )
 
 func TestRunServerMetricsEndpoint(t *testing.T) {
@@ -54,5 +56,41 @@ func TestRunServerMetricsEndpoint(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if len(b) == 0 {
 		t.Fatal("empty slo body")
+	}
+}
+
+func TestRunServerReputationEndpoint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rep := reputation.New(reputation.Config{MinSamples: 1})
+	if ok, _ := rep.Admit("gmail.com", time.Now().UTC()); !ok {
+		t.Fatal("admit should pass")
+	}
+	rep.ObserveDelivery("gmail.com", false, false)
+
+	addr := "127.0.0.1:29091"
+	go func() {
+		_ = RunServerWithReputation(ctx, addr, NewMetrics(), rep)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		resp, err := http.Get("http://" + addr + "/reputation")
+		if err == nil {
+			b, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d", resp.StatusCode)
+			}
+			if len(b) == 0 {
+				t.Fatal("empty reputation body")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reputation endpoint not ready: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

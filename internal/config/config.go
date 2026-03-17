@@ -64,6 +64,11 @@ type Config struct {
 	DataRetentionDLQ           time.Duration
 	DataRetentionPoison        time.Duration
 	RetentionSweepInterval     time.Duration
+	ReputationStartDate        string
+	ReputationWarmupRules      string
+	ReputationBounceThreshold  float64
+	ReputationComplaintThresh  float64
+	ReputationMinSamples       int
 }
 
 func Load() Config {
@@ -131,6 +136,11 @@ func Load() Config {
 		DataRetentionDLQ:           envDuration("MTA_DATA_RETENTION_DLQ", 90*24*time.Hour),
 		DataRetentionPoison:        envDuration("MTA_DATA_RETENTION_POISON", 180*24*time.Hour),
 		RetentionSweepInterval:     envDuration("MTA_RETENTION_SWEEP_INTERVAL", time.Hour),
+		ReputationStartDate:        env("MTA_REPUTATION_START_DATE", ""),
+		ReputationWarmupRules:      env("MTA_REPUTATION_WARMUP_RULES", ""),
+		ReputationBounceThreshold:  envFloat64("MTA_REPUTATION_BOUNCE_THRESHOLD", 0.05),
+		ReputationComplaintThresh:  envFloat64("MTA_REPUTATION_COMPLAINT_THRESHOLD", 0.001),
+		ReputationMinSamples:       envInt("MTA_REPUTATION_MIN_SAMPLES", 100),
 	}
 }
 
@@ -243,6 +253,18 @@ func envCSV(k string, def []string) []string {
 	return out
 }
 
+func envFloat64(k string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
 func envBool(k string, def bool) bool {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
 	if v == "" {
@@ -256,16 +278,4 @@ func envBool(k string, def bool) bool {
 	default:
 		return def
 	}
-}
-
-func envFloat64(k string, def float64) float64 {
-	v := strings.TrimSpace(os.Getenv(k))
-	if v == "" {
-		return def
-	}
-	n, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		return def
-	}
-	return n
 }
