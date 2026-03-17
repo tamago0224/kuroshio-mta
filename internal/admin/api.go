@@ -12,6 +12,7 @@ import (
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
+	"github.com/tamago0224/orinoco-mta/internal/reputation"
 )
 
 type queueManager interface {
@@ -30,14 +31,16 @@ const (
 type API struct {
 	suppressions *bounce.SuppressionStore
 	queue        queueManager
+	reputation   *reputation.Tracker
 	tokens       map[string]role
 	now          func() time.Time
 }
 
-func NewAPI(s *bounce.SuppressionStore, q queueManager, tokenConfig string) *API {
+func NewAPI(s *bounce.SuppressionStore, q queueManager, rep *reputation.Tracker, tokenConfig string) *API {
 	return &API{
 		suppressions: s,
 		queue:        q,
+		reputation:   rep,
 		tokens:       parseTokens(tokenConfig),
 		now:          time.Now,
 	}
@@ -48,6 +51,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/suppressions", a.handleSuppressions)
 	mux.HandleFunc("/api/v1/suppressions/", a.handleSuppressionByAddress)
 	mux.HandleFunc("/api/v1/queue/", a.handleQueue)
+	mux.HandleFunc("/api/v1/reputation/complaints", a.handleComplaint)
+	mux.HandleFunc("/api/v1/reputation/tlsrpt", a.handleTLSReport)
 	return mux
 }
 
@@ -225,6 +230,69 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+func (a *API) handleComplaint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := a.authorize(w, r, roleOperator); !ok {
+		return
+	}
+	if a.reputation == nil {
+		http.Error(w, "reputation admin is unavailable", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Domain string `json:"domain"`
+		DryRun bool   `json:"dry_run"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Domain) == "" {
+		http.Error(w, "domain is required", http.StatusBadRequest)
+		return
+	}
+	if !req.DryRun {
+		a.reputation.RecordComplaint(req.Domain)
+	}
+	a.audit(r, "reputation_complaint_record", map[string]any{"domain": req.Domain, "dry_run": req.DryRun})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "dry_run": req.DryRun})
+}
+
+func (a *API) handleTLSReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := a.authorize(w, r, roleOperator); !ok {
+		return
+	}
+	if a.reputation == nil {
+		http.Error(w, "reputation admin is unavailable", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Domain  string `json:"domain"`
+		Success bool   `json:"success"`
+		DryRun  bool   `json:"dry_run"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Domain) == "" {
+		http.Error(w, "domain is required", http.StatusBadRequest)
+		return
+	}
+	if !req.DryRun {
+		a.reputation.RecordTLSReport(req.Domain, req.Success)
+	}
+	a.audit(r, "reputation_tlsrpt_record", map[string]any{"domain": req.Domain, "success": req.Success, "dry_run": req.DryRun})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "dry_run": req.DryRun})
 }
 
 func (a *API) audit(r *http.Request, event string, attrs map[string]any) {

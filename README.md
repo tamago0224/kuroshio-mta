@@ -48,6 +48,11 @@ go run ./cmd/mta
 - `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
 - `MTA_ADMIN_ADDR` (default: unset)
 - `MTA_ADMIN_TOKENS` (default: unset, format: `viewer-token:viewer,operator-token:operator`)
+- `MTA_REPUTATION_START_DATE` (default: unset, format: `YYYY-MM-DD`)
+- `MTA_REPUTATION_WARMUP_RULES` (default: `0:100,7:1000,14:5000`)
+- `MTA_REPUTATION_BOUNCE_THRESHOLD` (default: `0.05`)
+- `MTA_REPUTATION_COMPLAINT_THRESHOLD` (default: `0.001`)
+- `MTA_REPUTATION_MIN_SAMPLES` (default: `100`)
 - `MTA_SLO_MIN_DELIVERY_SUCCESS_RATE` (default: `0.99`)
 - `MTA_SLO_MAX_RETRY_RATE` (default: `0.20`)
 - `MTA_SLO_MAX_QUEUE_BACKLOG` (default: `50000`)
@@ -212,6 +217,16 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
   `suppression` 一覧/追加/削除、`retry` / `dlq` 一覧、再投入
 - 認可:
   Bearer token + role（`viewer` / `operator` / `admin`）
+
+## Reputation Controls
+
+- runbook:
+  [reputation_ops.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/reputation_ops.md)
+- 可視化:
+  `GET /reputation`
+- 記録:
+  `scripts/admin/orinoco_admin.sh record-complaint gmail.com`
+  `scripts/admin/orinoco_admin.sh record-tlsrpt gmail.com false`
 
 ## DR Backup / Restore
 
