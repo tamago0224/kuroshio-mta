@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,40 @@ func (s *SuppressionStore) Add(addr, reason string) error {
 	}
 	s.entries[n] = SuppressionEntry{Address: n, Reason: reason, CreatedAt: time.Now().UTC()}
 	return s.saveLocked()
+}
+
+func (s *SuppressionStore) Remove(addr string) (bool, error) {
+	n := normalizeAddress(addr)
+	if n == "" {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.entries[n]; !ok {
+		return false, nil
+	}
+	delete(s.entries, n)
+	return true, s.saveLocked()
+}
+
+func (s *SuppressionStore) List() []SuppressionEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]SuppressionEntry, 0, len(s.entries))
+	for _, e := range s.entries {
+		out = append(out, e)
+	}
+	slices.SortFunc(out, func(a, b SuppressionEntry) int {
+		switch {
+		case a.Address < b.Address:
+			return -1
+		case a.Address > b.Address:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return out
 }
 
 func (s *SuppressionStore) load() error {

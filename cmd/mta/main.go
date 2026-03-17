@@ -9,11 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/tamago0224/orinoco-mta/internal/admin"
 	"github.com/tamago0224/orinoco-mta/internal/bounce"
 	"github.com/tamago0224/orinoco-mta/internal/config"
 	"github.com/tamago0224/orinoco-mta/internal/delivery"
 	"github.com/tamago0224/orinoco-mta/internal/logging"
+	"github.com/tamago0224/orinoco-mta/internal/model"
 	"github.com/tamago0224/orinoco-mta/internal/observability"
 	"github.com/tamago0224/orinoco-mta/internal/queue"
 	"github.com/tamago0224/orinoco-mta/internal/retention"
@@ -63,6 +66,9 @@ func main() {
 	if submissionServer != nil {
 		workers++
 	}
+	if cfg.AdminAddr != "" {
+		workers++
+	}
 	workers++
 	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
@@ -71,6 +77,16 @@ func main() {
 	}
 	go func() { errCh <- d.Run(ctx) }()
 	go func() { errCh <- observability.RunServer(ctx, cfg.ObservabilityAddr, metrics) }()
+	if cfg.AdminAddr != "" {
+		var queueAdmin interface {
+			ListState(state string, limit int) ([]*model.Message, error)
+			RequeueFromState(state, id string, now time.Time) (*model.Message, error)
+		}
+		if localQueue, ok := q.(*queue.Store); ok {
+			queueAdmin = localQueue
+		}
+		go func() { errCh <- admin.RunServer(ctx, cfg.AdminAddr, cfg.AdminTokens, sup, queueAdmin) }()
+	}
 	go func() {
 		errCh <- retention.Run(ctx, cfg.QueueDir, retention.Policy{
 			SentTTL:   cfg.DataRetentionSent,
