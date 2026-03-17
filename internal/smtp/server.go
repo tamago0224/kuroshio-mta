@@ -347,7 +347,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				writeResp(w, 451, "temporary local problem")
 				continue
 			}
-			received := buildReceivedHeader(s.cfg.Hostname, ss.helo, ss.remote, id, time.Now().UTC(), ss.tls)
+			received := buildReceivedHeader(s.cfg.Hostname, ss.helo, ss.remote, id, time.Now().UTC(), ss.extended, ss.tls)
 			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
 
 			if err := s.enqueue(ss, id); err != nil {
@@ -863,7 +863,7 @@ func senderAllowedForAuth(authUser, mailFrom string) bool {
 	return strings.EqualFold(authDomain, fromDomain)
 }
 
-func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn bool) string {
+func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, extended, tlsOn bool) string {
 	by := sanitizeReceivedToken(hostname)
 	if by == "" {
 		by = "localhost"
@@ -876,9 +876,12 @@ func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, tlsOn
 	if ip := parseRemoteIP(remote); ip != nil {
 		remoteDesc = ip.String()
 	}
-	proto := "ESMTP"
+	proto := "SMTP"
+	if extended {
+		proto = "ESMTP"
+	}
 	if tlsOn {
-		proto = "ESMTPS"
+		proto += "S"
 	}
 	return fmt.Sprintf(
 		"Received: from %s (%s) by %s with %s id %s; %s",
