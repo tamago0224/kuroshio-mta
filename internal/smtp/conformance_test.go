@@ -126,6 +126,46 @@ func TestSMTPConformance(t *testing.T) {
 		_, code := readSMTPResponse(t, r)
 		expectRFCCode(t, "RFC 5321 4.5.3.1.4", "command line length", code, 500)
 	})
+
+	t.Run("RFC5321-4.1.1.8-HELP-must-return-214", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "HELP")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.8", "HELP", code, 214)
+	})
+
+	t.Run("RFC5321-3.5.2-VRFY-may-return-252", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "VRFY postmaster")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 3.5.2", "VRFY", code, 252)
+	})
+
+	t.Run("RFC5321-3.5.1-EXPN-may-return-502", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EXPN staff")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 3.5.1", "EXPN", code, 502)
+	})
+
+	t.Run("RFC5321-4.1.1.10-QUIT-must-return-221", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "QUIT")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.10", "QUIT", code, 221)
+	})
 }
 
 func openTestSession(t *testing.T, s *Server) (*bufio.Reader, *bufio.Writer, func()) {
