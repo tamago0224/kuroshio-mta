@@ -59,6 +59,19 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.4", "MAIL parameters after HELO", code, 555)
 	})
 
+	t.Run("RFC5321-4.1.1.2-invalid-MAIL-syntax-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "MAIL TO:<alice@invalid.invalid>")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.2", "invalid MAIL syntax", code, 501)
+	})
+
 	t.Run("RFC5321-4.1.1.5-RSET-must-clear-transaction", func(t *testing.T) {
 		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
@@ -109,6 +122,36 @@ func TestSMTPConformance(t *testing.T) {
 		mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
 		_, code := readSMTPResponse(t, r)
 		expectRFCCode(t, "RFC 5321 4.1.1.3", "RCPT before MAIL", code, 503)
+	})
+
+	t.Run("RFC5321-4.1.1.3-invalid-RCPT-syntax-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "RCPT FROM:<bob@invalid.invalid>")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.3", "invalid RCPT syntax", code, 501)
+	})
+
+	t.Run("RFC5321-4.1.1.3-empty-RCPT-path-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "RCPT TO:<>")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.3", "empty RCPT path", code, 501)
 	})
 
 	t.Run("RFC5321-4.1.1.4-DATA-before-RCPT-must-fail-503", func(t *testing.T) {
