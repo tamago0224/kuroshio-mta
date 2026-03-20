@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"bufio"
+	"crypto/tls"
 	"io"
 	"net"
 	"strings"
@@ -245,6 +246,43 @@ func TestSMTPConformance(t *testing.T) {
 			}
 			t.Fatal("RFC 5321 4.1.1.10: timed out waiting for connection close after QUIT")
 		}
+	})
+
+	t.Run("RFC3207-4.2-STARTTLS-must-reset-session-state", func(t *testing.T) {
+		cert, err := selfSignedCert()
+		if err != nil {
+			t.Fatalf("create cert: %v", err)
+		}
+		client, r, w, cleanup := openRawTestSession(t, &Server{
+			cfg:       config.Config{Hostname: "mx.example.test"},
+			tlsConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+		})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, ehloCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.1", "EHLO before STARTTLS", ehloCode, 250)
+
+		mustWriteSMTPLine(t, w, "STARTTLS")
+		_, starttlsCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 3207 4.2", "STARTTLS", starttlsCode, 220)
+
+		tlsClient := tls.Client(client, &tls.Config{InsecureSkipVerify: true})
+		if err := tlsClient.Handshake(); err != nil {
+			t.Fatalf("tls handshake: %v", err)
+		}
+		defer tlsClient.Close()
+		rt := bufio.NewReader(tlsClient)
+		wt := bufio.NewWriter(tlsClient)
+
+		mustWriteSMTPLine(t, wt, "MAIL FROM:<alice@invalid.invalid>")
+		_, code := readSMTPResponse(t, rt)
+		expectRFCCode(t, "RFC 3207 4.2", "MAIL without EHLO after STARTTLS", code, 503)
+
+		mustWriteSMTPLine(t, wt, "STARTTLS")
+		_, code = readSMTPResponse(t, rt)
+		expectRFCCode(t, "RFC 3207 4.2", "STARTTLS while already under TLS", code, 503)
 	})
 }
 
