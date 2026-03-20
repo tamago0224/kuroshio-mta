@@ -24,6 +24,40 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.4", "MAIL before HELO/EHLO", code, 503)
 	})
 
+	t.Run("RFC5321-4.1.1.1-EHLO-without-domain-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.1", "EHLO without domain", code, 501)
+	})
+
+	t.Run("RFC5321-4.1.1.1-HELO-without-domain-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "HELO")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.1", "HELO without domain", code, 501)
+	})
+
+	t.Run("RFC5321-4.1.4-MAIL-parameters-after-HELO-must-fail-555", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "HELO client.example")
+		_, heloCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.1", "HELO", heloCode, 250)
+
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> SIZE=123")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.4", "MAIL parameters after HELO", code, 555)
+	})
+
 	t.Run("RFC5321-4.1.1.5-RSET-must-clear-transaction", func(t *testing.T) {
 		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
