@@ -2,9 +2,11 @@ package smtp
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tamago0224/orinoco-mta/internal/config"
 )
@@ -166,6 +168,50 @@ func TestSMTPConformance(t *testing.T) {
 		_, code := readSMTPResponse(t, r)
 		expectRFCCode(t, "RFC 5321 4.1.1.10", "QUIT", code, 221)
 	})
+
+	t.Run("RFC5321-4.1.1.9-NOOP-must-return-250", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "NOOP")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.9", "NOOP", code, 250)
+	})
+
+	t.Run("RFC5321-4.2.4-unrecognized-command-must-return-500", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "FROBULATE")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.2.4", "unrecognized command", code, 500)
+	})
+
+	t.Run("RFC5321-4.1.1.10-QUIT-must-close-connection", func(t *testing.T) {
+		client, r, w, cleanup := openRawTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "QUIT")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.10", "QUIT response", code, 221)
+
+		if err := client.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+			t.Fatalf("set read deadline: %v", err)
+		}
+		_, err := r.ReadByte()
+		if err == nil {
+			t.Fatal("RFC 5321 4.1.1.10: expected connection close after QUIT")
+		}
+		if err != io.EOF {
+			if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+				t.Fatalf("RFC 5321 4.1.1.10: unexpected read error after QUIT: %v", err)
+			}
+			t.Fatal("RFC 5321 4.1.1.10: timed out waiting for connection close after QUIT")
+		}
+	})
 }
 
 func openTestSession(t *testing.T, s *Server) (*bufio.Reader, *bufio.Writer, func()) {
@@ -173,6 +219,16 @@ func openTestSession(t *testing.T, s *Server) (*bufio.Reader, *bufio.Writer, fun
 	client, server := net.Pipe()
 	go s.handleConn(server)
 	return bufio.NewReader(client), bufio.NewWriter(client), func() {
+		_ = client.Close()
+		_ = server.Close()
+	}
+}
+
+func openRawTestSession(t *testing.T, s *Server) (net.Conn, *bufio.Reader, *bufio.Writer, func()) {
+	t.Helper()
+	client, server := net.Pipe()
+	go s.handleConn(server)
+	return client, bufio.NewReader(client), bufio.NewWriter(client), func() {
 		_ = client.Close()
 		_ = server.Close()
 	}
