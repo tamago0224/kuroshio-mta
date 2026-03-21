@@ -85,6 +85,19 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.1.2", "invalid BODY parameter", code, 501)
 	})
 
+	t.Run("RFC5321-4.1.1.2-unsupported-MAIL-parameter-must-fail-555", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> RET=FULL")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.2", "unsupported MAIL parameter", code, 555)
+	})
+
 	t.Run("RFC5321-4.1.1.2-invalid-MAIL-syntax-must-fail-501", func(t *testing.T) {
 		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
@@ -96,6 +109,32 @@ func TestSMTPConformance(t *testing.T) {
 		mustWriteSMTPLine(t, w, "MAIL TO:<alice@invalid.invalid>")
 		_, code := readSMTPResponse(t, r)
 		expectRFCCode(t, "RFC 5321 4.1.1.2", "invalid MAIL syntax", code, 501)
+	})
+
+	t.Run("RFC5321-4.1.1.2-missing-MAIL-path-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "MAIL FROM:")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.2", "missing MAIL path", code, 501)
+	})
+
+	t.Run("RFC5321-4.1.1.2-unclosed-MAIL-path-must-fail-501", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid")
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.2", "unclosed MAIL path", code, 501)
 	})
 
 	t.Run("RFC5321-4.1.1.5-RSET-must-clear-transaction", func(t *testing.T) {
