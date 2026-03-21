@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
-	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -25,8 +25,6 @@ type DSNReport struct {
 	ReceivedFromMTA   string
 	ArrivalDate       string
 }
-
-var dsnStatusPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 func ParseDSN(raw []byte) ([]DSNReport, error) {
 	blocks, err := splitDSNBlocks(raw)
@@ -47,6 +45,9 @@ func ParseDSN(raw []byte) ([]DSNReport, error) {
 		ReceivedFromMTA: parseTypedValue(msgLevel["received-from-mta"]),
 		ArrivalDate:     strings.TrimSpace(msgLevel["arrival-date"]),
 	}
+	if base.ReportingMTA == "" {
+		return nil, errors.New("reporting-mta is required")
+	}
 	if base.ArrivalDate != "" {
 		if _, err := mail.ParseDate(base.ArrivalDate); err != nil {
 			return nil, fmt.Errorf("invalid arrival-date: %w", err)
@@ -63,7 +64,11 @@ func ParseDSN(raw []byte) ([]DSNReport, error) {
 		r.Recipient = parseRecipient(fields["final-recipient"])
 		r.OriginalRecipient = parseRecipient(fields["original-recipient"])
 		r.Action = strings.ToLower(strings.TrimSpace(fields["action"]))
-		r.Status = strings.TrimSpace(fields["status"])
+		status, err := parseStatus(fields["status"])
+		if err != nil {
+			return nil, fmt.Errorf("recipient block %d: %w", i, err)
+		}
+		r.Status = status
 		r.RemoteMTA = parseTypedValue(fields["remote-mta"])
 		r.DiagnosticCode = parseTypedValue(fields["diagnostic-code"])
 		r.LastAttemptDate = strings.TrimSpace(fields["last-attempt-date"])
@@ -131,9 +136,6 @@ func validateDSNRecipientReport(r DSNReport) error {
 	default:
 		return fmt.Errorf("invalid action: %q", r.Action)
 	}
-	if !dsnStatusPattern.MatchString(r.Status) {
-		return fmt.Errorf("invalid status: %q", r.Status)
-	}
 	if err := validateActionStatusAlignment(r.Action, r.Status); err != nil {
 		return err
 	}
@@ -148,6 +150,33 @@ func validateDSNRecipientReport(r DSNReport) error {
 		}
 	}
 	return nil
+}
+
+func parseStatus(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", errors.New("status is required")
+	}
+	if idx := strings.Index(v, "("); idx >= 0 {
+		v = strings.TrimSpace(v[:idx])
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid status: %q", v)
+	}
+	for _, part := range parts {
+		if part == "" {
+			return "", fmt.Errorf("invalid status: %q", v)
+		}
+		if len(part) > 1 && part[0] == '0' {
+			return "", fmt.Errorf("invalid status: %q", v)
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 999 {
+			return "", fmt.Errorf("invalid status: %q", v)
+		}
+	}
+	return strings.Join(parts, "."), nil
 }
 
 func validateActionStatusAlignment(action, status string) error {

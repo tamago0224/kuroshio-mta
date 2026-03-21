@@ -36,7 +36,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、送信/中継時の ARC 署名付与、失敗時ポリシーを実装 |
 | RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、stale 利用、`mode=enforce/testing`、安全なロールオーバーを実装 |
 | RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得と優先適用（DANE > MTA-STS）を実装 |
-| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、相互運用テストを実装 |
+| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3464_gap.md) |
 
 ## 実行方法
 
