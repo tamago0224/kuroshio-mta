@@ -1022,6 +1022,70 @@ func TestSubmissionAuthLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestSubmissionAuthLoginWithInitialResponse(t *testing.T) {
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH LOGIN YWxpY2VAZXhhbXBsZS5jb20=")
+	_, code := readSMTPResponse(t, r)
+	if code != 334 {
+		t.Fatalf("password challenge code=%d want=334", code)
+	}
+	mustWriteSMTPLine(t, w, "czNjcjN0")
+	_, code = readSMTPResponse(t, r)
+	if code != 235 {
+		t.Fatalf("final auth code=%d want=235", code)
+	}
+}
+
+func TestSubmissionAuthFailureAllowsRetry(t *testing.T) {
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		submission:  true,
+		authBackend: backend,
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHdyb25n")
+	_, code := readSMTPResponse(t, r)
+	if code != 535 {
+		t.Fatalf("first auth code=%d want=535", code)
+	}
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, code = readSMTPResponse(t, r)
+	if code != 235 {
+		t.Fatalf("retry auth code=%d want=235", code)
+	}
+}
+
 func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
 	if err != nil {

@@ -797,16 +797,25 @@ func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (strin
 		}
 		return user, s.authBackend.Validate(user, pass), nil
 	case "LOGIN":
-		if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
-			return "", false, err
-		}
-		userLine, err := r.ReadString('\n')
-		if err != nil {
-			return "", false, err
-		}
-		userRaw, err := decodeBase64Line(userLine)
-		if err != nil {
-			return "", false, errors.New("invalid base64 username")
+		var userRaw []byte
+		if len(parts) >= 2 {
+			var err error
+			userRaw, err = decodeBase64Line(parts[1])
+			if err != nil {
+				return "", false, errors.New("invalid base64 username")
+			}
+		} else {
+			if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
+				return "", false, err
+			}
+			userLine, err := r.ReadString('\n')
+			if err != nil {
+				return "", false, err
+			}
+			userRaw, err = decodeBase64Line(userLine)
+			if err != nil {
+				return "", false, errors.New("invalid base64 username")
+			}
 		}
 		if err := writeLine(w, "334 UGFzc3dvcmQ6"); err != nil {
 			return "", false, err

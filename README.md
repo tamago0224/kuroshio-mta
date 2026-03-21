@@ -27,7 +27,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
 | RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | `SIZE` パラメータと最大メッセージサイズ制限を実装 |
 | RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | `BODY=8BITMIME` と 8bit 本文受信を実装 |
-| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN` を実装 |
+| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_4954_gap.md) |
 | RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約を実装 |
 | RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
 | RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, macro 展開、lookup 制限、HELO/MAIL FROM ポリシー分離を実装 |
