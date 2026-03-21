@@ -34,7 +34,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 6376 | DKIM | 一部対応 | 受信時の DKIM 検証、複数署名評価、`l/t/x/h`、canonicalization、送信時 DKIM 署名を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、集計/失敗レポート生成を実装 |
 | RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、送信/中継時の ARC 署名付与、失敗時ポリシーを実装 |
-| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、stale 利用、`mode=enforce/testing`、安全なロールオーバーを実装 |
+| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、`text/plain` 検証、stale 利用、`mode=enforce/testing`、安全なロールオーバー、MX wildcard 制約を実装。詳細は [rfc_8461_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8461_gap.md) |
 | RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得と優先適用（DANE > MTA-STS）を実装 |
 | RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3464_gap.md) |
 
