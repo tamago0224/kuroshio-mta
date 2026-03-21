@@ -210,9 +210,25 @@ func TestVerifyPeerCertificatesWithTLSA_Match(t *testing.T) {
 		},
 	}
 	for i, rec := range cases {
-		if err := verifyPeerCertificatesWithTLSA([]*x509.Certificate{cert}, []TLSARecord{rec}); err != nil {
+		if err := verifyPeerCertificatesWithTLSA("mx.example.net", []*x509.Certificate{cert}, []TLSARecord{rec}); err != nil {
 			t.Fatalf("case %d expected match: %v", i, err)
 		}
+	}
+}
+
+func TestVerifyPeerCertificatesWithTLSA_DANETARequiresHostnameMatch(t *testing.T) {
+	cert := mustCreateTestCert(t)
+	rec := TLSARecord{
+		Usage:                  2,
+		Selector:               1,
+		MatchingType:           1,
+		CertificateAssociation: digestTLSA(cert, 1, 1),
+	}
+	if err := verifyPeerCertificatesWithTLSA("wrong.example.net", []*x509.Certificate{cert}, []TLSARecord{rec}); err == nil {
+		t.Fatal("expected dane-ta hostname mismatch error")
+	}
+	if err := verifyPeerCertificatesWithTLSA("mx.example.net", []*x509.Certificate{cert}, []TLSARecord{rec}); err != nil {
+		t.Fatalf("expected dane-ta match with hostname validation: %v", err)
 	}
 }
 
@@ -224,7 +240,7 @@ func TestVerifyPeerCertificatesWithTLSA_NoMatch(t *testing.T) {
 		MatchingType:           1,
 		CertificateAssociation: []byte{0x00, 0x01, 0x02},
 	}
-	if err := verifyPeerCertificatesWithTLSA([]*x509.Certificate{cert}, []TLSARecord{rec}); err == nil {
+	if err := verifyPeerCertificatesWithTLSA("mx.example.net", []*x509.Certificate{cert}, []TLSARecord{rec}); err == nil {
 		t.Fatal("expected mismatch error")
 	}
 }
@@ -238,6 +254,7 @@ func mustCreateTestCert(t *testing.T) *x509.Certificate {
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject:      pkix.Name{CommonName: "mx.example.net"},
+		DNSNames:     []string{"mx.example.net"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,

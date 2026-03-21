@@ -232,7 +232,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 			}
 			if daneRes != nil {
 				state := tlsConn.ConnectionState()
-				if err := verifyPeerCertificatesWithTLSA(state.PeerCertificates, daneRes.Records); err != nil {
+				if err := verifyPeerCertificatesWithTLSA(host, state.PeerCertificates, daneRes.Records); err != nil {
 					return &SMTPResponseError{Code: 550, Line: "dane authentication failed"}
 				}
 			}

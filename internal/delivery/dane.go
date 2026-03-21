@@ -80,7 +80,7 @@ func isSupportedTLSAProfile(rec TLSARecord) bool {
 	}
 }
 
-func verifyPeerCertificatesWithTLSA(peerCerts []*x509.Certificate, records []TLSARecord) error {
+func verifyPeerCertificatesWithTLSA(host string, peerCerts []*x509.Certificate, records []TLSARecord) error {
 	if len(peerCerts) == 0 {
 		return errors.New("no peer certificates")
 	}
@@ -94,6 +94,11 @@ func verifyPeerCertificatesWithTLSA(peerCerts []*x509.Certificate, records []TLS
 		candidates := peerCertCandidatesForUsage(peerCerts, rec.Usage)
 		for _, cert := range candidates {
 			if matchTLSARecord(cert, rec) {
+				if rec.Usage == 2 {
+					if err := cert.VerifyHostname(host); err != nil {
+						continue
+					}
+				}
 				return nil
 			}
 		}
