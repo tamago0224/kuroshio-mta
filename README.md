@@ -23,7 +23,7 @@ Orinoco は南米を流れる川の名前で、
 
 | RFC | 技術 | 対応状況 | 補足 |
 | --- | --- | --- | --- |
-| RFC 5321 | SMTP | 一部対応 | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502`、一部拡張は別RFCとして実装 |
+| RFC 5321 | SMTP | 対応済み（実装範囲内） | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502` 応答、`Received:` トレースヘッダ、`postmaster` 宛特例、主要な構文/状態遷移/行長制限のコンフォーマンステストを整備。拡張は各RFCで管理 |
 | RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
 | RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | `SIZE` パラメータと最大メッセージサイズ制限を実装 |
 | RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | `BODY=8BITMIME` と 8bit 本文受信を実装 |
