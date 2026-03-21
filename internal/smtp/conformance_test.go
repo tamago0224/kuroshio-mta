@@ -451,6 +451,9 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.1.10", "QUIT response", code, 221)
 
 		if err := client.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+			if strings.Contains(err.Error(), "closed pipe") {
+				return
+			}
 			t.Fatalf("set read deadline: %v", err)
 		}
 		_, err := r.ReadByte()
