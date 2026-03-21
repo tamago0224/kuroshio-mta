@@ -73,6 +73,12 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 	if strings.TrimSpace(tags["h"]) == "" {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "missing h tag"}
 	}
+	if strings.TrimSpace(tags["bh"]) == "" {
+		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "missing bh tag"}
+	}
+	if strings.TrimSpace(tags["b"]) == "" {
+		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "missing b tag"}
+	}
 	if err := validateDKIMTimeTags(tags, time.Now().UTC()); err != nil {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: err.Error()}
 	}
@@ -83,8 +89,7 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: err.Error()}
 	}
 	h := sha256.Sum256(canonBody)
-	bh := strings.TrimSpace(tags["bh"])
-	expectedBH, err := base64.StdEncoding.DecodeString(bh)
+	expectedBH, err := base64.StdEncoding.DecodeString(strings.TrimSpace(tags["bh"]))
 	if err != nil || !equalBytes(h[:], expectedBH) {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "fail", Reason: "body hash mismatch"}
 	}
