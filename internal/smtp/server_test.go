@@ -57,6 +57,16 @@ func TestParseMailFromWithParameters(t *testing.T) {
 	}
 }
 
+func TestParseMailFromAllowsZeroSize(t *testing.T) {
+	got, err := parseMailFrom("FROM:<alice@example.com> SIZE=0")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !got.HasSize || got.Size != 0 {
+		t.Fatalf("has_size=%v size=%d", got.HasSize, got.Size)
+	}
+}
+
 func TestParseMailFromRejectsUnknownParameter(t *testing.T) {
 	if _, err := parseMailFrom("FROM:<alice@example.com> FOO=bar"); err == nil {
 		t.Fatal("expected unknown param error")
@@ -776,6 +786,56 @@ func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
 	}
 	if strings.Contains(resp, "SMTPUTF8") {
 		t.Fatalf("SMTPUTF8 must not be advertised when unsupported: %q", resp)
+	}
+}
+
+func TestEHLOResponseAdvertisesConfiguredSize(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 4096}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+
+	_, _ = readSMTPResponse(t, r) // banner
+	if _, err := w.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EHLO: %v", err)
+	}
+	resp, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d resp=%q", code, resp)
+	}
+	if !strings.Contains(resp, "SIZE 4096") {
+		t.Fatalf("EHLO must advertise configured SIZE limit: %q", resp)
+	}
+}
+
+func TestMailFromSizeAtLimitIsAccepted(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r) // banner
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, ehloCode := readSMTPResponse(t, r)
+	if ehloCode != 250 {
+		t.Fatalf("ehlo code=%d want=250", ehloCode)
+	}
+
+	mustWriteSMTPLine(t, w, "MAIL FROM:<alice@example.com> SIZE=1024")
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
 	}
 }
 
