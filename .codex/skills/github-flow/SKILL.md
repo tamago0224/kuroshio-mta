@@ -47,7 +47,7 @@ Follow these steps in order.
 ### 1) Inspect repository state
 Run:
 ```bash
-./.agents/skills/github-flow/scripts/git_status_check.sh
+./.codex/skills/github-flow/scripts/git_status_check.sh
 ```
 
 If there are unrelated uncommitted changes, call them out before proceeding.
@@ -67,7 +67,7 @@ Create a branch that matches the naming rules.
 
 Run:
 ```bash
-./.agents/skills/github-flow/scripts/create_branch.sh <branch-name>
+./.codex/skills/github-flow/scripts/create_branch.sh <branch-name>
 ```
 
 ### 4) Implement minimally
@@ -78,7 +78,7 @@ Keep changes minimal and avoid unrelated refactors.
 Prefer project-defined scripts. Detect and run the first applicable commands:
 
 ```bash
-./.agents/skills/github-flow/scripts/run-checks.sh
+./.codex/skills/github-flow/scripts/run-checks.sh
 ```
 
 If a check cannot run because the toolchain is missing or the project has no script for that category, say so explicitly.
