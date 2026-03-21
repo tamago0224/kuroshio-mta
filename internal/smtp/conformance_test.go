@@ -234,6 +234,44 @@ func TestSMTPConformance(t *testing.T) {
 		expectRFCCode(t, "RFC 5321 4.1.1.3", "unsupported RCPT parameter", code, 555)
 	})
 
+	t.Run("RFC5321-4.1.1.3-postmaster-must-be-accepted", func(t *testing.T) {
+		q := &recordingQueue{}
+		s := &Server{
+			cfg:   config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024},
+			queue: q,
+		}
+		r, w, cleanup := openTestSession(t, s)
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+
+		mustWriteSMTPLine(t, w, "RCPT TO:<postmaster>")
+		_, rcptCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.3", "RCPT TO:<postmaster>", rcptCode, 250)
+
+		mustWriteSMTPLine(t, w, "DATA")
+		_, dataCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.4", "DATA prompt", dataCode, 354)
+		if _, err := w.WriteString("Subject: postmaster\r\n\r\nok\r\n.\r\n"); err != nil {
+			t.Fatalf("write DATA payload: %v", err)
+		}
+		if err := w.Flush(); err != nil {
+			t.Fatalf("flush DATA payload: %v", err)
+		}
+		_, queuedCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.3", "queue postmaster mail", queuedCode, 250)
+		if len(q.msgs) != 1 {
+			t.Fatalf("RFC 5321 4.1.1.3: queued=%d want=1", len(q.msgs))
+		}
+		if len(q.msgs[0].RcptTo) != 1 || q.msgs[0].RcptTo[0] != "postmaster@mx.example.test" {
+			t.Fatalf("RFC 5321 4.1.1.3: rcpt_to=%v want=[postmaster@mx.example.test]", q.msgs[0].RcptTo)
+		}
+	})
+
 	t.Run("RFC5321-4.1.1.4-DATA-before-RCPT-must-fail-503", func(t *testing.T) {
 		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
@@ -305,6 +343,32 @@ func TestSMTPConformance(t *testing.T) {
 		mustWriteSMTPLine(t, w, tooLong)
 		_, code := readSMTPResponse(t, r)
 		expectRFCCode(t, "RFC 5321 4.5.3.1.4", "command line length", code, 500)
+	})
+
+	t.Run("RFC5321-4.5.3.1.6-data-line-limit-must-fail-500", func(t *testing.T) {
+		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}})
+		defer cleanup()
+
+		_, _ = readSMTPResponse(t, r) // banner
+		mustWriteSMTPLine(t, w, "EHLO client.example")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid>")
+		_, _ = readSMTPResponse(t, r)
+		mustWriteSMTPLine(t, w, "DATA")
+		_, dataCode := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.1.1.4", "DATA prompt", dataCode, 354)
+
+		longLine := strings.Repeat("a", 999)
+		if _, err := w.WriteString(longLine + "\r\n.\r\n"); err != nil {
+			t.Fatalf("write DATA payload: %v", err)
+		}
+		if err := w.Flush(); err != nil {
+			t.Fatalf("flush DATA payload: %v", err)
+		}
+		_, code := readSMTPResponse(t, r)
+		expectRFCCode(t, "RFC 5321 4.5.3.1.6", "DATA line length", code, 500)
 	})
 
 	t.Run("RFC5321-4.1.1.8-HELP-must-return-214", func(t *testing.T) {
