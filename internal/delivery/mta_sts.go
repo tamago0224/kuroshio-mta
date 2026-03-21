@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"time"
 )
+
+const maxMTASTSPolicyAge = 31557600 * time.Second
 
 type MTASTSPolicy struct {
 	Version   string
@@ -34,7 +37,7 @@ func (p MTASTSPolicy) AllowsMX(host string) bool {
 		}
 		if strings.HasPrefix(pat, "*.") {
 			suffix := strings.TrimPrefix(pat, "*.")
-			if strings.HasSuffix(host, "."+suffix) {
+			if parts := strings.SplitN(host, ".", 2); len(parts) == 2 && parts[1] == suffix {
 				return true
 			}
 			continue
@@ -305,6 +308,9 @@ func parseMTASTSPolicy(raw string) (MTASTSPolicy, error) {
 	if p.MaxAge <= 0 {
 		return MTASTSPolicy{}, errors.New("max_age must be positive")
 	}
+	if p.MaxAge > maxMTASTSPolicyAge {
+		return MTASTSPolicy{}, errors.New("max_age exceeds RFC 8461 maximum")
+	}
 	if p.Mode != "none" && len(p.MX) == 0 {
 		return MTASTSPolicy{}, errors.New("mx is required for non-none mode")
 	}
@@ -330,12 +336,25 @@ func fetchMTASTSPolicyTextHTTP(timeout time.Duration) func(context.Context, stri
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
 		}
+		if ct := strings.TrimSpace(resp.Header.Get("Content-Type")); ct != "" {
+			mediaType, params, err := mime.ParseMediaType(ct)
+			if err != nil {
+				return "", fmt.Errorf("invalid content-type: %w", err)
+			}
+			if !isAllowedMTASTSPolicyMediaType(mediaType, params) {
+				return "", fmt.Errorf("unexpected content-type %q", ct)
+			}
+		}
 		b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if err != nil {
 			return "", err
 		}
 		return string(b), nil
 	}
+}
+
+func isAllowedMTASTSPolicyMediaType(mediaType string, _ map[string]string) bool {
+	return strings.EqualFold(strings.TrimSpace(mediaType), "text/plain")
 }
 
 func newMTASTSHTTPClient(timeout time.Duration) *http.Client {

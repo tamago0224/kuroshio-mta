@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"mime"
 	"net/http"
 	"net/url"
 	"testing"
@@ -24,10 +25,45 @@ func TestParseMTASTSPolicy(t *testing.T) {
 	}
 }
 
+func TestParseMTASTSPolicyRejectsTooLargeMaxAge(t *testing.T) {
+	raw := "version: STSv1\nmode: enforce\nmx: mx.example.net\nmax_age: 31557601\n"
+	if _, err := parseMTASTSPolicy(raw); err == nil {
+		t.Fatal("expected max_age upper bound error")
+	}
+}
+
+func TestIsAllowedMTASTSPolicyMediaType(t *testing.T) {
+	tests := []struct {
+		contentType string
+		want        bool
+	}{
+		{contentType: "text/plain", want: true},
+		{contentType: "text/plain; charset=utf-8", want: true},
+		{contentType: "text/plain; charset=us-ascii", want: true},
+		{contentType: "text/plain; charset=utf-8; foo=bar", want: true},
+		{contentType: "text/html", want: false},
+		{contentType: "application/json", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.contentType, func(t *testing.T) {
+			mt, params, err := mime.ParseMediaType(tc.contentType)
+			if err != nil {
+				t.Fatalf("parse media type: %v", err)
+			}
+			if got := isAllowedMTASTSPolicyMediaType(mt, params); got != tc.want {
+				t.Fatalf("got=%v want=%v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMTASTSAllowsMX(t *testing.T) {
 	p := MTASTSPolicy{Mode: "enforce", MX: []string{"*.example.net", "mail.example.org"}}
 	if !p.AllowsMX("mx1.example.net") {
 		t.Fatal("wildcard should match")
+	}
+	if p.AllowsMX("mx1.sub.example.net") {
+		t.Fatal("wildcard should only match the left-most label")
 	}
 	if !p.AllowsMX("mail.example.org") {
 		t.Fatal("exact match should match")
