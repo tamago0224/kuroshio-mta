@@ -99,3 +99,49 @@ func TestParseDSN_FoldedHeader(t *testing.T) {
 		t.Fatalf("unexpected diagnostic-code: %q", reports[0].DiagnosticCode)
 	}
 }
+
+func TestParseDSN_RequiresReportingMTA(t *testing.T) {
+	raw := []byte(
+		"Arrival-Date: Tue, 12 Mar 2024 09:30:00 +0000\r\n" +
+			"\r\n" +
+			"Final-Recipient: rfc822; user@example.com\r\n" +
+			"Action: failed\r\n" +
+			"Status: 5.1.1\r\n",
+	)
+	if _, err := ParseDSN(raw); err == nil {
+		t.Fatal("expected error when reporting-mta is missing")
+	}
+}
+
+func TestParseDSN_AllowsStatusComment(t *testing.T) {
+	raw := []byte(
+		"Reporting-MTA: dns; mx.example.net\r\n" +
+			"\r\n" +
+			"Final-Recipient: rfc822; user@example.com\r\n" +
+			"Action: failed\r\n" +
+			"Status: 5.1.1 (mailbox unavailable)\r\n",
+	)
+	reports, err := ParseDSN(raw)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("len=%d", len(reports))
+	}
+	if reports[0].Status != "5.1.1" {
+		t.Fatalf("unexpected status: %q", reports[0].Status)
+	}
+}
+
+func TestParseDSN_RejectsStatusWithLeadingZero(t *testing.T) {
+	raw := []byte(
+		"Reporting-MTA: dns; mx.example.net\r\n" +
+			"\r\n" +
+			"Final-Recipient: rfc822; user@example.com\r\n" +
+			"Action: failed\r\n" +
+			"Status: 5.01.1\r\n",
+	)
+	if _, err := ParseDSN(raw); err == nil {
+		t.Fatal("expected error for status with leading zero")
+	}
+}
