@@ -591,6 +591,54 @@ func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
 	}
 }
 
+func TestBuildReceivedHeaderProtocolMarkersWithTLS(t *testing.T) {
+	now := time.Date(2026, 3, 21, 9, 15, 0, 0, time.UTC)
+
+	gotESMTPS := buildReceivedHeader(
+		"mx.example.test",
+		"client.example",
+		"192.0.2.10:2525",
+		"msg-esmtps",
+		now,
+		true,
+		true,
+	)
+	if !strings.Contains(gotESMTPS, " by mx.example.test with ESMTPS id msg-esmtps; ") {
+		t.Fatalf("expected ESMTPS marker: %q", gotESMTPS)
+	}
+	if !strings.Contains(gotESMTPS, now.Format(time.RFC1123Z)) {
+		t.Fatalf("expected RFC1123Z timestamp: %q", gotESMTPS)
+	}
+
+	gotSMTPS := buildReceivedHeader(
+		"mx.example.test",
+		"client.example",
+		"192.0.2.10:2525",
+		"msg-smtps",
+		now,
+		false,
+		true,
+	)
+	if !strings.Contains(gotSMTPS, " by mx.example.test with SMTPS id msg-smtps; ") {
+		t.Fatalf("expected SMTPS marker: %q", gotSMTPS)
+	}
+}
+
+func TestBuildReceivedHeaderUsesFallbackTokens(t *testing.T) {
+	got := buildReceivedHeader(
+		"",
+		"",
+		"not-an-ip",
+		"id-fallback",
+		time.Date(2026, 3, 21, 9, 30, 0, 0, time.UTC),
+		false,
+		false,
+	)
+	if !strings.Contains(got, "Received: from unknown (not-an-ip) by localhost with SMTP id id-fallback; ") {
+		t.Fatalf("unexpected fallback trace header: %q", got)
+	}
+}
+
 func TestMailFromSMTPUTF8ParameterRejected(t *testing.T) {
 	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
