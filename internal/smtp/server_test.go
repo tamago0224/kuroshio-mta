@@ -1119,6 +1119,72 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 	}
 }
 
+func TestSubmissionSTARTTLSResetsAuthState(t *testing.T) {
+	cert, err := selfSignedCert()
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	backend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static backend: %v", err)
+	}
+	s := &Server{
+		cfg: config.Config{
+			Hostname:       "sub.example.test",
+			SubmissionAuth: true,
+		},
+		submission:  true,
+		authBackend: backend,
+		tlsConfig:   &tls.Config{Certificates: []tls.Certificate{cert}},
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	resp, _ := readSMTPResponse(t, r)
+	if !strings.Contains(resp, "STARTTLS") || !strings.Contains(resp, "AUTH PLAIN LOGIN") {
+		t.Fatalf("submission EHLO should advertise STARTTLS and AUTH: %q", resp)
+	}
+
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, code := readSMTPResponse(t, r)
+	if code != 235 {
+		t.Fatalf("auth code=%d want=235", code)
+	}
+
+	mustWriteSMTPLine(t, w, "STARTTLS")
+	_, code = readSMTPResponse(t, r)
+	if code != 220 {
+		t.Fatalf("starttls code=%d want=220", code)
+	}
+
+	tlsClient := tls.Client(client, &tls.Config{InsecureSkipVerify: true})
+	if err := tlsClient.Handshake(); err != nil {
+		t.Fatalf("tls handshake: %v", err)
+	}
+	defer tlsClient.Close()
+	rt := bufio.NewReader(tlsClient)
+	wt := bufio.NewWriter(tlsClient)
+
+	mustWriteSMTPLine(t, wt, "EHLO client.example")
+	resp, _ = readSMTPResponse(t, rt)
+	if !strings.Contains(resp, "AUTH PLAIN LOGIN") {
+		t.Fatalf("submission EHLO after STARTTLS should advertise AUTH: %q", resp)
+	}
+
+	mustWriteSMTPLine(t, wt, "MAIL FROM:<alice@example.com>")
+	_, code = readSMTPResponse(t, rt)
+	if code != 530 {
+		t.Fatalf("mail code after STARTTLS without reauth=%d want=530", code)
+	}
+}
+
 func mustWriteSMTPLine(t *testing.T, w *bufio.Writer, line string) {
 	t.Helper()
 	if _, err := w.WriteString(line + "\r\n"); err != nil {
