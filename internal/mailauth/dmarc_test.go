@@ -26,10 +26,10 @@ func TestEvalDMARCParsesMajorTags(t *testing.T) {
 	if res.Percent != 25 || res.ReportInterval != 3600 {
 		t.Fatalf("pct=%d ri=%d", res.Percent, res.ReportInterval)
 	}
-	if !reflect.DeepEqual(res.FailureOptions, []string{"1:d:s"}) {
+	if !reflect.DeepEqual(res.FailureOptions, []string{"1", "d", "s"}) {
 		t.Fatalf("fo=%v", res.FailureOptions)
 	}
-	if !reflect.DeepEqual(res.ReportFormat, []string{"afrf:iodef"}) {
+	if !reflect.DeepEqual(res.ReportFormat, []string{"afrf", "iodef"}) {
 		t.Fatalf("rf=%v", res.ReportFormat)
 	}
 	if !reflect.DeepEqual(res.AggregateReport, []string{"mailto:agg@example.com", "mailto:agg2@example.com"}) {
@@ -80,6 +80,12 @@ func TestParseDMARCHelpers(t *testing.T) {
 	}
 	if got := parseDMARCList("", []string{"x"}); !reflect.DeepEqual(got, []string{"x"}) {
 		t.Fatalf("parseDMARCList fallback=%v", got)
+	}
+	if got := parseDMARCTokenList("1:d:s", nil, ":"); !reflect.DeepEqual(got, []string{"1", "d", "s"}) {
+		t.Fatalf("parseDMARCTokenList=%v", got)
+	}
+	if got := parseDMARCTokenList("", []string{"afrf"}, ":"); !reflect.DeepEqual(got, []string{"afrf"}) {
+		t.Fatalf("parseDMARCTokenList fallback=%v", got)
 	}
 }
 

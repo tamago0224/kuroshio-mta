@@ -48,8 +48,8 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	}
 	percent := parseDMARCInt(pol["pct"], 100)
 	ri := parseDMARCInt(pol["ri"], 86400)
-	fo := parseDMARCList(pol["fo"], []string{"0"})
-	rf := parseDMARCList(pol["rf"], []string{"afrf"})
+	fo := parseDMARCTokenList(pol["fo"], []string{"0"}, ":")
+	rf := parseDMARCTokenList(pol["rf"], []string{"afrf"}, ":")
 	rua := parseDMARCList(pol["rua"], nil)
 	ruf := parseDMARCList(pol["ruf"], nil)
 
@@ -191,6 +191,10 @@ func parseDMARCInt(v string, def int) int {
 }
 
 func parseDMARCList(v string, def []string) []string {
+	return parseDMARCTokenList(v, def, ",")
+}
+
+func parseDMARCTokenList(v string, def []string, sep string) []string {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		if def == nil {
@@ -200,7 +204,7 @@ func parseDMARCList(v string, def []string) []string {
 		copy(out, def)
 		return out
 	}
-	parts := strings.Split(v, ",")
+	parts := strings.Split(v, sep)
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		s := strings.TrimSpace(p)
