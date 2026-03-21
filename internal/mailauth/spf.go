@@ -183,11 +183,18 @@ func lookupSPFRecord(ctx context.Context, domain string, st *spfEvalState) (stri
 	if err != nil {
 		return "", false, err
 	}
+	record := ""
 	for _, v := range txt {
 		s := strings.TrimSpace(v)
 		if strings.HasPrefix(strings.ToLower(s), "v=spf1") {
-			return s, true, nil
+			if record != "" {
+				return "", false, &spfResultError{Result: "permerror", Reason: "multiple spf records"}
+			}
+			record = s
 		}
+	}
+	if record != "" {
+		return record, true, nil
 	}
 	return "", false, nil
 }

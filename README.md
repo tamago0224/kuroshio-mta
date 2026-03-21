@@ -30,7 +30,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_4954_gap.md) |
 | RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約、`STARTTLS` 後の再認証要求を実装。詳細は [rfc_6409_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_6409_gap.md) |
 | RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
-| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, macro 展開、lookup 制限、HELO/MAIL FROM ポリシー分離を実装 |
+| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, 主要 macro 展開、lookup 制限、複数 `v=spf1` の `permerror`、HELO/MAIL FROM ポリシー分離を実装。高度な macro transformer は未対応。詳細は [rfc_7208_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7208_gap.md) |
 | RFC 6376 | DKIM | 一部対応 | 受信時の DKIM 検証、複数署名評価、`l/t/x/h`、canonicalization、送信時 DKIM 署名を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、`fo`/`rf` の RFC 準拠パース、集計/失敗レポート生成を実装。詳細は [rfc_7489_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7489_gap.md) |
 | RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、複数 hop 検証、ARC ヘッダ未付与メールへの署名付与、失敗時ポリシーを実装。既存 chain の継続署名は未対応。詳細は [rfc_8617_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8617_gap.md) |
