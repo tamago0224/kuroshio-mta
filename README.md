@@ -33,7 +33,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, macro 展開、lookup 制限、HELO/MAIL FROM ポリシー分離を実装 |
 | RFC 6376 | DKIM | 一部対応 | 受信時の DKIM 検証、複数署名評価、`l/t/x/h`、canonicalization、送信時 DKIM 署名を実装 |
 | RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、`fo`/`rf` の RFC 準拠パース、集計/失敗レポート生成を実装。詳細は [rfc_7489_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7489_gap.md) |
-| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、送信/中継時の ARC 署名付与、失敗時ポリシーを実装 |
+| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、複数 hop 検証、ARC ヘッダ未付与メールへの署名付与、失敗時ポリシーを実装。既存 chain の継続署名は未対応。詳細は [rfc_8617_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8617_gap.md) |
 | RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、`text/plain` 検証、stale 利用、`mode=enforce/testing`、安全なロールオーバー、MX wildcard 制約を実装。詳細は [rfc_8461_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8461_gap.md) |
 | RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得、CNAME 展開、`DANE-TA(2)` の証明書名チェック、優先適用（DANE > MTA-STS）を実装。詳細は [rfc_7672_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7672_gap.md) |
 | RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3464_gap.md) |
