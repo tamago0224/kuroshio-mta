@@ -93,6 +93,38 @@ func TestEvalDKIMWithoutSignatureReturnsNone(t *testing.T) {
 	}
 }
 
+func TestVerifyDKIMSigMissingRequiredTagsArePermerror(t *testing.T) {
+	tests := []struct {
+		name string
+		sig  string
+		want string
+	}{
+		{
+			name: "missing bh tag",
+			sig:  "v=1; a=rsa-sha256; d=example.com; s=s1; h=from; b=abc",
+			want: "missing bh tag",
+		},
+		{
+			name: "missing b tag",
+			sig:  "v=1; a=rsa-sha256; d=example.com; s=s1; h=from; bh=YWJj",
+			want: "missing b tag",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := verifyDKIMSig([]Header{{Name: "From", Value: "sender@example.com"}}, "body", tc.sig)
+			if got.Result != "permerror" {
+				t.Fatalf("result=%q want=permerror reason=%q", got.Result, got.Reason)
+			}
+			if got.Reason != tc.want {
+				t.Fatalf("reason=%q want=%q", got.Reason, tc.want)
+			}
+		})
+	}
+}
+
 func TestCanonicalizeBodyWithLength(t *testing.T) {
 	got, err := canonicalizeBodyWithLength("a\r\nb\r\n", "simple", "3")
 	if err != nil {
