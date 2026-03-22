@@ -8,15 +8,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/bounce"
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/delivery"
-	"github.com/tamago0224/orinoco-mta/internal/logging"
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/observability"
-	"github.com/tamago0224/orinoco-mta/internal/queue"
-	"github.com/tamago0224/orinoco-mta/internal/reputation"
-	"github.com/tamago0224/orinoco-mta/internal/util"
+	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/logging"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
+	"github.com/tamago0224/kuroshio-mta/internal/queue"
+	"github.com/tamago0224/kuroshio-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/util"
 )
 
 type Dispatcher struct {

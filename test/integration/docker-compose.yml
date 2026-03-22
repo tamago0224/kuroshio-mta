@@ -15,7 +15,7 @@ services:
 
   policy:
     image: nginx:1.27-alpine
-    container_name: orinoco-mta-sts-policy
+    container_name: kuroshio-mta-sts-policy
     volumes:
       - ./mta-sts/mta-sts.txt:/usr/share/nginx/html/.well-known/mta-sts.txt:ro
     networks:

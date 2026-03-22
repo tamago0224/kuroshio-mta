@@ -24,7 +24,7 @@ Issue: #35
 1. MTAを起動
 
 ```bash
-go run ./cmd/mta
+go run ./cmd/kuroshio
 ```
 
 2. 単体シナリオ実行

@@ -38,17 +38,17 @@ type DKIMResult struct {
 }
 
 type DMARCResult struct {
-	Domain           string
-	Result           string
-	Policy           string
-	SubdomainPolicy  string
-	Percent          int
-	FailureOptions   []string
-	ReportFormat     []string
-	ReportInterval   int
-	AggregateReport  []string
-	FailureReport    []string
-	Reason           string
+	Domain          string
+	Result          string
+	Policy          string
+	SubdomainPolicy string
+	Percent         int
+	FailureOptions  []string
+	ReportFormat    []string
+	ReportInterval  int
+	AggregateReport []string
+	FailureReport   []string
+	Reason          string
 }
 
 type ARCResult struct {

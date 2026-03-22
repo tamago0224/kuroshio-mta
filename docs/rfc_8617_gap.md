@@ -1,6 +1,6 @@
 # RFC 8617 Gap Note
 
-`orinoco-mta` の ARC 実装は、受信時の chain 検証と ARC ヘッダ未付与メールへの署名付与を対象にしています。
+`kuroshio-mta` の ARC 実装は、受信時の chain 検証と ARC ヘッダ未付与メールへの署名付与を対象にしています。
 
 ## 現在カバーしている内容
 

@@ -11,8 +11,8 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
 )
 
 type kafkaReceipt struct {
@@ -57,7 +57,7 @@ func NewKafka(cfg config.Config) (*KafkaStore, error) {
 	}
 	groupID := strings.TrimSpace(cfg.KafkaConsumerGroup)
 	if groupID == "" {
-		groupID = "orinoco-mta"
+		groupID = "kuroshio-mta"
 	}
 	topics := kafkaTopics{
 		inbound: strings.TrimSpace(cfg.KafkaTopicInbound),

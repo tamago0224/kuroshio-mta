@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 )
 
 func RunServer(ctx context.Context, addr string, m *Metrics) error {

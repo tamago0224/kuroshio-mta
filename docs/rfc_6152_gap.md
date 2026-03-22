@@ -1,6 +1,6 @@
 # RFC 6152 Gap Note
 
-`orinoco-mta` の 8BITMIME 実装は、受信側 SMTP セッションでの広告と `MAIL FROM BODY=` に応じた本文受理判定を対象にしています。
+`kuroshio-mta` の 8BITMIME 実装は、受信側 SMTP セッションでの広告と `MAIL FROM BODY=` に応じた本文受理判定を対象にしています。
 
 ## 現在カバーしている内容
 

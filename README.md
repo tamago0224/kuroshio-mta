@@ -1,6 +1,6 @@
-# orinoco-mta
+# kuroshio-mta
 
-`orinoco-mta` は Go で実装した MTA（Mail Transfer Agent）です。
+`kuroshio-mta` は Go で実装した MTA（Mail Transfer Agent）です。
 
 Orinoco は南米を流れる川の名前で、
 大量のメールをそつなく安定して流すことを期待した命名です。
@@ -24,24 +24,24 @@ Orinoco は南米を流れる川の名前で、
 | RFC | 技術 | 対応状況 | 補足 |
 | --- | --- | --- | --- |
 | RFC 5321 | SMTP | 対応済み（実装範囲内） | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502` 応答、`Received:` トレースヘッダ、`postmaster` 宛特例、主要な構文/状態遷移/行長制限のコンフォーマンステストを整備。拡張は各RFCで管理 |
-| RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格、TLS 後の再 EHLO、セッション再初期化を実装。詳細は [rfc_3207_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3207_gap.md) |
-| RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | EHLO での `SIZE` 広告、`MAIL FROM SIZE=`、上限超過拒否、境界値テストを実装。詳細は [rfc_1870_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_1870_gap.md) |
-| RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | EHLO での `8BITMIME` 広告、`BODY=8BITMIME` / `BODY=7BIT`、8bit 本文の受理/拒否を実装。詳細は [rfc_6152_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_6152_gap.md) |
-| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_4954_gap.md) |
-| RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約、`STARTTLS` 後の再認証要求を実装。詳細は [rfc_6409_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_6409_gap.md) |
+| RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格、TLS 後の再 EHLO、セッション再初期化を実装。詳細は [rfc_3207_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_3207_gap.md) |
+| RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | EHLO での `SIZE` 広告、`MAIL FROM SIZE=`、上限超過拒否、境界値テストを実装。詳細は [rfc_1870_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_1870_gap.md) |
+| RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | EHLO での `8BITMIME` 広告、`BODY=8BITMIME` / `BODY=7BIT`、8bit 本文の受理/拒否を実装。詳細は [rfc_6152_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6152_gap.md) |
+| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_4954_gap.md) |
+| RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約、`STARTTLS` 後の再認証要求を実装。詳細は [rfc_6409_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6409_gap.md) |
 | RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
-| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, 主要 macro 展開、lookup 制限、複数 `v=spf1` の `permerror`、HELO/MAIL FROM ポリシー分離を実装。高度な macro transformer は未対応。詳細は [rfc_7208_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7208_gap.md) |
-| RFC 6376 | DKIM | 一部対応 | RSA の受信時 DKIM 検証、複数署名評価、`h/bh/b/l/t/x`、canonicalization、送信時 DKIM 署名を実装。Ed25519 は未対応。詳細は [rfc_6376_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_6376_gap.md) |
-| RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、`fo`/`rf` の RFC 準拠パース、集計/失敗レポート生成を実装。詳細は [rfc_7489_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7489_gap.md) |
-| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、複数 hop 検証、ARC ヘッダ未付与メールへの署名付与、失敗時ポリシーを実装。既存 chain の継続署名は未対応。詳細は [rfc_8617_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8617_gap.md) |
-| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、`text/plain` 検証、stale 利用、`mode=enforce/testing`、安全なロールオーバー、MX wildcard 制約を実装。詳細は [rfc_8461_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_8461_gap.md) |
-| RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得、CNAME 展開、`DANE-TA(2)` の証明書名チェック、優先適用（DANE > MTA-STS）を実装。詳細は [rfc_7672_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_7672_gap.md) |
-| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3464_gap.md) |
+| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, 主要 macro 展開、lookup 制限、複数 `v=spf1` の `permerror`、HELO/MAIL FROM ポリシー分離を実装。高度な macro transformer は未対応。詳細は [rfc_7208_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7208_gap.md) |
+| RFC 6376 | DKIM | 一部対応 | RSA の受信時 DKIM 検証、複数署名評価、`h/bh/b/l/t/x`、canonicalization、送信時 DKIM 署名を実装。Ed25519 は未対応。詳細は [rfc_6376_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6376_gap.md) |
+| RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、`fo`/`rf` の RFC 準拠パース、集計/失敗レポート生成を実装。詳細は [rfc_7489_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7489_gap.md) |
+| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、複数 hop 検証、ARC ヘッダ未付与メールへの署名付与、失敗時ポリシーを実装。既存 chain の継続署名は未対応。詳細は [rfc_8617_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_8617_gap.md) |
+| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、`text/plain` 検証、stale 利用、`mode=enforce/testing`、安全なロールオーバー、MX wildcard 制約を実装。詳細は [rfc_8461_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_8461_gap.md) |
+| RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得、CNAME 展開、`DANE-TA(2)` の証明書名チェック、優先適用（DANE > MTA-STS）を実装。詳細は [rfc_7672_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7672_gap.md) |
+| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_3464_gap.md) |
 
 ## 実行方法
 
 ```bash
-go run ./cmd/mta
+go run ./cmd/kuroshio
 ```
 
 デフォルトでは `:2525` でSMTP待受します。
@@ -74,7 +74,7 @@ go run ./cmd/mta
 - `MTA_QUEUE_DIR` (default: `./var/queue`)
 - `MTA_QUEUE_BACKEND` (default: `local`, values: `local` / `kafka`)
 - `MTA_KAFKA_BROKERS` (default: `localhost:9092`, comma-separated)
-- `MTA_KAFKA_CONSUMER_GROUP` (default: `orinoco-mta`)
+- `MTA_KAFKA_CONSUMER_GROUP` (default: `kuroshio-mta`)
 - `MTA_KAFKA_TOPIC_INBOUND` (default: `mail.inbound`)
 - `MTA_KAFKA_TOPIC_RETRY` (default: `mail.retry`)
 - `MTA_KAFKA_TOPIC_DLQ` (default: `mail.dlq`)
@@ -163,7 +163,7 @@ go test ./internal/smtp -run '^TestSMTPConformance$' -v
 ```bash
 MTA_QUEUE_BACKEND="kafka"
 MTA_KAFKA_BROKERS="localhost:9092"
-MTA_KAFKA_CONSUMER_GROUP="orinoco-mta"
+MTA_KAFKA_CONSUMER_GROUP="kuroshio-mta"
 MTA_KAFKA_TOPIC_INBOUND="mail.inbound"
 MTA_KAFKA_TOPIC_RETRY="mail.retry"
 MTA_KAFKA_TOPIC_DLQ="mail.dlq"
@@ -196,19 +196,19 @@ DNS を含む `docker compose` 環境を用意しています。
   - `smtp_auth_dmarc_policy_<policy>_total`（例: `reject`, `quarantine`, `none`）
   - `smtp_auth_action_<action>_total`（例: `accept`, `quarantine`, `reject`）
 
-Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/orinoco-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。
+Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。
 
 ## HA Reference
 
 - リファレンス構成とフェイルオーバー手順:
-  [ha_reference.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/architecture/ha_reference.md)
+  [ha_reference.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/architecture/ha_reference.md)
 - 障害注入ドリル補助スクリプト:
   `scripts/chaos/run_ha_drill.sh`
 
 ## Load / Chaos Testing
 
 - 負荷試験 runbook:
-  [load_chaos.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/load_chaos.md)
+  [load_chaos.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/load_chaos.md)
 - 単体シナリオ実行:
   `scripts/load/run_smtp_load.sh normal 127.0.0.1:2525`
 - カオス併用スイート:
@@ -219,7 +219,7 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 ## Admin API
 
 - runbook:
-  [admin_api.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/admin_api.md)
+  [admin_api.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/admin_api.md)
 - 最小CLI:
   `scripts/admin/orinoco_admin.sh`
 - 対応操作:
@@ -230,7 +230,7 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 ## Reputation Controls
 
 - runbook:
-  [reputation_ops.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/reputation_ops.md)
+  [reputation_ops.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/reputation_ops.md)
 - 可視化:
   `GET /reputation`
 - 記録:
@@ -240,7 +240,7 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 ## DR Backup / Restore
 
 - DR（Disaster Recovery, 災害対策）向け runbook:
-  [dr_backup_restore.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/runbooks/dr_backup_restore.md)
+  [dr_backup_restore.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/dr_backup_restore.md)
 - バックアップ:
   `scripts/dr/backup_queue.sh ./var/queue ./var/backups`
 - リストア:
@@ -258,4 +258,4 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 
 - 脆弱性スキャン: `.github/workflows/security.yml` で `govulncheck` を実行
 - SBOM生成: `scripts/security/generate_sbom.sh`
-- 詳細方針: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/security/secrets_and_supply_chain.md)
+- 詳細方針: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/security/secrets_and_supply_chain.md)

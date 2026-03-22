@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
 )
 
 func NewBackend(cfg config.Config) (Backend, error) {

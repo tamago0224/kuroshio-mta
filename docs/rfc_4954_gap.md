@@ -1,6 +1,6 @@
 # RFC 4954 Gap Note
 
-`orinoco-mta` の SMTP AUTH 実装は、Submission 経路での基本的なユーザ認証を対象にしています。
+`kuroshio-mta` の SMTP AUTH 実装は、Submission 経路での基本的なユーザ認証を対象にしています。
 
 ## 現在カバーしている内容
 

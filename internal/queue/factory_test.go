@@ -3,7 +3,7 @@ package queue
 import (
 	"testing"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
 )
 
 func TestNewBackendLocal(t *testing.T) {

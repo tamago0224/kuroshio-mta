@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/bounce"
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/queue"
-	"github.com/tamago0224/orinoco-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/queue"
+	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 )
 
 type queueManager interface {

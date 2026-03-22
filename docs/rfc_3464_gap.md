@@ -1,6 +1,6 @@
 # RFC 3464 Gap Note
 
-`orinoco-mta` の DSN 実装は、配送失敗通知と bounce 処理に必要な範囲を対象にしています。
+`kuroshio-mta` の DSN 実装は、配送失敗通知と bounce 処理に必要な範囲を対象にしています。
 
 ## 現在カバーしている内容
 
