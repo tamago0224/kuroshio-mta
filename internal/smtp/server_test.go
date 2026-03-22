@@ -950,9 +950,12 @@ func TestSTARTTLSWithTLSConfigUpgradesConnection(t *testing.T) {
 	if err := wt.Flush(); err != nil {
 		t.Fatalf("flush EHLO over TLS: %v", err)
 	}
-	_, code = readSMTPResponse(t, rt)
+	resp, code = readSMTPResponse(t, rt)
 	if code != 250 {
 		t.Fatalf("code=%d want=250", code)
+	}
+	if strings.Contains(resp, "STARTTLS") {
+		t.Fatalf("STARTTLS must not be advertised after TLS is active: %q", resp)
 	}
 }
 

@@ -24,7 +24,7 @@ Orinoco は南米を流れる川の名前で、
 | RFC | 技術 | 対応状況 | 補足 |
 | --- | --- | --- | --- |
 | RFC 5321 | SMTP | 対応済み（実装範囲内） | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502` 応答、`Received:` トレースヘッダ、`postmaster` 宛特例、主要な構文/状態遷移/行長制限のコンフォーマンステストを整備。拡張は各RFCで管理 |
-| RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格を実装 |
+| RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格、TLS 後の再 EHLO、セッション再初期化を実装。詳細は [rfc_3207_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_3207_gap.md) |
 | RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | EHLO での `SIZE` 広告、`MAIL FROM SIZE=`、上限超過拒否、境界値テストを実装。詳細は [rfc_1870_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_1870_gap.md) |
 | RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | EHLO での `8BITMIME` 広告、`BODY=8BITMIME` / `BODY=7BIT`、8bit 本文の受理/拒否を実装。詳細は [rfc_6152_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_6152_gap.md) |
 | RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/orinoco-mta/docs/rfc_4954_gap.md) |
