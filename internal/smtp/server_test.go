@@ -815,6 +815,32 @@ func TestEHLOResponseAdvertisesConfiguredSize(t *testing.T) {
 	}
 }
 
+func TestEHLOResponseAdvertises8BitMime(t *testing.T) {
+	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+
+	_, _ = readSMTPResponse(t, r) // banner
+	if _, err := w.WriteString("EHLO client.example\r\n"); err != nil {
+		t.Fatalf("write EHLO: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush EHLO: %v", err)
+	}
+	resp, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d resp=%q", code, resp)
+	}
+	if !strings.Contains(resp, "8BITMIME") {
+		t.Fatalf("EHLO must advertise 8BITMIME: %q", resp)
+	}
+}
+
 func TestMailFromSizeAtLimitIsAccepted(t *testing.T) {
 	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
 	client, server := net.Pipe()
