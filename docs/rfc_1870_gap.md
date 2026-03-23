@@ -1,6 +1,6 @@
 # RFC 1870 Gap Note
 
-`orinoco-mta` の SMTP SIZE 実装は、受信側 SMTP セッションでの広告と `MAIL FROM` パラメータ検証を対象にしています。
+`kuroshio-mta` の SMTP SIZE 実装は、受信側 SMTP セッションでの広告と `MAIL FROM` パラメータ検証を対象にしています。
 
 ## 現在カバーしている内容
 

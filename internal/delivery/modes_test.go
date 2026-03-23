@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
 )
 
 func TestDeliverLocalSpoolWritesFile(t *testing.T) {

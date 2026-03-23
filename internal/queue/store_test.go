@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
 )
 
 func TestStoreLifecycle(t *testing.T) {

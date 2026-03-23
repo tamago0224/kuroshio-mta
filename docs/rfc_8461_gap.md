@@ -1,6 +1,6 @@
 # RFC 8461 Gap Note
 
-`orinoco-mta` の MTA-STS 実装は、送信時のポリシー取得と適用を対象にしています。
+`kuroshio-mta` の MTA-STS 実装は、送信時のポリシー取得と適用を対象にしています。
 
 ## 現在カバーしている内容
 

@@ -1,6 +1,6 @@
 # RFC 3207 Gap Note
 
-`orinoco-mta` の STARTTLS 実装は、受信側 SMTP サーバと送信側 SMTP クライアントでの TLS 昇格フローを対象にしています。
+`kuroshio-mta` の STARTTLS 実装は、受信側 SMTP サーバと送信側 SMTP クライアントでの TLS 昇格フローを対象にしています。
 
 ## 現在カバーしている内容
 

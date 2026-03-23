@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/delivery"
-	"github.com/tamago0224/orinoco-mta/internal/mailauth"
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/router"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/router"
 )
 
 func TestMailAuthSPFAndDMARCWithDNSMock(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/tamago0224/orinoco-mta/internal/bounce"
-	"github.com/tamago0224/orinoco-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 )
 
 func RunServer(ctx context.Context, addr, tokenConfig string, suppressions *bounce.SuppressionStore, queue queueManager, rep *reputation.Tracker) error {

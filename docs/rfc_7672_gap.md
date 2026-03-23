@@ -1,6 +1,6 @@
 # RFC 7672 Gap Note
 
-`orinoco-mta` の DANE 実装は、送信時の TLSA 取得と証明書照合を対象にしています。
+`kuroshio-mta` の DANE 実装は、送信時の TLSA 取得と証明書照合を対象にしています。
 
 ## 現在カバーしている内容
 

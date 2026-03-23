@@ -1,4 +1,4 @@
-module github.com/tamago0224/orinoco-mta
+module github.com/tamago0224/kuroshio-mta
 
 go 1.25
 

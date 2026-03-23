@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/util"
+	"github.com/tamago0224/kuroshio-mta/internal/util"
 )
 
 var dmarcLookupTXT = func(ctx context.Context, name string) ([]string, error) {

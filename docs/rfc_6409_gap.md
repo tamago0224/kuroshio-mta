@@ -1,6 +1,6 @@
 # RFC 6409 Gap Note
 
-`orinoco-mta` の Message Submission 実装は、認証必須の Submission listener を対象にしています。
+`kuroshio-mta` の Message Submission 実装は、認証必須の Submission listener を対象にしています。
 
 ## 現在カバーしている内容
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
 )
 
 var enhancedStatusInTextPattern = regexp.MustCompile(`([245]\.\d+\.\d+)`)

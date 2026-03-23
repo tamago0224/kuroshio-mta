@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	dkimsigner "github.com/tamago0224/orinoco-mta/internal/dkim"
+	dkimsigner "github.com/tamago0224/kuroshio-mta/internal/dkim"
 )
 
 func TestAggregateDKIMResults(t *testing.T) {

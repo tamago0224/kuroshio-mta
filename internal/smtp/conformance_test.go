@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
 )
 
 func TestSMTPConformance(t *testing.T) {

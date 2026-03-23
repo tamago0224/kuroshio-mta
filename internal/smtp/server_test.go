@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/mailauth"
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/observability"
-	"github.com/tamago0224/orinoco-mta/internal/userauth"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
+	"github.com/tamago0224/kuroshio-mta/internal/userauth"
 )
 
 func TestSplitVerb(t *testing.T) {

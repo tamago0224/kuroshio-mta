@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/config"
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/router"
+	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/router"
 )
 
 func TestDeliverByMX_DANETakesPrecedenceOverMTASTS(t *testing.T) {

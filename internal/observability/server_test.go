@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 )
 
 func TestRunServerMetricsEndpoint(t *testing.T) {

@@ -19,8 +19,8 @@ func TestEvalSPF_MacroExpansionForAAndInclude(t *testing.T) {
 	})
 
 	records := map[string]string{
-		"example.com":         "v=spf1 a:%{d} include:%{l}.example.net -all",
-		"sender.example.net":  "v=spf1 ip4:198.51.100.20 -all",
+		"example.com":        "v=spf1 a:%{d} include:%{l}.example.net -all",
+		"sender.example.net": "v=spf1 ip4:198.51.100.20 -all",
 	}
 	spfLookupTXT = func(_ context.Context, domain string) ([]string, error) {
 		domain = strings.ToLower(domain)

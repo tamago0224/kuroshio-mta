@@ -86,7 +86,7 @@ func Load() Config {
 		QueueDir:           env("MTA_QUEUE_DIR", "./var/queue"),
 		QueueBackend:       env("MTA_QUEUE_BACKEND", "local"),
 		KafkaBrokers:       envCSV("MTA_KAFKA_BROKERS", []string{"localhost:9092"}),
-		KafkaConsumerGroup: env("MTA_KAFKA_CONSUMER_GROUP", "orinoco-mta"),
+		KafkaConsumerGroup: env("MTA_KAFKA_CONSUMER_GROUP", "kuroshio-mta"),
 		KafkaTopicInbound:  env("MTA_KAFKA_TOPIC_INBOUND", "mail.inbound"),
 		KafkaTopicRetry:    env("MTA_KAFKA_TOPIC_RETRY", "mail.retry"),
 		KafkaTopicDLQ:      env("MTA_KAFKA_TOPIC_DLQ", "mail.dlq"),

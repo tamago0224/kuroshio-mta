@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/tamago0224/orinoco-mta/internal/model"
-	"github.com/tamago0224/orinoco-mta/internal/router"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/router"
 )
 
 func (c *Client) ResolveForTest(
