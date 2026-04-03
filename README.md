@@ -46,6 +46,21 @@ go run ./cmd/kuroshio
 
 デフォルトでは `:2525` でSMTP待受します。
 
+## YAML設定
+
+`MTA_CONFIG_FILE` に YAML ファイルを指定すると、`gopkg.in/yaml.v3` で設定を読み込みます。未指定でも作業ディレクトリ直下の `config.yaml` または `config.yml` があれば自動で読み込みます。
+
+```bash
+MTA_CONFIG_FILE=./config.yaml go run ./cmd/kuroshio
+```
+
+サンプルは [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml) に置いてあります。
+
+補足:
+- YAML は `internal/config.Config` に対応する値をまとめて持てます
+- `MTA_SUBMISSION_USERS_FILE` と `MTA_ADMIN_TOKENS_FILE` はこれまで通りシークレットファイル用途で使えます
+- 同じ設定を YAML と環境変数の両方で指定した場合は、環境変数が優先されます
+
 ## 主要環境変数
 
 - `MTA_LISTEN_ADDR` (default: `:2525`)

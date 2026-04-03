@@ -27,7 +27,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("config load failed", "error", err)
+	}
 	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout))
 	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", cfg.SubmissionAddr != "", "delivery_mode", cfg.DeliveryMode)
 

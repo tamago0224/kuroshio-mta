@@ -1,0 +1,68 @@
+listen_addr: ":2525"
+submission_addr: ":587"
+submission_auth_required: true
+submission_users: "alice@example.com:s3cr3t"
+submission_enforce_sender_identity: true
+log_level: info
+observability_addr: ":9090"
+admin_addr: ":8080"
+admin_tokens: "viewer-token:viewer,operator-token:operator"
+hostname: orinoco.local
+queue_dir: ./var/queue
+queue_backend: local
+kafka_brokers:
+  - localhost:9092
+kafka_consumer_group: kuroshio-mta
+kafka_topic_inbound: mail.inbound
+kafka_topic_retry: mail.retry
+kafka_topic_dlq: mail.dlq
+kafka_topic_sent: mail.sent
+tls_cert_file: ./certs/tls.crt
+tls_key_file: ./certs/tls.key
+ingress_rate_limit_per_minute: 100
+rate_limit_rules: "connect:ip:100:1m"
+dnsbl_zones:
+  - zen.spamhaus.org
+dnsbl_cache_ttl: 5m
+dane_dnssec_trust_model: ad_required
+mta_sts_cache_ttl: 1h
+mta_sts_fetch_timeout: 5s
+delivery_mode: mx
+local_spool_dir: ./var/spool
+relay_host: smtp.relay.local
+relay_port: 587
+relay_require_tls: true
+max_message_bytes: 10485760
+worker_count: 4
+max_attempts: 12
+max_retry_age: 120h
+retry_schedule:
+  - 5m
+  - 30m
+  - 2h
+  - 6h
+  - 24h
+scan_interval: 5s
+dial_timeout: 8s
+send_timeout: 20s
+dkim_sign_domain: example.com
+dkim_sign_selector: default
+dkim_private_key_file: ./keys/dkim.pem
+dkim_sign_headers: from:to:subject:date:message-id
+arc_failure_policy: accept
+spf_helo_policy: advisory
+spf_mailfrom_policy: advisory
+domain_max_concurrent_default: 8
+domain_max_concurrent_rules: "gmail.com:2,yahoo.com:1"
+domain_adaptive_throttle: true
+domain_tempfail_threshold: 0.3
+domain_penalty_max: 5s
+data_retention_sent: 720h
+data_retention_dlq: 2160h
+data_retention_poison: 4320h
+retention_sweep_interval: 1h
+reputation_start_date: "2026-01-01"
+reputation_warmup_rules: "0:100,7:1000,14:5000"
+reputation_bounce_threshold: 0.05
+reputation_complaint_threshold: 0.001
+reputation_min_samples: 100
