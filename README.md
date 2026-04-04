@@ -5,6 +5,15 @@
 黒潮は日本近海を流れる世界有数の海流で、
 大量のメールを力強く安定して運ぶ MTA をイメージして命名しています。
 
+## 特徴
+
+- Go で実装した、外部 SMTP ライブラリ非依存の MTA
+- SMTP受信と Submission の両方を備え、認証付き投稿経路も扱える
+- DKIM / ARC 送信署名、SPF / DKIM / DMARC / ARC 受信評価に対応
+- STARTTLS、MTA-STS、DANE など送受信時のセキュリティ機能を段階的に実装
+- ローカルキューに加えて Kafka queue mode も選択できる
+- RateLimiter の状態は Redis / Valkey に外部化でき、複数ノード構成を取りやすい
+
 ## 現在の実装範囲
 
 - SMTP受信サーバー（自前パーサー）
