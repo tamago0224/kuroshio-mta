@@ -33,6 +33,12 @@ type Config struct {
 	TLSKeyFile                 string
 	IngressRateLimit           int
 	RateLimitRules             string
+	RateLimitBackend           string
+	RateLimitRedisAddrs        []string
+	RateLimitRedisUsername     string
+	RateLimitRedisPassword     string
+	RateLimitRedisDB           int
+	RateLimitRedisKeyPrefix    string
 	DNSBLZones                 []string
 	DNSBLCacheTTL              time.Duration
 	DANEDNSSECTrustModel       string
@@ -97,6 +103,12 @@ type yamlConfig struct {
 	TLSKeyFile                 *string  `yaml:"tls_key_file"`
 	IngressRateLimit           *int     `yaml:"ingress_rate_limit_per_minute"`
 	RateLimitRules             *string  `yaml:"rate_limit_rules"`
+	RateLimitBackend           *string  `yaml:"rate_limit_backend"`
+	RateLimitRedisAddrs        []string `yaml:"rate_limit_redis_addrs"`
+	RateLimitRedisUsername     *string  `yaml:"rate_limit_redis_username"`
+	RateLimitRedisPassword     *string  `yaml:"rate_limit_redis_password"`
+	RateLimitRedisDB           *int     `yaml:"rate_limit_redis_db"`
+	RateLimitRedisKeyPrefix    *string  `yaml:"rate_limit_redis_key_prefix"`
 	DNSBLZones                 []string `yaml:"dnsbl_zones"`
 	DNSBLCacheTTL              *string  `yaml:"dnsbl_cache_ttl"`
 	DANEDNSSECTrustModel       *string  `yaml:"dane_dnssec_trust_model"`
@@ -174,6 +186,12 @@ func Load() (Config, error) {
 	cfg.TLSKeyFile = env("MTA_TLS_KEY_FILE", cfg.TLSKeyFile)
 	cfg.IngressRateLimit = envInt("MTA_INGRESS_RATE_LIMIT_PER_MINUTE", cfg.IngressRateLimit)
 	cfg.RateLimitRules = env("MTA_RATE_LIMIT_RULES", cfg.RateLimitRules)
+	cfg.RateLimitBackend = envEnum("MTA_RATE_LIMIT_BACKEND", cfg.RateLimitBackend, []string{"memory", "redis"})
+	cfg.RateLimitRedisAddrs = envCSV("MTA_RATE_LIMIT_REDIS_ADDRS", cfg.RateLimitRedisAddrs)
+	cfg.RateLimitRedisUsername = env("MTA_RATE_LIMIT_REDIS_USERNAME", cfg.RateLimitRedisUsername)
+	cfg.RateLimitRedisPassword = env("MTA_RATE_LIMIT_REDIS_PASSWORD", cfg.RateLimitRedisPassword)
+	cfg.RateLimitRedisDB = envInt("MTA_RATE_LIMIT_REDIS_DB", cfg.RateLimitRedisDB)
+	cfg.RateLimitRedisKeyPrefix = env("MTA_RATE_LIMIT_REDIS_KEY_PREFIX", cfg.RateLimitRedisKeyPrefix)
 	cfg.DNSBLZones = envCSV("MTA_DNSBL_ZONES", cfg.DNSBLZones)
 	cfg.DNSBLCacheTTL = envDuration("MTA_DNSBL_CACHE_TTL", cfg.DNSBLCacheTTL)
 	cfg.DANEDNSSECTrustModel = envEnum("MTA_DANE_DNSSEC_TRUST_MODEL", cfg.DANEDNSSECTrustModel, []string{"ad_required", "insecure_allow_unsigned"})
@@ -241,6 +259,12 @@ func defaultConfig() Config {
 		TLSKeyFile:                 "",
 		IngressRateLimit:           100,
 		RateLimitRules:             "",
+		RateLimitBackend:           "memory",
+		RateLimitRedisAddrs:        []string{"localhost:6379"},
+		RateLimitRedisUsername:     "",
+		RateLimitRedisPassword:     "",
+		RateLimitRedisDB:           0,
+		RateLimitRedisKeyPrefix:    "kuroshio:ratelimit",
 		DNSBLZones:                 []string{},
 		DNSBLCacheTTL:              5 * time.Minute,
 		DANEDNSSECTrustModel:       "ad_required",
@@ -375,6 +399,24 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.RateLimitRules != nil {
 		cfg.RateLimitRules = *raw.RateLimitRules
+	}
+	if raw.RateLimitBackend != nil {
+		cfg.RateLimitBackend = normalizeEnum(*raw.RateLimitBackend, cfg.RateLimitBackend, []string{"memory", "redis"})
+	}
+	if raw.RateLimitRedisAddrs != nil {
+		cfg.RateLimitRedisAddrs = append([]string(nil), raw.RateLimitRedisAddrs...)
+	}
+	if raw.RateLimitRedisUsername != nil {
+		cfg.RateLimitRedisUsername = *raw.RateLimitRedisUsername
+	}
+	if raw.RateLimitRedisPassword != nil {
+		cfg.RateLimitRedisPassword = *raw.RateLimitRedisPassword
+	}
+	if raw.RateLimitRedisDB != nil {
+		cfg.RateLimitRedisDB = *raw.RateLimitRedisDB
+	}
+	if raw.RateLimitRedisKeyPrefix != nil {
+		cfg.RateLimitRedisKeyPrefix = *raw.RateLimitRedisKeyPrefix
 	}
 	if raw.DNSBLZones != nil {
 		cfg.DNSBLZones = append([]string(nil), raw.DNSBLZones...)

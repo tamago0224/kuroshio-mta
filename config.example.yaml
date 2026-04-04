@@ -20,7 +20,12 @@ kafka_topic_sent: mail.sent
 tls_cert_file: ./certs/tls.crt
 tls_key_file: ./certs/tls.key
 ingress_rate_limit_per_minute: 100
+rate_limit_backend: memory
 rate_limit_rules: "connect:ip:100:1m"
+rate_limit_redis_addrs:
+  - localhost:6379
+rate_limit_redis_db: 0
+rate_limit_redis_key_prefix: kuroshio:ratelimit
 dnsbl_zones:
   - zen.spamhaus.org
 dnsbl_cache_ttl: 5m

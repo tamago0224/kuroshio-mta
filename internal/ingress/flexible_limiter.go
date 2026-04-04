@@ -53,20 +53,28 @@ func ParseRateRules(raw string) ([]RateRule, error) {
 
 type FlexibleLimiter struct {
 	rules   []RateRule
+	store   LimitStore
 	mu      sync.Mutex
 	buckets map[int]*RateLimiter
 }
 
 func NewFlexibleLimiter(rules []RateRule) *FlexibleLimiter {
+	return NewFlexibleLimiterWithStore(rules, nil)
+}
+
+func NewFlexibleLimiterWithStore(rules []RateRule, store LimitStore) *FlexibleLimiter {
 	if len(rules) == 0 {
 		return nil
 	}
-	return &FlexibleLimiter{rules: append([]RateRule(nil), rules...), buckets: map[int]*RateLimiter{}}
+	if store == nil {
+		store = NewLocalLimitStore()
+	}
+	return &FlexibleLimiter{rules: append([]RateRule(nil), rules...), store: store, buckets: map[int]*RateLimiter{}}
 }
 
-func (f *FlexibleLimiter) Allow(event, ip, helo, mailFrom string, now time.Time) bool {
+func (f *FlexibleLimiter) Allow(event, ip, helo, mailFrom string, now time.Time) (bool, error) {
 	if f == nil {
-		return true
+		return true, nil
 	}
 	for i, r := range f.rules {
 		if r.Event != event {
@@ -77,11 +85,15 @@ func (f *FlexibleLimiter) Allow(event, ip, helo, mailFrom string, now time.Time)
 			continue
 		}
 		lim := f.bucket(i, r)
-		if !lim.Allow(key, now) {
-			return false
+		allowed, err := lim.Allow(key, now)
+		if err != nil {
+			return false, err
+		}
+		if !allowed {
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (f *FlexibleLimiter) bucket(idx int, r RateRule) *RateLimiter {
@@ -90,7 +102,8 @@ func (f *FlexibleLimiter) bucket(idx int, r RateRule) *RateLimiter {
 	if b, ok := f.buckets[idx]; ok {
 		return b
 	}
-	b := NewRateLimiter(r.Limit, r.Window)
+	name := fmt.Sprintf("rule:%d:%s:%s:%d:%s", idx, r.Event, r.Key, r.Limit, r.Window)
+	b := NewRateLimiterWithStore(name, r.Limit, r.Window, f.store)
 	f.buckets[idx] = b
 	return b
 }
