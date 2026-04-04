@@ -21,20 +21,24 @@ func TestFlexibleLimiter(t *testing.T) {
 	l := NewFlexibleLimiter(rules)
 	now := time.Unix(1000, 0)
 
-	if !l.Allow("connect", "1.2.3.4", "", "", now) {
+	if allowed, err := l.Allow("connect", "1.2.3.4", "", "", now); err != nil || !allowed {
 		t.Fatal("first connect should pass")
 	}
-	if l.Allow("connect", "1.2.3.4", "", "", now.Add(time.Second)) {
+	if allowed, err := l.Allow("connect", "1.2.3.4", "", "", now.Add(time.Second)); err != nil {
+		t.Fatalf("Allow() error: %v", err)
+	} else if allowed {
 		t.Fatal("second connect should be blocked")
 	}
 
-	if !l.Allow("mailfrom", "1.2.3.4", "ehlo", "a@example.com", now) {
+	if allowed, err := l.Allow("mailfrom", "1.2.3.4", "ehlo", "a@example.com", now); err != nil || !allowed {
 		t.Fatal("first mailfrom should pass")
 	}
-	if l.Allow("mailfrom", "1.2.3.4", "ehlo", "a@example.com", now.Add(time.Second)) {
+	if allowed, err := l.Allow("mailfrom", "1.2.3.4", "ehlo", "a@example.com", now.Add(time.Second)); err != nil {
+		t.Fatalf("Allow() error: %v", err)
+	} else if allowed {
 		t.Fatal("second same mailfrom should be blocked")
 	}
-	if !l.Allow("mailfrom", "1.2.3.4", "ehlo", "b@example.com", now.Add(time.Second)) {
+	if allowed, err := l.Allow("mailfrom", "1.2.3.4", "ehlo", "b@example.com", now.Add(time.Second)); err != nil || !allowed {
 		t.Fatal("different mailfrom should pass")
 	}
 }

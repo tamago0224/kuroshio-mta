@@ -72,9 +72,25 @@ func TestEnvBool(t *testing.T) {
 
 func TestLoadRateLimitRules(t *testing.T) {
 	t.Setenv("MTA_RATE_LIMIT_RULES", "connect:ip:10:1m")
+	t.Setenv("MTA_RATE_LIMIT_BACKEND", "redis")
+	t.Setenv("MTA_RATE_LIMIT_REDIS_ADDRS", "redis-1:6379,redis-2:6379")
+	t.Setenv("MTA_RATE_LIMIT_REDIS_DB", "2")
+	t.Setenv("MTA_RATE_LIMIT_REDIS_KEY_PREFIX", "custom:ratelimit")
 	cfg := mustLoadForTest(t)
 	if cfg.RateLimitRules != "connect:ip:10:1m" {
 		t.Fatalf("unexpected rules: %q", cfg.RateLimitRules)
+	}
+	if cfg.RateLimitBackend != "redis" {
+		t.Fatalf("backend=%q", cfg.RateLimitBackend)
+	}
+	if len(cfg.RateLimitRedisAddrs) != 2 || cfg.RateLimitRedisAddrs[0] != "redis-1:6379" || cfg.RateLimitRedisAddrs[1] != "redis-2:6379" {
+		t.Fatalf("redis addrs=%v", cfg.RateLimitRedisAddrs)
+	}
+	if cfg.RateLimitRedisDB != 2 {
+		t.Fatalf("redis db=%d", cfg.RateLimitRedisDB)
+	}
+	if cfg.RateLimitRedisKeyPrefix != "custom:ratelimit" {
+		t.Fatalf("redis key prefix=%q", cfg.RateLimitRedisKeyPrefix)
 	}
 }
 
@@ -245,6 +261,12 @@ queue_backend: kafka
 kafka_brokers:
   - kafka-1:9092
   - kafka-2:9092
+rate_limit_backend: redis
+rate_limit_redis_addrs:
+  - redis-1:6379
+  - redis-2:6379
+rate_limit_redis_db: 3
+rate_limit_redis_key_prefix: edge:ratelimit
 dnsbl_zones:
   - zen.example.org
   - bl.example.net
@@ -291,6 +313,18 @@ domain_tempfail_threshold: 0.4
 	}
 	if cfg.DNSBLCacheTTL != 10*time.Minute {
 		t.Fatalf("dnsbl cache ttl=%s", cfg.DNSBLCacheTTL)
+	}
+	if cfg.RateLimitBackend != "redis" {
+		t.Fatalf("rate limit backend=%q", cfg.RateLimitBackend)
+	}
+	if len(cfg.RateLimitRedisAddrs) != 2 || cfg.RateLimitRedisAddrs[0] != "redis-1:6379" || cfg.RateLimitRedisAddrs[1] != "redis-2:6379" {
+		t.Fatalf("rate limit redis addrs=%v", cfg.RateLimitRedisAddrs)
+	}
+	if cfg.RateLimitRedisDB != 3 {
+		t.Fatalf("rate limit redis db=%d", cfg.RateLimitRedisDB)
+	}
+	if cfg.RateLimitRedisKeyPrefix != "edge:ratelimit" {
+		t.Fatalf("rate limit redis key prefix=%q", cfg.RateLimitRedisKeyPrefix)
 	}
 	if len(cfg.RetrySchedule) != 2 || cfg.RetrySchedule[0] != time.Minute || cfg.RetrySchedule[1] != 15*time.Minute {
 		t.Fatalf("retry schedule=%v", cfg.RetrySchedule)
