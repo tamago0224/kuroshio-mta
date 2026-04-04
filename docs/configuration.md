@@ -1,18 +1,14 @@
 # 設定
 
-`kuroshio-mta` の設定は、YAML と環境変数の組み合わせで管理できます。README に載せていた設定詳細は、このページでまとめて管理します。
+`kuroshio-mta` の設定は YAML ファイルを主として管理し、必要な項目だけ環境変数で上書きする運用を想定しています。
 
-## 優先順位
+## 基本方針
 
 1. デフォルト値
 2. `MTA_CONFIG_FILE` で指定した YAML、またはカレントディレクトリの `config.yaml` / `config.yml`
 3. 環境変数
 
 同じ設定を複数の方法で指定した場合は、最後に評価される環境変数が優先されます。`MTA_CONFIG_FILE` を指定した場合は、そのパスにファイルが存在しないと起動時にエラーになります。
-
-## YAML設定
-
-`MTA_CONFIG_FILE` に YAML ファイルを指定すると、`gopkg.in/yaml.v3` で設定を読み込みます。未指定でも作業ディレクトリ直下の `config.yaml` または `config.yml` があれば自動で読み込みます。
 
 ```bash
 MTA_CONFIG_FILE=./config.yaml go run ./cmd/kuroshio
@@ -21,124 +17,122 @@ MTA_CONFIG_FILE=./config.yaml go run ./cmd/kuroshio
 サンプルは [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml) にあります。
 
 補足:
-- YAML では `internal/config.Config` に対応する値をまとめて定義できます
-- `MTA_SUBMISSION_USERS_FILE` と `MTA_ADMIN_TOKENS_FILE` はこれまで通りシークレットファイル用途で使えます
-- secret 値を YAML に直書きしたくない場合は、YAML で機能を有効にしつつ秘密情報だけ環境変数や `*_FILE` に逃がす運用ができます
+- まずは YAML にまとめて書き、環境差分や secret だけ環境変数に寄せる構成がおすすめです
+- `MTA_SUBMISSION_USERS_FILE` と `MTA_ADMIN_TOKENS_FILE` は secret をファイルから読みたいときに使えます
+- duration は Go の duration 形式 (`5s`, `1m`, `24h`) を使います
+- 配列は YAML ではリスト、環境変数ではカンマ区切りで指定します
 
-## 主要環境変数
+## 読み込みと secret
 
-- `MTA_LISTEN_ADDR` (default: `:2525`)
-- `MTA_SUBMISSION_ADDR` (default: unset, set e.g. `:587` to enable Submission listener)
-- `MTA_SUBMISSION_AUTH_REQUIRED` (default: `true`)
-- `MTA_SUBMISSION_USERS` (default: unset, format: `user@example.com:password,...`)
-- `MTA_SUBMISSION_USERS_FILE` (default: unset, `MTA_SUBMISSION_USERS` の代替。ファイルからシークレット読込)
-- `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` (default: `true`, requires `MAIL FROM` domain to match authenticated user domain)
-- `MTA_LOG_LEVEL` (default: `info`, values: `debug` / `info` / `warn` / `error`, logs are JSON via `slog`)
-- `MTA_OBSERVABILITY_ADDR` (default: `:9090`)
-- `MTA_ADMIN_ADDR` (default: unset)
-- `MTA_ADMIN_TOKENS` (default: unset, format: `viewer-token:viewer,operator-token:operator`)
-- `MTA_REPUTATION_START_DATE` (default: unset, format: `YYYY-MM-DD`)
-- `MTA_REPUTATION_WARMUP_RULES` (default: `0:100,7:1000,14:5000`)
-- `MTA_REPUTATION_BOUNCE_THRESHOLD` (default: `0.05`)
-- `MTA_REPUTATION_COMPLAINT_THRESHOLD` (default: `0.001`)
-- `MTA_REPUTATION_MIN_SAMPLES` (default: `100`)
-- `MTA_SLO_MIN_DELIVERY_SUCCESS_RATE` (default: `0.99`)
-- `MTA_SLO_MAX_RETRY_RATE` (default: `0.20`)
-- `MTA_SLO_MAX_QUEUE_BACKLOG` (default: `50000`)
-- `MTA_DATA_RETENTION_SENT` (default: `720h` = 30d)
-- `MTA_DATA_RETENTION_DLQ` (default: `2160h` = 90d)
-- `MTA_DATA_RETENTION_POISON` (default: `4320h` = 180d)
-- `MTA_RETENTION_SWEEP_INTERVAL` (default: `1h`)
-- `MTA_HOSTNAME` (default: `orinoco.local`)
-- `MTA_QUEUE_DIR` (default: `./var/queue`)
-- `MTA_QUEUE_BACKEND` (default: `local`, values: `local` / `kafka`)
-- `MTA_KAFKA_BROKERS` (default: `localhost:9092`, comma-separated)
-- `MTA_KAFKA_CONSUMER_GROUP` (default: `kuroshio-mta`)
-- `MTA_KAFKA_TOPIC_INBOUND` (default: `mail.inbound`)
-- `MTA_KAFKA_TOPIC_RETRY` (default: `mail.retry`)
-- `MTA_KAFKA_TOPIC_DLQ` (default: `mail.dlq`)
-- `MTA_KAFKA_TOPIC_SENT` (default: `mail.sent`)
-- `MTA_TLS_CERT_FILE` (default: unset)
-- `MTA_TLS_KEY_FILE` (default: unset)
-- `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` (default: `100`)
-- `MTA_RATE_LIMIT_RULES` (default: unset, format: `event:key:limit:window;...`)
-- `MTA_DNSBL_ZONES` (default: unset, comma-separated)
-- `MTA_DNSBL_CACHE_TTL` (default: `5m`)
-- `MTA_DANE_DNSSEC_TRUST_MODEL` (default: `ad_required`, values: `ad_required` / `insecure_allow_unsigned`)
-- `MTA_MTA_STS_CACHE_TTL` (default: `1h`)
-- `MTA_MTA_STS_FETCH_TIMEOUT` (default: `5s`)
-- `MTA_DELIVERY_MODE` (default: `mx`, values: `mx` / `local_spool` / `relay`)
-- `MTA_LOCAL_SPOOL_DIR` (default: `./var/spool`)
-- `MTA_RELAY_HOST` (default: unset)
-- `MTA_RELAY_PORT` (default: `25`)
-- `MTA_RELAY_REQUIRE_TLS` (default: `false`)
-- `MTA_MAX_MESSAGE_BYTES` (default: `10485760`)
-- `MTA_WORKER_COUNT` (default: `4`)
-- `MTA_MAX_ATTEMPTS` (default: `12`)
-- `MTA_MAX_RETRY_AGE` (default: `120h`)
-- `MTA_RETRY_SCHEDULE` (default: `5m,30m,2h,6h,24h`)
-- `MTA_DOMAIN_MAX_CONCURRENT_DEFAULT` (default: `8`)
-- `MTA_DOMAIN_MAX_CONCURRENT_RULES` (default: unset, format: `gmail.com:2,yahoo.com:1`)
-- `MTA_DOMAIN_ADAPTIVE_THROTTLE` (default: `true`)
-- `MTA_DOMAIN_TEMPFAIL_THRESHOLD` (default: `0.3`)
-- `MTA_DOMAIN_PENALTY_MAX` (default: `5s`)
-- `MTA_SCAN_INTERVAL` (default: `5s`)
-- `MTA_DIAL_TIMEOUT` (default: `8s`)
-- `MTA_SEND_TIMEOUT` (default: `20s`)
-- `MTA_DKIM_SIGN_DOMAIN` (default: unset)
-- `MTA_DKIM_SIGN_SELECTOR` (default: unset)
-- `MTA_DKIM_PRIVATE_KEY_FILE` (default: unset, PEM RSA private key)
-- `MTA_DKIM_SIGN_HEADERS` (default: `from:to:subject:date:message-id`)
-  ARC署名も同じ鍵設定を利用し、鍵ファイル更新時は送信時に自動リロードします
-- `MTA_ARC_FAILURE_POLICY` (default: `accept`, values: `accept` / `quarantine` / `reject`)
-- `MTA_SPF_HELO_POLICY` (default: `advisory`, values: `off` / `advisory` / `enforce`)
-- `MTA_SPF_MAILFROM_POLICY` (default: `advisory`, values: `off` / `advisory` / `enforce`)
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `-` | `MTA_CONFIG_FILE` | unset | 読み込む設定ファイルを明示します |
+| `submission_users` | `MTA_SUBMISSION_USERS` | unset | Submission 認証ユーザーを `user@example.com:password,...` 形式で指定します |
+| `-` | `MTA_SUBMISSION_USERS_FILE` | unset | `MTA_SUBMISSION_USERS` の代わりにファイルから Submission 認証情報を読み込みます |
+| `admin_tokens` | `MTA_ADMIN_TOKENS` | unset | Admin API の Bearer token と role を `token:role,...` 形式で指定します |
+| `-` | `MTA_ADMIN_TOKENS_FILE` | unset | `MTA_ADMIN_TOKENS` の代わりにファイルから管理トークンを読み込みます |
 
-## Rate Limit Rules
+## SMTP 受信と Submission
 
-`MTA_RATE_LIMIT_RULES` は `event:key:limit:window;...` 形式で指定します。
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `listen_addr` | `MTA_LISTEN_ADDR` | `:2525` | SMTP 受信サーバーの待受アドレスです |
+| `submission_addr` | `MTA_SUBMISSION_ADDR` | unset | Submission リスナーの待受アドレスです。設定すると有効になります |
+| `submission_auth_required` | `MTA_SUBMISSION_AUTH_REQUIRED` | `true` | Submission で認証を必須にするかを制御します |
+| `submission_enforce_sender_identity` | `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` | `true` | 認証ユーザーのドメインと `MAIL FROM` の整合を要求します |
+| `hostname` | `MTA_HOSTNAME` | `orinoco.local` | SMTP 応答や配送で使うホスト名です |
+| `tls_cert_file` | `MTA_TLS_CERT_FILE` | unset | 受信側 TLS に使う証明書ファイルです |
+| `tls_key_file` | `MTA_TLS_KEY_FILE` | unset | 受信側 TLS に使う秘密鍵ファイルです |
+| `max_message_bytes` | `MTA_MAX_MESSAGE_BYTES` | `10485760` | 受信するメッセージの最大サイズです |
 
-- `event`: `connect` / `helo` / `mailfrom`
-- `key`: `ip` / `helo` / `mailfrom` / `ip+helo` / `ip+mailfrom`
-- `limit`: 許可回数
-- `window`: 期間（例: `10s`, `1m`, `5m`, `1h`）
+## ログ・監視・運用 API
 
-例:
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `log_level` | `MTA_LOG_LEVEL` | `info` | JSON ログの出力レベルです。`debug` / `info` / `warn` / `error` を使います |
+| `observability_addr` | `MTA_OBSERVABILITY_ADDR` | `:9090` | `/metrics` や `/slo` を公開する待受アドレスです |
+| `admin_addr` | `MTA_ADMIN_ADDR` | unset | Admin API の待受アドレスです。設定すると有効になります |
 
-```bash
-# 1分間に接続100回まで（IP単位）
-MTA_RATE_LIMIT_RULES="connect:ip:100:1m"
+## キューと配送
 
-# 1分間に HELO ごとに 20回まで（IP+HELO 単位）
-MTA_RATE_LIMIT_RULES="helo:ip+helo:20:1m"
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `queue_dir` | `MTA_QUEUE_DIR` | `./var/queue` | ローカルキューを保存するディレクトリです |
+| `queue_backend` | `MTA_QUEUE_BACKEND` | `local` | キューバックエンドを切り替えます。`local` / `kafka` を使います |
+| `delivery_mode` | `MTA_DELIVERY_MODE` | `mx` | 配送方式です。`mx` / `local_spool` / `relay` を使います |
+| `local_spool_dir` | `MTA_LOCAL_SPOOL_DIR` | `./var/spool` | `local_spool` 配送時の保存先です |
+| `relay_host` | `MTA_RELAY_HOST` | unset | `relay` 配送時の中継先ホストです |
+| `relay_port` | `MTA_RELAY_PORT` | `25` | `relay` 配送時の中継先ポートです |
+| `relay_require_tls` | `MTA_RELAY_REQUIRE_TLS` | `false` | リレー配送で TLS を必須にします |
+| `worker_count` | `MTA_WORKER_COUNT` | `4` | 配送ワーカー数です |
+| `max_attempts` | `MTA_MAX_ATTEMPTS` | `12` | 最大再試行回数です |
+| `max_retry_age` | `MTA_MAX_RETRY_AGE` | `120h` | 再試行を続ける最大期間です |
+| `retry_schedule` | `MTA_RETRY_SCHEDULE` | `5m,30m,2h,6h,24h` | 再試行間隔です。YAML では配列、環境変数ではカンマ区切りで指定します |
+| `scan_interval` | `MTA_SCAN_INTERVAL` | `5s` | キュースキャンの間隔です |
+| `dial_timeout` | `MTA_DIAL_TIMEOUT` | `8s` | 配送先への接続タイムアウトです |
+| `send_timeout` | `MTA_SEND_TIMEOUT` | `20s` | SMTP 送信全体のタイムアウトです |
 
-# 5分間に MAIL FROM ごとに 30回まで（IP+MAIL FROM 単位）
-MTA_RATE_LIMIT_RULES="mailfrom:ip+mailfrom:30:5m"
+Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md) にまとめています。
 
-# 複数ルールの組み合わせ
-MTA_RATE_LIMIT_RULES="connect:ip:100:1m;helo:ip+helo:20:1m;mailfrom:ip+mailfrom:30:5m"
-```
+## Kafka Queue Backend
 
-## Kafka Queue Mode
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `kafka_brokers` | `MTA_KAFKA_BROKERS` | `localhost:9092` | Kafka broker 一覧です。YAML では配列、環境変数ではカンマ区切りで指定します |
+| `kafka_consumer_group` | `MTA_KAFKA_CONSUMER_GROUP` | `kuroshio-mta` | Kafka consumer group 名です |
+| `kafka_topic_inbound` | `MTA_KAFKA_TOPIC_INBOUND` | `mail.inbound` | inbound メッセージの topic 名です |
+| `kafka_topic_retry` | `MTA_KAFKA_TOPIC_RETRY` | `mail.retry` | retry メッセージの topic 名です |
+| `kafka_topic_dlq` | `MTA_KAFKA_TOPIC_DLQ` | `mail.dlq` | dead-letter queue の topic 名です |
+| `kafka_topic_sent` | `MTA_KAFKA_TOPIC_SENT` | `mail.sent` | 送信完了メッセージの topic 名です |
 
-```bash
-MTA_QUEUE_BACKEND="kafka"
-MTA_KAFKA_BROKERS="localhost:9092"
-MTA_KAFKA_CONSUMER_GROUP="kuroshio-mta"
-MTA_KAFKA_TOPIC_INBOUND="mail.inbound"
-MTA_KAFKA_TOPIC_RETRY="mail.retry"
-MTA_KAFKA_TOPIC_DLQ="mail.dlq"
-MTA_KAFKA_TOPIC_SENT="mail.sent"
-```
+## 認証・ポリシー・配送安全性
 
-Kafka のローカル起動例:
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `dnsbl_zones` | `MTA_DNSBL_ZONES` | unset | 参照する DNSBL zone 一覧です |
+| `dnsbl_cache_ttl` | `MTA_DNSBL_CACHE_TTL` | `5m` | DNSBL 判定結果のキャッシュ期間です |
+| `dane_dnssec_trust_model` | `MTA_DANE_DNSSEC_TRUST_MODEL` | `ad_required` | DANE の DNSSEC 信頼モデルです。`ad_required` / `insecure_allow_unsigned` を使います |
+| `mta_sts_cache_ttl` | `MTA_MTA_STS_CACHE_TTL` | `1h` | MTA-STS policy のキャッシュ期間です |
+| `mta_sts_fetch_timeout` | `MTA_MTA_STS_FETCH_TIMEOUT` | `5s` | MTA-STS policy の取得タイムアウトです |
+| `dkim_sign_domain` | `MTA_DKIM_SIGN_DOMAIN` | unset | 送信時 DKIM/ARC 署名に使うドメインです |
+| `dkim_sign_selector` | `MTA_DKIM_SIGN_SELECTOR` | unset | 送信時 DKIM/ARC 署名に使う selector です |
+| `dkim_private_key_file` | `MTA_DKIM_PRIVATE_KEY_FILE` | unset | 送信時 DKIM/ARC 署名に使う秘密鍵ファイルです |
+| `dkim_sign_headers` | `MTA_DKIM_SIGN_HEADERS` | `from:to:subject:date:message-id` | DKIM 署名対象ヘッダです。ARC 署名も同じ鍵設定を利用します |
+| `arc_failure_policy` | `MTA_ARC_FAILURE_POLICY` | `accept` | ARC 検証失敗時の扱いです。`accept` / `quarantine` / `reject` を使います |
+| `spf_helo_policy` | `MTA_SPF_HELO_POLICY` | `advisory` | HELO に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
+| `spf_mailfrom_policy` | `MTA_SPF_MAILFROM_POLICY` | `advisory` | `MAIL FROM` に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
 
-```bash
-docker compose -f docker-compose.kafka.yml up -d
-```
+## レート制御と配送スロットリング
+
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `ingress_rate_limit_per_minute` | `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` | `100` | 単純な受信レート制限のベース値です |
+| `rate_limit_rules` | `MTA_RATE_LIMIT_RULES` | unset | イベント別レート制限ルールです。フォーマット詳細は [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md) を参照してください |
+| `domain_max_concurrent_default` | `MTA_DOMAIN_MAX_CONCURRENT_DEFAULT` | `8` | ドメインごとの同時配送数のデフォルト上限です |
+| `domain_max_concurrent_rules` | `MTA_DOMAIN_MAX_CONCURRENT_RULES` | unset | ドメイン別の同時配送上限を `gmail.com:2,yahoo.com:1` 形式で指定します |
+| `domain_adaptive_throttle` | `MTA_DOMAIN_ADAPTIVE_THROTTLE` | `true` | 一時失敗率に応じた自動スロットリングを有効にします |
+| `domain_tempfail_threshold` | `MTA_DOMAIN_TEMPFAIL_THRESHOLD` | `0.3` | ペナルティを強める tempfail 比率のしきい値です |
+| `domain_penalty_max` | `MTA_DOMAIN_PENALTY_MAX` | `5s` | 自動スロットリングで加える最大ペナルティです |
+
+## データ保持と reputation
+
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `data_retention_sent` | `MTA_DATA_RETENTION_SENT` | `720h` | 送信済みデータの保持期間です |
+| `data_retention_dlq` | `MTA_DATA_RETENTION_DLQ` | `2160h` | DLQ データの保持期間です |
+| `data_retention_poison` | `MTA_DATA_RETENTION_POISON` | `4320h` | poison データの保持期間です |
+| `retention_sweep_interval` | `MTA_RETENTION_SWEEP_INTERVAL` | `1h` | 保持期限を掃除する周期です |
+| `reputation_start_date` | `MTA_REPUTATION_START_DATE` | unset | reputation 集計の開始日です。`YYYY-MM-DD` 形式を使います |
+| `reputation_warmup_rules` | `MTA_REPUTATION_WARMUP_RULES` | `0:100,7:1000,14:5000` | reputation warmup の段階ルールです |
+| `reputation_bounce_threshold` | `MTA_REPUTATION_BOUNCE_THRESHOLD` | `0.05` | bounce rate のしきい値です |
+| `reputation_complaint_threshold` | `MTA_REPUTATION_COMPLAINT_THRESHOLD` | `0.001` | complaint rate のしきい値です |
+| `reputation_min_samples` | `MTA_REPUTATION_MIN_SAMPLES` | `100` | reputation 判定を有効にする最小サンプル数です |
 
 ## 関連ドキュメント
 
+- 設定サンプル: [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml)
+- Rate Limit 詳細: [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md)
+- Kafka Queue モード詳細: [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md)
 - 運用 API: [admin_api.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/admin_api.md)
 - SLO runbook: [slo_backlog.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_backlog.md), [slo_delivery.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_delivery.md), [slo_retry.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_retry.md)
 - シークレット運用: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/security/secrets_and_supply_chain.md)

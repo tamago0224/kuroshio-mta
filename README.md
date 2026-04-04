@@ -48,7 +48,9 @@ go run ./cmd/kuroshio
 
 ## 設定
 
-設定方法、主要環境変数、YAML サンプル、Rate Limit 設定、Kafka Queue モードの例は [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md) にまとめています。
+- 設定全体と YAML / 環境変数の対応表: [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md)
+- Rate Limit の形式と運用例: [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md)
+- Kafka Queue モードの設定例: [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md)
 
 ## 補足
 
