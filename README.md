@@ -60,7 +60,10 @@ go run ./cmd/kuroshio -config ./config.yaml
   `npm run docs:dev`
 - 静的 build:
   `npm run docs:build`
-- GitHub Pages への deploy は [docs.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.github/workflows/docs.yml) で行います
+- docs 関連の変更では GitHub Actions が自動で build します
+- `main` にマージされた docs 関連変更は GitHub Pages へ自動 deploy します
+- 初回だけ GitHub の `Settings > Pages` で publish source を `GitHub Actions` に設定してください
+- deploy workflow は [docs.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.github/workflows/docs.yml) です
 
 ## 補足
 

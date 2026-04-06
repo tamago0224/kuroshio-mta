@@ -1,9 +1,24 @@
 name: Docs
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/docs.yml"
+      - ".gitignore"
+      - "README.md"
+      - "package.json"
+      - "package-lock.json"
+      - "docs/**"
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/docs.yml"
+      - ".gitignore"
+      - "README.md"
+      - "package.json"
+      - "package-lock.json"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
@@ -48,6 +63,7 @@ jobs:
     name: Deploy Docs Site
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
