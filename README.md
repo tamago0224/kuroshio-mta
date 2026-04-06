@@ -41,10 +41,10 @@
 ## 実行方法
 
 ```bash
-go run ./cmd/kuroshio
+go run ./cmd/kuroshio -config ./config.yaml
 ```
 
-デフォルトでは `:2525` でSMTP待受します。
+`-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。デフォルトでは `:2525` でSMTP待受します。
 
 ## 設定
 
