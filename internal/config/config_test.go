@@ -16,6 +16,15 @@ func mustLoadForTest(t *testing.T) Config {
 	return cfg
 }
 
+func mustLoadWithPathForTest(t *testing.T, path string) Config {
+	t.Helper()
+	cfg, err := LoadWithPath(path)
+	if err != nil {
+		t.Fatalf("LoadWithPath() error: %v", err)
+	}
+	return cfg
+}
+
 func TestEnvDurationList(t *testing.T) {
 	def := []time.Duration{time.Minute, 2 * time.Minute}
 
@@ -281,9 +290,7 @@ domain_tempfail_threshold: 0.4
 	if err := os.WriteFile(fp, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}
-	t.Setenv("MTA_CONFIG_FILE", fp)
-
-	cfg := mustLoadForTest(t)
+	cfg := mustLoadWithPathForTest(t, fp)
 	if cfg.ListenAddr != ":2526" {
 		t.Fatalf("listen addr=%q", cfg.ListenAddr)
 	}
@@ -340,6 +347,24 @@ domain_tempfail_threshold: 0.4
 	}
 }
 
+func TestLoadWithPathOverridesEnvConfigFile(t *testing.T) {
+	explicitPath := t.TempDir() + "/explicit.yaml"
+	if err := os.WriteFile(explicitPath, []byte("listen_addr: \":2527\"\n"), 0o644); err != nil {
+		t.Fatalf("write explicit config file: %v", err)
+	}
+
+	envPath := t.TempDir() + "/env.yaml"
+	if err := os.WriteFile(envPath, []byte("listen_addr: \":2626\"\n"), 0o644); err != nil {
+		t.Fatalf("write env config file: %v", err)
+	}
+	t.Setenv("MTA_CONFIG_FILE", envPath)
+
+	cfg := mustLoadWithPathForTest(t, explicitPath)
+	if cfg.ListenAddr != ":2527" {
+		t.Fatalf("listen addr=%q", cfg.ListenAddr)
+	}
+}
+
 func TestLoadYAMLConfigEnvOverrides(t *testing.T) {
 	fp := t.TempDir() + "/config.yaml"
 	content := strings.TrimSpace(`
@@ -386,6 +411,18 @@ func TestLoadInvalidYAMLDuration(t *testing.T) {
 		t.Fatal("expected yaml duration parse error")
 	}
 	if !strings.Contains(err.Error(), "dnsbl_cache_ttl") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadWithPathMissingFile(t *testing.T) {
+	missing := t.TempDir() + "/missing.yaml"
+
+	_, err := LoadWithPath(missing)
+	if err == nil {
+		t.Fatal("expected missing file error")
+	}
+	if !strings.Contains(err.Error(), missing) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

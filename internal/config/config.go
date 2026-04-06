@@ -151,9 +151,13 @@ type yamlConfig struct {
 }
 
 func Load() (Config, error) {
+	return LoadWithPath("")
+}
+
+func LoadWithPath(explicitPath string) (Config, error) {
 	cfg := defaultConfig()
 
-	configPath, explicit := resolveConfigPath()
+	configPath, requestedPath, explicit := resolveConfigPath(explicitPath)
 	if configPath != "" {
 		loaded, err := loadYAMLConfig(configPath, cfg)
 		if err != nil {
@@ -161,7 +165,7 @@ func Load() (Config, error) {
 		}
 		cfg = loaded
 	} else if explicit {
-		return Config{}, fmt.Errorf("config file %q not found", os.Getenv("MTA_CONFIG_FILE"))
+		return Config{}, fmt.Errorf("config file %q not found", requestedPath)
 	}
 
 	cfg.ListenAddr = env("MTA_LISTEN_ADDR", cfg.ListenAddr)
@@ -307,19 +311,25 @@ func defaultConfig() Config {
 	}
 }
 
-func resolveConfigPath() (string, bool) {
+func resolveConfigPath(explicitPath string) (string, string, bool) {
+	if v := strings.TrimSpace(explicitPath); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v, v, true
+		}
+		return "", v, true
+	}
 	if v := strings.TrimSpace(os.Getenv("MTA_CONFIG_FILE")); v != "" {
 		if _, err := os.Stat(v); err == nil {
-			return v, true
+			return v, v, true
 		}
-		return "", true
+		return "", v, true
 	}
 	for _, candidate := range []string{"config.yaml", "config.yml"} {
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate, false
+			return candidate, "", false
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func loadYAMLConfig(path string, base Config) (Config, error) {

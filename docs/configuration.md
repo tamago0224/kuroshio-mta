@@ -5,13 +5,13 @@
 ## 基本方針
 
 1. デフォルト値
-2. `MTA_CONFIG_FILE` で指定した YAML、またはカレントディレクトリの `config.yaml` / `config.yml`
+2. 起動引数 `-config` で指定した YAML、未指定なら `MTA_CONFIG_FILE`、さらに未指定ならカレントディレクトリの `config.yaml` / `config.yml`
 3. 環境変数
 
-同じ設定を複数の方法で指定した場合は、最後に評価される環境変数が優先されます。`MTA_CONFIG_FILE` を指定した場合は、そのパスにファイルが存在しないと起動時にエラーになります。
+同じ設定を複数の方法で指定した場合は、最後に評価される環境変数が優先されます。`-config` または `MTA_CONFIG_FILE` を指定した場合は、そのパスにファイルが存在しないと起動時にエラーになります。
 
 ```bash
-MTA_CONFIG_FILE=./config.yaml go run ./cmd/kuroshio
+go run ./cmd/kuroshio -config ./config.yaml
 ```
 
 サンプルは [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml) にあります。
@@ -26,11 +26,15 @@ MTA_CONFIG_FILE=./config.yaml go run ./cmd/kuroshio
 
 | YAML property | 環境変数 | default | 説明 |
 | --- | --- | --- | --- |
-| `-` | `MTA_CONFIG_FILE` | unset | 読み込む設定ファイルを明示します |
+| `-` | `MTA_CONFIG_FILE` | unset | 互換用の設定ファイル指定です。通常は起動引数 `-config` を優先して使います |
 | `submission_users` | `MTA_SUBMISSION_USERS` | unset | Submission 認証ユーザーを `user@example.com:password,...` 形式で指定します |
 | `-` | `MTA_SUBMISSION_USERS_FILE` | unset | `MTA_SUBMISSION_USERS` の代わりにファイルから Submission 認証情報を読み込みます |
 | `admin_tokens` | `MTA_ADMIN_TOKENS` | unset | Admin API の Bearer token と role を `token:role,...` 形式で指定します |
 | `-` | `MTA_ADMIN_TOKENS_FILE` | unset | `MTA_ADMIN_TOKENS` の代わりにファイルから管理トークンを読み込みます |
+
+補足:
+- 起動引数 `-config <path>` が、設定ファイルを明示する第一選択です
+- `-config` と `MTA_CONFIG_FILE` を同時に使った場合は `-config` が優先されます
 
 ## SMTP 受信と Submission
 

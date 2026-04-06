@@ -5,15 +5,15 @@
 黒潮は日本近海を流れる世界有数の海流で、
 大量のメールを力強く安定して運ぶ MTA をイメージして命名しています。
 
-## 現在の実装範囲
+## 特徴 / 現在の実装範囲
 
-- SMTP受信サーバー（自前パーサー）
-- Submission サーバー（SMTP AUTH PLAIN / LOGIN）
-- ローカル永続キュー（`var/queue`）
-- MX解決による配送先ルーティング
-- SMTP配送ワーカー（再送バックオフ付き）
-- STARTTLS対応先への送信時TLS昇格
-- DKIM / ARC 送信署名、SPF / DKIM / DMARC / ARC 受信評価
+- Go で実装した、外部 SMTP ライブラリ非依存の MTA
+- SMTP受信サーバーと Submission サーバーを備え、`SMTP AUTH PLAIN / LOGIN` に対応
+- ローカル永続キュー（`var/queue`）を持ち、MX 解決ベースの配送と再送バックオフ付き配送ワーカーを実装
+- DKIM / ARC 送信署名と、SPF / DKIM / DMARC / ARC の受信評価に対応
+- STARTTLS、MTA-STS、DANE など送受信時のセキュリティ機能を段階的に実装
+- ローカルキューに加えて Kafka queue mode も選択できる
+- RateLimiter の状態は Redis / Valkey に外部化でき、複数ノード構成を取りやすい
 
 ## RFC対応状況（現時点）
 
@@ -41,10 +41,10 @@
 ## 実行方法
 
 ```bash
-go run ./cmd/kuroshio
+go run ./cmd/kuroshio -config ./config.yaml
 ```
 
-デフォルトでは `:2525` でSMTP待受します。
+`-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。デフォルトでは `:2525` でSMTP待受します。
 
 ## 設定
 
