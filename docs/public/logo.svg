@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="kuroshio-mta logo">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f7b6c" />
+      <stop offset="100%" stop-color="#1247a6" />
+    </linearGradient>
+    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f4f4ec" />
+      <stop offset="100%" stop-color="#b9f3ff" />
+    </linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="34" fill="url(#bg)" />
+  <path d="M18 92c16-18 31-27 47-27 19 0 28 19 44 19 11 0 21-5 33-17v19c-12 12-24 18-36 18-19 0-28-19-43-19-13 0-25 8-45 29V92z" fill="url(#wave)" opacity=".95"/>
+  <path d="M18 116c16-18 31-27 47-27 19 0 28 19 44 19 11 0 21-5 33-17v19c-12 12-24 18-36 18-19 0-28-19-43-19-13 0-25 8-45 29v-22z" fill="#e2fbff" opacity=".8"/>
+  <circle cx="48" cy="48" r="10" fill="#e6fff7" opacity=".95" />
+</svg>

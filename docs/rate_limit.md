@@ -66,4 +66,4 @@ go run ./cmd/kuroshio
 - `ingress_rate_limit_per_minute` は全体の基本制御、`rate_limit_rules` はイベント単位の詳細制御という役割分担で使うと整理しやすいです
 - `rate_limit_backend: redis` を使うと、RateLimiter のヒット状態だけを Redis/Valkey に保存できます
 - Redis/Valkey 実装は単一ノードと複数アドレスの両方を扱えます
-- 詳細な全体設定一覧は [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md) を参照してください
+- 詳細な全体設定一覧は [configuration.md](./configuration.md) を参照してください
