@@ -1,2 +1,5 @@
 /.vscode/
 /var/
+/node_modules/
+/docs/.vitepress/.temp/
+/docs/.vitepress/dist/

@@ -14,7 +14,7 @@
 go run ./cmd/kuroshio -config ./config.yaml
 ```
 
-サンプルは [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml) にあります。
+サンプルは [config.example.yaml](https://github.com/tamago0224/kuroshio-mta/blob/main/config.example.yaml) にあります。
 
 補足:
 - まずは YAML にまとめて書き、環境差分や secret だけ環境変数に寄せる構成がおすすめです
@@ -76,7 +76,7 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `dial_timeout` | `MTA_DIAL_TIMEOUT` | `8s` | 配送先への接続タイムアウトです |
 | `send_timeout` | `MTA_SEND_TIMEOUT` | `20s` | SMTP 送信全体のタイムアウトです |
 
-Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md) にまとめています。
+Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mode.md](./kafka_queue_mode.md) にまとめています。
 
 ## Kafka Queue Backend
 
@@ -112,7 +112,7 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | --- | --- | --- | --- |
 | `ingress_rate_limit_per_minute` | `MTA_INGRESS_RATE_LIMIT_PER_MINUTE` | `100` | 単純な受信レート制限のベース値です |
 | `rate_limit_backend` | `MTA_RATE_LIMIT_BACKEND` | `memory` | RateLimiter の状態保存先です。`memory` / `redis` を使います |
-| `rate_limit_rules` | `MTA_RATE_LIMIT_RULES` | unset | イベント別レート制限ルールです。フォーマット詳細は [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md) を参照してください |
+| `rate_limit_rules` | `MTA_RATE_LIMIT_RULES` | unset | イベント別レート制限ルールです。フォーマット詳細は [rate_limit.md](./rate_limit.md) を参照してください |
 | `rate_limit_redis_addrs` | `MTA_RATE_LIMIT_REDIS_ADDRS` | `localhost:6379` | `rate_limit_backend: redis` のときに使う Redis/Valkey アドレスです。YAML では配列、環境変数ではカンマ区切りで指定します |
 | `rate_limit_redis_username` | `MTA_RATE_LIMIT_REDIS_USERNAME` | unset | Redis/Valkey 接続に使うユーザー名です |
 | `rate_limit_redis_password` | `MTA_RATE_LIMIT_REDIS_PASSWORD` | unset | Redis/Valkey 接続に使うパスワードです |
@@ -140,9 +140,9 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 
 ## 関連ドキュメント
 
-- 設定サンプル: [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml)
-- Rate Limit 詳細: [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md)
-- Kafka Queue モード詳細: [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md)
-- 運用 API: [admin_api.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/admin_api.md)
-- SLO runbook: [slo_backlog.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_backlog.md), [slo_delivery.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_delivery.md), [slo_retry.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/slo_retry.md)
-- シークレット運用: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/security/secrets_and_supply_chain.md)
+- 設定サンプル: [config.example.yaml](https://github.com/tamago0224/kuroshio-mta/blob/main/config.example.yaml)
+- Rate Limit 詳細: [rate_limit.md](./rate_limit.md)
+- Kafka Queue モード詳細: [kafka_queue_mode.md](./kafka_queue_mode.md)
+- 運用 API: [admin_api.md](./runbooks/admin_api.md)
+- SLO runbook: [slo_backlog.md](./runbooks/slo_backlog.md), [slo_delivery.md](./runbooks/slo_delivery.md), [slo_retry.md](./runbooks/slo_retry.md)
+- シークレット運用: [secrets_and_supply_chain.md](./security/secrets_and_supply_chain.md)

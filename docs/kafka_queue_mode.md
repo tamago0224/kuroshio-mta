@@ -53,4 +53,4 @@ docker compose -f docker-compose.kafka.yml up -d
 
 - `kafka_brokers` は YAML では配列、環境変数ではカンマ区切りで指定します
 - まず YAML に topic 名や consumer group を固定し、環境ごとに変わる broker だけ上書きすると管理しやすくなります
-- 他の設定項目も含めた全体一覧は [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md) を参照してください
+- 他の設定項目も含めた全体一覧は [configuration.md](./configuration.md) を参照してください

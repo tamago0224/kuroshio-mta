@@ -52,6 +52,16 @@ go run ./cmd/kuroshio -config ./config.yaml
 - Rate Limit の形式と運用例: [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md)
 - Kafka Queue モードの設定例: [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md)
 
+## Docs Site
+
+- VitePress で docs サイトを生成します
+- ローカル起動:
+  `npm install`
+  `npm run docs:dev`
+- 静的 build:
+  `npm run docs:build`
+- GitHub Pages への deploy は [docs.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.github/workflows/docs.yml) で行います
+
 ## 補足
 
 このリポジトリのコアは、SMTPプロトコル処理を外部SMTPライブラリに依存せず実装しています。
