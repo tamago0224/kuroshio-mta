@@ -56,6 +56,9 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 このリポジトリのコアは、SMTPプロトコル処理を外部SMTPライブラリに依存せず実装しています。
 
+- 本 MTA がどのような正規化を行うかを整理した設計メモ:
+  [normalization_policy.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/architecture/normalization_policy.md)
+
 ## 開発方針 (TDD)
 
 今後の機能追加・修正は、以下の順で進めます。
