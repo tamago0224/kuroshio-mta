@@ -46,6 +46,8 @@ SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照して
 
 ## 5. 次に試すチュートリアル
 
+compose ベースの tutorial 一覧は [Tutorials](/tutorials/) にまとめています。
+
 - 最初の 1 通を受ける: [最小メールフローを試す](/tutorials/basic-mail-flow)
 - 認証評価を見る: [メール認証を試す](/tutorials/mail-auth)
 - STARTTLS / MTA-STS / DANE を追う: [TLS 配送ポリシーを試す](/tutorials/tls-policy)
