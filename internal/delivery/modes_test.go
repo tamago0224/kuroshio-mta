@@ -14,7 +14,7 @@ import (
 
 func TestDeliverLocalSpoolWritesFile(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "local", LocalSpoolDir: dir}
 	cl := NewClient(cfg)
 	msg := &model.Message{ID: "m1", MailFrom: "sender@example.com", Data: []byte("Subject: hi\r\n\r\nhello")}
 
@@ -63,7 +63,7 @@ func TestDeliverRelayUsesConfiguredTarget(t *testing.T) {
 
 func TestDeliverLocalSpoolAppliesDKIMSignerWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "local", LocalSpoolDir: dir}
 	cl := NewClient(cfg)
 	cl.signer = testSigner(func(raw []byte) ([]byte, error) {
 		return append([]byte("DKIM-Signature: test\r\n"), raw...), nil
@@ -87,7 +87,7 @@ func TestDeliverLocalSpoolAppliesDKIMSignerWhenConfigured(t *testing.T) {
 
 func TestDeliverLocalSpoolReturnsSignerError(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "local", LocalSpoolDir: dir}
 	cl := NewClient(cfg)
 	cl.signer = testSigner(func(raw []byte) ([]byte, error) {
 		return nil, errors.New("sign failed")
@@ -100,7 +100,7 @@ func TestDeliverLocalSpoolReturnsSignerError(t *testing.T) {
 
 func TestDeliverLocalSpoolAppliesARCSignerWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "local", LocalSpoolDir: dir}
 	cl := NewClient(cfg)
 	cl.arcSigner = testSigner(func(raw []byte) ([]byte, error) {
 		return append([]byte("ARC-Seal: test\r\n"), raw...), nil
@@ -119,6 +119,39 @@ func TestDeliverLocalSpoolAppliesARCSignerWhenConfigured(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(b), "ARC-Seal: test\r\n") {
 		t.Fatalf("missing arc seal prefix: %q", string(b))
+	}
+}
+
+func TestDeliverLocalSpoolDefaultsToLocalBackend(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DeliveryMode: "local_spool", LocalSpoolDir: dir}
+	cl := NewClient(cfg)
+	msg := &model.Message{ID: "m6", MailFrom: "sender@example.com", Data: []byte("Subject: hi\r\n\r\nhello")}
+
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err != nil {
+		t.Fatalf("deliver local spool with default backend: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read spool dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected spool file")
+	}
+}
+
+func TestDeliverLocalSpoolRejectsUnknownBackend(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "memory", LocalSpoolDir: dir}
+	cl := NewClient(cfg)
+	msg := &model.Message{ID: "m7", MailFrom: "sender@example.com", Data: []byte("Subject: hi\r\n\r\nhello")}
+
+	err := cl.Deliver(context.Background(), msg, "user@example.net")
+	if err == nil {
+		t.Fatal("expected spool backend error")
+	}
+	if !strings.Contains(err.Error(), "unknown spool backend") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

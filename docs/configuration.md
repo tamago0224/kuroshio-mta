@@ -64,7 +64,8 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `queue_dir` | `MTA_QUEUE_DIR` | `./var/queue` | ローカルキューを保存するディレクトリです |
 | `queue_backend` | `MTA_QUEUE_BACKEND` | `local` | キューバックエンドを切り替えます。`local` / `kafka` を使います |
 | `delivery_mode` | `MTA_DELIVERY_MODE` | `mx` | 配送方式です。`mx` / `local_spool` / `relay` を使います |
-| `local_spool_dir` | `MTA_LOCAL_SPOOL_DIR` | `./var/spool` | `local_spool` 配送時の保存先です |
+| `spool_backend` | `MTA_SPOOL_BACKEND` | `local` | `local_spool` 配送時の保存先 backend です。現時点では `local` を使います |
+| `local_spool_dir` | `MTA_LOCAL_SPOOL_DIR` | `./var/spool` | `spool_backend: local` で使う保存先ディレクトリです |
 | `relay_host` | `MTA_RELAY_HOST` | unset | `relay` 配送時の中継先ホストです |
 | `relay_port` | `MTA_RELAY_PORT` | `25` | `relay` 配送時の中継先ポートです |
 | `relay_require_tls` | `MTA_RELAY_REQUIRE_TLS` | `false` | リレー配送で TLS を必須にします |

@@ -103,6 +103,29 @@ func TestLoadRateLimitRules(t *testing.T) {
 	}
 }
 
+func TestLoadSpoolBackendConfig(t *testing.T) {
+	t.Setenv("MTA_DELIVERY_MODE", "local_spool")
+	t.Setenv("MTA_SPOOL_BACKEND", "local")
+	t.Setenv("MTA_LOCAL_SPOOL_DIR", "/tmp/spool")
+
+	cfg := mustLoadForTest(t)
+	if cfg.DeliveryMode != "local_spool" {
+		t.Fatalf("delivery mode=%q", cfg.DeliveryMode)
+	}
+	if cfg.SpoolBackend != "local" {
+		t.Fatalf("spool backend=%q", cfg.SpoolBackend)
+	}
+	if cfg.LocalSpoolDir != "/tmp/spool" {
+		t.Fatalf("local spool dir=%q", cfg.LocalSpoolDir)
+	}
+
+	t.Setenv("MTA_SPOOL_BACKEND", "invalid")
+	cfg = mustLoadForTest(t)
+	if cfg.SpoolBackend != "local" {
+		t.Fatalf("invalid spool backend should fallback, got=%q", cfg.SpoolBackend)
+	}
+}
+
 func TestLoadSubmissionConfig(t *testing.T) {
 	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
 	t.Setenv("MTA_SUBMISSION_AUTH_REQUIRED", "true")
@@ -280,6 +303,9 @@ dnsbl_zones:
   - zen.example.org
   - bl.example.net
 dnsbl_cache_ttl: 10m
+delivery_mode: local_spool
+spool_backend: local
+local_spool_dir: /var/spool/kuroshio
 retry_schedule:
   - 1m
   - 15m
@@ -320,6 +346,15 @@ domain_tempfail_threshold: 0.4
 	}
 	if cfg.DNSBLCacheTTL != 10*time.Minute {
 		t.Fatalf("dnsbl cache ttl=%s", cfg.DNSBLCacheTTL)
+	}
+	if cfg.DeliveryMode != "local_spool" {
+		t.Fatalf("delivery mode=%q", cfg.DeliveryMode)
+	}
+	if cfg.SpoolBackend != "local" {
+		t.Fatalf("spool backend=%q", cfg.SpoolBackend)
+	}
+	if cfg.LocalSpoolDir != "/var/spool/kuroshio" {
+		t.Fatalf("local spool dir=%q", cfg.LocalSpoolDir)
 	}
 	if cfg.RateLimitBackend != "redis" {
 		t.Fatalf("rate limit backend=%q", cfg.RateLimitBackend)

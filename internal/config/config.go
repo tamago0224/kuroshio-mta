@@ -45,6 +45,7 @@ type Config struct {
 	MTASTSCacheTTL             time.Duration
 	MTASTSFetchTimeout         time.Duration
 	DeliveryMode               string
+	SpoolBackend               string
 	LocalSpoolDir              string
 	RelayHost                  string
 	RelayPort                  int
@@ -115,6 +116,7 @@ type yamlConfig struct {
 	MTASTSCacheTTL             *string  `yaml:"mta_sts_cache_ttl"`
 	MTASTSFetchTimeout         *string  `yaml:"mta_sts_fetch_timeout"`
 	DeliveryMode               *string  `yaml:"delivery_mode"`
+	SpoolBackend               *string  `yaml:"spool_backend"`
 	LocalSpoolDir              *string  `yaml:"local_spool_dir"`
 	RelayHost                  *string  `yaml:"relay_host"`
 	RelayPort                  *int     `yaml:"relay_port"`
@@ -202,6 +204,7 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.MTASTSCacheTTL = envDuration("MTA_MTA_STS_CACHE_TTL", cfg.MTASTSCacheTTL)
 	cfg.MTASTSFetchTimeout = envDuration("MTA_MTA_STS_FETCH_TIMEOUT", cfg.MTASTSFetchTimeout)
 	cfg.DeliveryMode = env("MTA_DELIVERY_MODE", cfg.DeliveryMode)
+	cfg.SpoolBackend = envEnum("MTA_SPOOL_BACKEND", cfg.SpoolBackend, []string{"local"})
 	cfg.LocalSpoolDir = env("MTA_LOCAL_SPOOL_DIR", cfg.LocalSpoolDir)
 	cfg.RelayHost = env("MTA_RELAY_HOST", cfg.RelayHost)
 	cfg.RelayPort = envInt("MTA_RELAY_PORT", cfg.RelayPort)
@@ -275,6 +278,7 @@ func defaultConfig() Config {
 		MTASTSCacheTTL:             time.Hour,
 		MTASTSFetchTimeout:         5 * time.Second,
 		DeliveryMode:               "mx",
+		SpoolBackend:               "local",
 		LocalSpoolDir:              "./var/spool",
 		RelayHost:                  "",
 		RelayPort:                  25,
@@ -454,6 +458,9 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.DeliveryMode != nil {
 		cfg.DeliveryMode = *raw.DeliveryMode
+	}
+	if raw.SpoolBackend != nil {
+		cfg.SpoolBackend = *raw.SpoolBackend
 	}
 	if raw.LocalSpoolDir != nil {
 		cfg.LocalSpoolDir = *raw.LocalSpoolDir

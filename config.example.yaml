@@ -33,6 +33,7 @@ dane_dnssec_trust_model: ad_required
 mta_sts_cache_ttl: 1h
 mta_sts_fetch_timeout: 5s
 delivery_mode: mx
+spool_backend: local
 local_spool_dir: ./var/spool
 relay_host: smtp.relay.local
 relay_port: 587
