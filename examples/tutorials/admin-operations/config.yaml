@@ -1,0 +1,10 @@
+listen_addr: ":2525"
+observability_addr: ":9090"
+admin_addr: ":9091"
+admin_tokens: "viewer-token:viewer,operator-token:operator"
+hostname: kuroshio.local
+queue_dir: /var/lib/kuroshio/queue
+queue_backend: local
+delivery_mode: mx
+worker_count: 1
+scan_interval: 1m
