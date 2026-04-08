@@ -42,6 +42,7 @@ features:
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
 - [設定ガイド](/configuration)
+- [S3 Spool Backend](/s3_spool_backend)
 - [Rate Limit](/rate_limit)
 - [Kafka Queue モード](/kafka_queue_mode)
 - [正規化方針](/architecture/normalization_policy)

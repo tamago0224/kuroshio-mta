@@ -34,6 +34,7 @@ export default defineConfig({
           { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },
           { text: "Admin API Tutorial", link: "/tutorials/admin-operations" },
           { text: "Configuration", link: "/configuration" },
+          { text: "S3 Spool Backend", link: "/s3_spool_backend" },
           { text: "Rate Limit", link: "/rate_limit" },
           { text: "Kafka Queue Mode", link: "/kafka_queue_mode" }
         ]

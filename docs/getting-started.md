@@ -56,6 +56,7 @@ SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照して
 
 - 初期設定: [Configuration](/configuration)
 - 受信制御: [Rate Limit](/rate_limit)
+- S3-compatible 保存先: [S3 Spool Backend](/s3_spool_backend)
 - Kafka バックエンド: [Kafka Queue Mode](/kafka_queue_mode)
 - 設計メモ: [Normalization Policy](/architecture/normalization_policy)
 - HA 構成: [HA Reference](/architecture/ha_reference)
