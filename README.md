@@ -1,5 +1,9 @@
 # kuroshio-mta
 
+<p align="center">
+  <img src="./docs/public/kuroshio-logo.png" alt="kuroshio-mta logo" width="180">
+</p>
+
 `kuroshio-mta` は Go で実装した MTA（Mail Transfer Agent）です。
 
 黒潮は日本近海を流れる世界有数の海流で、
