@@ -12,6 +12,7 @@ export default defineConfig({
   themeConfig: {
     logo: "/logo.svg",
     nav: [
+      { text: "Getting Started", link: "/getting-started" },
       { text: "Guide", link: "/configuration" },
       { text: "Architecture", link: "/architecture/normalization_policy" },
       { text: "Runbooks", link: "/runbooks/admin_api" },
@@ -25,6 +26,7 @@ export default defineConfig({
         text: "Getting Started",
         items: [
           { text: "Home", link: "/" },
+          { text: "Getting Started", link: "/getting-started" },
           { text: "Configuration", link: "/configuration" },
           { text: "Rate Limit", link: "/rate_limit" },
           { text: "Kafka Queue Mode", link: "/kafka_queue_mode" }

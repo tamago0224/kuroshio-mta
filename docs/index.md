@@ -7,16 +7,18 @@ hero:
   tagline: 設定、RFC 対応、運用 runbook、アーキテクチャ方針をブラウザでたどれるように整理したドキュメントサイトです。
   actions:
     - theme: brand
+      text: Getting Started を見る
+      link: /getting-started
+    - theme: alt
       text: 設定ガイドを見る
       link: /configuration
-    - theme: alt
-      text: 正規化方針を見る
-      link: /architecture/normalization_policy
     - theme: alt
       text: GitHub Repository
       link: https://github.com/tamago0224/kuroshio-mta
 
 features:
+  - title: Getting Started
+    details: サンプル設定の作成から `go run ./cmd/kuroshio -config ./config.yaml` での起動までを最短手順で追えます。
   - title: 設定と運用
     details: YAML ベースの設定、Rate Limit、Kafka Queue モード、Admin API や SLO runbook までまとめて参照できます。
   - title: RFC 対応状況
@@ -28,6 +30,7 @@ features:
 
 ## よく使うページ
 
+- [Getting Started](/getting-started)
 - [設定ガイド](/configuration)
 - [Rate Limit](/rate_limit)
 - [Kafka Queue モード](/kafka_queue_mode)
