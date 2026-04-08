@@ -24,6 +24,16 @@ type messageSigner interface {
 	Sign(raw []byte) ([]byte, error)
 }
 
+type spoolBackend interface {
+	Store(*model.Message, string) error
+}
+
+type spoolBackendFunc func(*model.Message, string) error
+
+func (f spoolBackendFunc) Store(msg *model.Message, rcpt string) error {
+	return f(msg, rcpt)
+}
+
 type Client struct {
 	cfg                            config.Config
 	dane                           *DANEResolver
@@ -32,7 +42,8 @@ type Client struct {
 	arcSigner                      messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
-	spoolWriteFn                   func(*model.Message, string) error
+	spoolStore                     spoolBackend
+	spoolStoreErr                  error
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
 }
 
@@ -52,7 +63,7 @@ func NewClient(cfg config.Config) *Client {
 		}
 	}
 	c.deliverHostFn = c.deliverHost
-	c.spoolWriteFn = c.writeLocalSpool
+	c.spoolStore, c.spoolStoreErr = c.newSpoolBackend()
 	c.reportMTASTSTestingViolationFn = func(ctx context.Context, domain, host, reason string) {
 		slog.WarnContext(ctx, "mta-sts testing policy violation",
 			"domain", domain,
@@ -72,7 +83,13 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	case "mx":
 		return c.deliverByMX(ctx, msg, rcpt)
 	case "local_spool":
-		return c.spoolWriteFn(msg, rcpt)
+		if c.spoolStoreErr != nil {
+			return c.spoolStoreErr
+		}
+		if c.spoolStore == nil {
+			return errors.New("spool backend is not configured")
+		}
+		return c.spoolStore.Store(msg, rcpt)
 	case "relay":
 		if strings.TrimSpace(c.cfg.RelayHost) == "" {
 			return errors.New("relay mode requires MTA_RELAY_HOST")
@@ -84,6 +101,21 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		return c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
 	default:
 		return fmt.Errorf("unknown delivery mode: %s", mode)
+	}
+}
+
+func (c *Client) newSpoolBackend() (spoolBackend, error) {
+	backend := strings.ToLower(strings.TrimSpace(c.cfg.SpoolBackend))
+	if backend == "" {
+		backend = "local"
+	}
+	switch backend {
+	case "local":
+		return spoolBackendFunc(c.writeLocalSpool), nil
+	case "s3":
+		return newS3SpoolStore(c.cfg, c.prepareOutboundData)
+	default:
+		return nil, fmt.Errorf("unknown spool backend: %s", backend)
 	}
 }
 

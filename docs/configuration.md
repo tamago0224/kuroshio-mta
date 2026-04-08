@@ -64,7 +64,16 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `queue_dir` | `MTA_QUEUE_DIR` | `./var/queue` | ローカルキューを保存するディレクトリです |
 | `queue_backend` | `MTA_QUEUE_BACKEND` | `local` | キューバックエンドを切り替えます。`local` / `kafka` を使います |
 | `delivery_mode` | `MTA_DELIVERY_MODE` | `mx` | 配送方式です。`mx` / `local_spool` / `relay` を使います |
-| `local_spool_dir` | `MTA_LOCAL_SPOOL_DIR` | `./var/spool` | `local_spool` 配送時の保存先です |
+| `spool_backend` | `MTA_SPOOL_BACKEND` | `local` | `local_spool` 配送時の保存先 backend です。`local` / `s3` を使います |
+| `local_spool_dir` | `MTA_LOCAL_SPOOL_DIR` | `./var/spool` | `spool_backend: local` で使う保存先ディレクトリです |
+| `spool_s3_bucket` | `MTA_SPOOL_S3_BUCKET` | unset | `spool_backend: s3` で使う bucket 名です |
+| `spool_s3_prefix` | `MTA_SPOOL_S3_PREFIX` | unset | `spool_backend: s3` で object key の先頭に付ける prefix です |
+| `spool_s3_endpoint` | `MTA_SPOOL_S3_ENDPOINT` | unset | S3-compatible object storage の endpoint です |
+| `spool_s3_region` | `MTA_SPOOL_S3_REGION` | `us-east-1` | `spool_backend: s3` の region です |
+| `spool_s3_access_key` | `MTA_SPOOL_S3_ACCESS_KEY` | unset | `spool_backend: s3` の access key です |
+| `spool_s3_secret_key` | `MTA_SPOOL_S3_SECRET_KEY` | unset | `spool_backend: s3` の secret key です |
+| `spool_s3_force_path_style` | `MTA_SPOOL_S3_FORCE_PATH_STYLE` | `false` | path-style addressing を強制します。MinIO などで使います |
+| `spool_s3_use_tls` | `MTA_SPOOL_S3_USE_TLS` | `true` | S3 backend で TLS endpoint を使う想定のフラグです |
 | `relay_host` | `MTA_RELAY_HOST` | unset | `relay` 配送時の中継先ホストです |
 | `relay_port` | `MTA_RELAY_PORT` | `25` | `relay` 配送時の中継先ポートです |
 | `relay_require_tls` | `MTA_RELAY_REQUIRE_TLS` | `false` | リレー配送で TLS を必須にします |

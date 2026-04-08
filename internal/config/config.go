@@ -45,7 +45,16 @@ type Config struct {
 	MTASTSCacheTTL             time.Duration
 	MTASTSFetchTimeout         time.Duration
 	DeliveryMode               string
+	SpoolBackend               string
 	LocalSpoolDir              string
+	SpoolS3Bucket              string
+	SpoolS3Prefix              string
+	SpoolS3Endpoint            string
+	SpoolS3Region              string
+	SpoolS3AccessKey           string
+	SpoolS3SecretKey           string
+	SpoolS3ForcePathStyle      bool
+	SpoolS3UseTLS              bool
 	RelayHost                  string
 	RelayPort                  int
 	RelayRequireTLS            bool
@@ -115,7 +124,16 @@ type yamlConfig struct {
 	MTASTSCacheTTL             *string  `yaml:"mta_sts_cache_ttl"`
 	MTASTSFetchTimeout         *string  `yaml:"mta_sts_fetch_timeout"`
 	DeliveryMode               *string  `yaml:"delivery_mode"`
+	SpoolBackend               *string  `yaml:"spool_backend"`
 	LocalSpoolDir              *string  `yaml:"local_spool_dir"`
+	SpoolS3Bucket              *string  `yaml:"spool_s3_bucket"`
+	SpoolS3Prefix              *string  `yaml:"spool_s3_prefix"`
+	SpoolS3Endpoint            *string  `yaml:"spool_s3_endpoint"`
+	SpoolS3Region              *string  `yaml:"spool_s3_region"`
+	SpoolS3AccessKey           *string  `yaml:"spool_s3_access_key"`
+	SpoolS3SecretKey           *string  `yaml:"spool_s3_secret_key"`
+	SpoolS3ForcePathStyle      *bool    `yaml:"spool_s3_force_path_style"`
+	SpoolS3UseTLS              *bool    `yaml:"spool_s3_use_tls"`
 	RelayHost                  *string  `yaml:"relay_host"`
 	RelayPort                  *int     `yaml:"relay_port"`
 	RelayRequireTLS            *bool    `yaml:"relay_require_tls"`
@@ -202,7 +220,16 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.MTASTSCacheTTL = envDuration("MTA_MTA_STS_CACHE_TTL", cfg.MTASTSCacheTTL)
 	cfg.MTASTSFetchTimeout = envDuration("MTA_MTA_STS_FETCH_TIMEOUT", cfg.MTASTSFetchTimeout)
 	cfg.DeliveryMode = env("MTA_DELIVERY_MODE", cfg.DeliveryMode)
+	cfg.SpoolBackend = envEnum("MTA_SPOOL_BACKEND", cfg.SpoolBackend, []string{"local", "s3"})
 	cfg.LocalSpoolDir = env("MTA_LOCAL_SPOOL_DIR", cfg.LocalSpoolDir)
+	cfg.SpoolS3Bucket = env("MTA_SPOOL_S3_BUCKET", cfg.SpoolS3Bucket)
+	cfg.SpoolS3Prefix = env("MTA_SPOOL_S3_PREFIX", cfg.SpoolS3Prefix)
+	cfg.SpoolS3Endpoint = env("MTA_SPOOL_S3_ENDPOINT", cfg.SpoolS3Endpoint)
+	cfg.SpoolS3Region = env("MTA_SPOOL_S3_REGION", cfg.SpoolS3Region)
+	cfg.SpoolS3AccessKey = env("MTA_SPOOL_S3_ACCESS_KEY", cfg.SpoolS3AccessKey)
+	cfg.SpoolS3SecretKey = env("MTA_SPOOL_S3_SECRET_KEY", cfg.SpoolS3SecretKey)
+	cfg.SpoolS3ForcePathStyle = envBool("MTA_SPOOL_S3_FORCE_PATH_STYLE", cfg.SpoolS3ForcePathStyle)
+	cfg.SpoolS3UseTLS = envBool("MTA_SPOOL_S3_USE_TLS", cfg.SpoolS3UseTLS)
 	cfg.RelayHost = env("MTA_RELAY_HOST", cfg.RelayHost)
 	cfg.RelayPort = envInt("MTA_RELAY_PORT", cfg.RelayPort)
 	cfg.RelayRequireTLS = envBool("MTA_RELAY_REQUIRE_TLS", cfg.RelayRequireTLS)
@@ -275,7 +302,10 @@ func defaultConfig() Config {
 		MTASTSCacheTTL:             time.Hour,
 		MTASTSFetchTimeout:         5 * time.Second,
 		DeliveryMode:               "mx",
+		SpoolBackend:               "local",
 		LocalSpoolDir:              "./var/spool",
+		SpoolS3Region:              "us-east-1",
+		SpoolS3UseTLS:              true,
 		RelayHost:                  "",
 		RelayPort:                  25,
 		RelayRequireTLS:            false,
@@ -455,8 +485,35 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	if raw.DeliveryMode != nil {
 		cfg.DeliveryMode = *raw.DeliveryMode
 	}
+	if raw.SpoolBackend != nil {
+		cfg.SpoolBackend = *raw.SpoolBackend
+	}
 	if raw.LocalSpoolDir != nil {
 		cfg.LocalSpoolDir = *raw.LocalSpoolDir
+	}
+	if raw.SpoolS3Bucket != nil {
+		cfg.SpoolS3Bucket = *raw.SpoolS3Bucket
+	}
+	if raw.SpoolS3Prefix != nil {
+		cfg.SpoolS3Prefix = *raw.SpoolS3Prefix
+	}
+	if raw.SpoolS3Endpoint != nil {
+		cfg.SpoolS3Endpoint = *raw.SpoolS3Endpoint
+	}
+	if raw.SpoolS3Region != nil {
+		cfg.SpoolS3Region = *raw.SpoolS3Region
+	}
+	if raw.SpoolS3AccessKey != nil {
+		cfg.SpoolS3AccessKey = *raw.SpoolS3AccessKey
+	}
+	if raw.SpoolS3SecretKey != nil {
+		cfg.SpoolS3SecretKey = *raw.SpoolS3SecretKey
+	}
+	if raw.SpoolS3ForcePathStyle != nil {
+		cfg.SpoolS3ForcePathStyle = *raw.SpoolS3ForcePathStyle
+	}
+	if raw.SpoolS3UseTLS != nil {
+		cfg.SpoolS3UseTLS = *raw.SpoolS3UseTLS
 	}
 	if raw.RelayHost != nil {
 		cfg.RelayHost = *raw.RelayHost
