@@ -1,0 +1,16 @@
+services:
+  kuroshio:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    ports:
+      - "2525:2525"
+      - "9090:9090"
+      - "9091:9091"
+    volumes:
+      - ./config.yaml:/etc/kuroshio/config.yaml:ro
+      - ./var/queue:/var/lib/kuroshio/queue
+
+  smtp-client:
+    image: busybox:1.37
+    command: ["sh", "-c", "tail -f /dev/null"]

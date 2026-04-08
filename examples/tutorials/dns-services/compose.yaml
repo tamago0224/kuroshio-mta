@@ -1,0 +1,54 @@
+services:
+  coredns:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    ports:
+      - "1053:53/udp"
+      - "1053:53/tcp"
+    volumes:
+      - ./Corefile:/etc/coredns/Corefile:ro
+      - ./example.test.db:/zones/example.test.db:ro
+      - ./outbound.test.db:/zones/outbound.test.db:ro
+    networks:
+      tutorial-net:
+        ipv4_address: 172.29.0.53
+
+  policy:
+    image: nginx:1.27-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ../../../test/integration/mta-sts/mta-sts.txt:/usr/share/nginx/html/.well-known/mta-sts.txt:ro
+    networks:
+      tutorial-net:
+        ipv4_address: 172.29.0.80
+
+  dns-client:
+    image: busybox:1.37
+    command: ["sh", "-c", "tail -f /dev/null"]
+    dns:
+      - 172.29.0.53
+    networks:
+      tutorial-net:
+        ipv4_address: 172.29.0.90
+
+  tester:
+    image: golang:1.25.9
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    volumes:
+      - ../../..:/workspace
+    dns:
+      - 172.29.0.53
+    environment:
+      INTEG_MTA_STS_POLICY_URL: http://172.29.0.80/.well-known/mta-sts.txt
+    networks:
+      tutorial-net:
+        ipv4_address: 172.29.0.91
+
+networks:
+  tutorial-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16

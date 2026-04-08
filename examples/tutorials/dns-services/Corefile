@@ -1,0 +1,6 @@
+.:53 {
+  log
+  errors
+  file /zones/example.test.db example.test
+  file /zones/outbound.test.db outbound.test
+}

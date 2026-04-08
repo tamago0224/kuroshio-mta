@@ -1,0 +1,11 @@
+listen_addr: ":2525"
+observability_addr: ":9090"
+hostname: kuroshio.local
+queue_dir: /var/lib/kuroshio/queue
+queue_backend: local
+delivery_mode: mx
+worker_count: 1
+scan_interval: 1m
+ingress_rate_limit_per_minute: 10
+rate_limit_backend: memory
+rate_limit_rules: "connect:ip:3:1m;mailfrom:ip+mailfrom:2:1m"

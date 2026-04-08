@@ -1,0 +1,15 @@
+$TTL 300
+@   IN SOA ns1.outbound.test. hostmaster.outbound.test. (
+        2026040801
+        300
+        300
+        300
+        300
+)
+    IN NS  ns1.outbound.test.
+ns1 IN A   172.29.0.53
+@   IN MX  10 mx1.outbound.test.
+_mta-sts IN TXT "v=STSv1; id=20260408"
+mx1 IN A   192.0.2.25
+_25._tcp.mx1 IN TLSA 3 1 1 0ace5a108c97f7ebfa66d5f2f1148476364839c4d39c1d548f0f5221df84e652
+mta-sts IN A 172.29.0.80
