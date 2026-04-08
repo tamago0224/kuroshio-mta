@@ -1,6 +1,6 @@
 # Observability
 
-`kuroshio-mta` の observability は、現時点では `Prometheus` 形式の metrics、`/slo` の JSON レポート、`slog` による JSON ログを中心に構成しています。
+`kuroshio-mta` の observability は、`Prometheus` 形式の metrics、`/slo` の JSON レポート、`slog` による JSON ログを中心に構成しています。加えて、現在は OpenTelemetry tracing を OTLP/HTTP exporter 経由で有効化できます。
 
 このページでは、今ある観測手段と OpenTelemetry (`OTEL`) との関係を整理します。
 
@@ -51,21 +51,22 @@ reputation tracker を有効にしている場合だけ値が返ります。
 
 ## 現在の OTEL 対応状況
 
-現時点の `kuroshio-mta` には、OpenTelemetry SDK や OTLP exporter は入っていません。
+現時点の `kuroshio-mta` では、OpenTelemetry SDK を使った trace export を有効化できます。
 
-つまり、今は次のものは未実装です。
+- exporter: OTLP/HTTP
+- 有効化: `otel_enabled: true`
+- 送信先: `otel_exporter_otlp_endpoint`
+- sampling: `otel_trace_sample_ratio`
+- 現在 span を付与している箇所:
+  - SMTP session
+  - worker の message 処理
 
-- OTLP/gRPC または OTLP/HTTP exporter
-- OpenTelemetry Collector への trace / metrics / logs 出力
-- span / trace context を使った分散トレーシング
-- OpenTelemetry Meter / Tracer を使った計装
-
-なので、現状の observability を一言で言うと:
+現状の observability を一言で言うと:
 
 - metrics: 独自カウンタを Prometheus 形式で公開
 - SLO: `/slo` で独自評価
 - logs: `slog` JSON
-- tracing: 未実装
+- tracing: OpenTelemetry + OTLP/HTTP
 
 ## OTEL という言葉をどう読むべきか
 
@@ -77,6 +78,13 @@ OTEL 観点で見ると、将来的には次のような分離が自然です。
 - logs: `slog` のまま、必要なら Collector 経由で集約
 - metrics: Prometheus scrape を維持するか、OTEL metrics exporter を追加
 - traces: SMTP 受信、queue、worker、delivery を span 化
+
+まだ入っていないものは次です。
+
+- OpenTelemetry Meter を使った metrics export
+- OpenTelemetry Log SDK 連携
+- trace と log の相関 ID 自動付与
+- Collector 前提の deployment サンプル
 
 ただし、これは今後の拡張方針であって、現実装の説明ではありません。
 

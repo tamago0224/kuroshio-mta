@@ -55,6 +55,12 @@ go run ./cmd/kuroshio -config ./config.yaml
 | --- | --- | --- | --- |
 | `log_level` | `MTA_LOG_LEVEL` | `info` | JSON ログの出力レベルです。`debug` / `info` / `warn` / `error` を使います |
 | `observability_addr` | `MTA_OBSERVABILITY_ADDR` | `:9090` | `/metrics` や `/slo` を公開する待受アドレスです |
+| `otel_enabled` | `MTA_OTEL_ENABLED` | `false` | OpenTelemetry tracing を有効にします |
+| `otel_service_name` | `MTA_OTEL_SERVICE_NAME` | `kuroshio-mta` | OTEL resource に設定する `service.name` です |
+| `otel_service_version` | `MTA_OTEL_SERVICE_VERSION` | unset | OTEL resource に設定する `service.version` です |
+| `otel_exporter_otlp_endpoint` | `MTA_OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP trace exporter の送信先 URL です。`http://collector:4318/v1/traces` のように指定します |
+| `otel_exporter_otlp_insecure` | `MTA_OTEL_EXPORTER_OTLP_INSECURE` | `false` | OTLP exporter で TLS 検証を行わない接続を許可します |
+| `otel_trace_sample_ratio` | `MTA_OTEL_TRACE_SAMPLE_RATIO` | `1.0` | head-based sampling の比率です。`0.0` から `1.0` の範囲で指定します |
 | `admin_addr` | `MTA_ADMIN_ADDR` | unset | Admin API の待受アドレスです。設定すると有効になります |
 
 ## キューと配送

@@ -41,6 +41,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	otelShutdown, err := observability.InitOTEL(ctx, cfg)
+	if err != nil {
+		fatal("otel init failed", "error", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if sErr := otelShutdown(shutdownCtx); sErr != nil {
+			slog.Error("otel shutdown failed", "component", "main", "error", sErr)
+		}
+	}()
+
 	q, err := queue.NewBackend(cfg)
 	if err != nil {
 		fatal("queue init failed", "error", err)
