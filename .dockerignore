@@ -1,0 +1,12 @@
+.git
+.github
+.agents
+.codex
+node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
+var
+certs
+keys
+test
+*.log

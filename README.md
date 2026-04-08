@@ -46,6 +46,31 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 `-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。デフォルトでは `:2525` でSMTP待受します。
 
+## Docker
+
+本体用の [Dockerfile](/home/tamago/ghq/github.com/tamago/kuroshio-mta/Dockerfile) を用意しています。
+
+build:
+
+```bash
+docker build -t kuroshio-mta:latest .
+```
+
+run:
+
+```bash
+docker run --rm \
+  -p 2525:2525 \
+  -p 9090:9090 \
+  -v "$(pwd)/config.yaml:/etc/kuroshio/config.yaml:ro" \
+  kuroshio-mta:latest
+```
+
+補足:
+- デフォルトでは `-config /etc/kuroshio/config.yaml` を使います
+- TLS 証明書、鍵、queue ディレクトリ、spool ディレクトリを使う場合は必要なパスを追加で mount してください
+- `submission_addr` や `admin_addr` を有効にする場合は、必要なポートも `-p` で公開してください
+
 ## 設定
 
 - 設定全体と YAML / 環境変数の対応表: [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md)
