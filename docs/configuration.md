@@ -44,7 +44,7 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `submission_addr` | `MTA_SUBMISSION_ADDR` | unset | Submission リスナーの待受アドレスです。設定すると有効になります |
 | `submission_auth_required` | `MTA_SUBMISSION_AUTH_REQUIRED` | `true` | Submission で認証を必須にするかを制御します |
 | `submission_enforce_sender_identity` | `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` | `true` | 認証ユーザーのドメインと `MAIL FROM` の整合を要求します |
-| `hostname` | `MTA_HOSTNAME` | `orinoco.local` | SMTP 応答や配送で使うホスト名です |
+| `hostname` | `MTA_HOSTNAME` | `kuroshio.local` | SMTP 応答や配送で使うホスト名です |
 | `tls_cert_file` | `MTA_TLS_CERT_FILE` | unset | 受信側 TLS に使う証明書ファイルです |
 | `tls_key_file` | `MTA_TLS_KEY_FILE` | unset | 受信側 TLS に使う秘密鍵ファイルです |
 | `max_message_bytes` | `MTA_MAX_MESSAGE_BYTES` | `10485760` | 受信するメッセージの最大サイズです |

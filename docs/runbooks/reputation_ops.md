@@ -34,8 +34,8 @@ Issue: #37
 ## 収集操作
 
 ```bash
-scripts/admin/orinoco_admin.sh record-complaint gmail.com
-scripts/admin/orinoco_admin.sh record-tlsrpt gmail.com false
+scripts/admin/kuroshio_admin.sh record-complaint gmail.com
+scripts/admin/kuroshio_admin.sh record-tlsrpt gmail.com false
 ```
 
 ## 判定の見方

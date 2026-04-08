@@ -4,7 +4,7 @@ Issue: #34
 
 ## 目的
 
-- 災害対策（Disaster Recovery, DR）時に、Orinoco MTA のキュー状態を短時間で復旧する
+- 災害対策（Disaster Recovery, DR）時に、`kuroshio-mta` のキュー状態を短時間で復旧する
 - 目標値を明示して定期的に検証する
   - RTO (Recovery Time Objective): 5分以内
   - RPO (Recovery Point Objective): 1分以内
@@ -33,13 +33,13 @@ scripts/dr/backup_queue.sh ./var/queue ./var/backups
 出力例:
 
 ```text
-backup_created=./var/backups/orinoco-queue-20260316T010101Z.tar.gz host=mta-a queue_dir=./var/queue
+backup_created=./var/backups/kuroshio-queue-20260316T010101Z.tar.gz host=mta-a queue_dir=./var/queue
 ```
 
 ## リストア手順
 
 ```bash
-scripts/dr/restore_queue.sh ./var/backups/orinoco-queue-20260316T010101Z.tar.gz ./var/queue --force
+scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-20260316T010101Z.tar.gz ./var/queue --force
 ```
 
 - `--force` なしの場合、復旧先が空でないと失敗する

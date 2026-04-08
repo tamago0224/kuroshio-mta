@@ -21,7 +21,7 @@ func TestBuildAuthResultsHeader(t *testing.T) {
 		DMARC: DMARCResult{Result: "pass", Domain: "example.com"},
 		ARC:   ARCResult{Result: "none"},
 	}
-	v := BuildAuthResultsHeader("mx.orinoco.local", r, "sender@example.com")
+	v := BuildAuthResultsHeader("mx.kuroshio.local", r, "sender@example.com")
 	contains := []string{
 		"Authentication-Results:",
 		"spf=pass smtp.mailfrom=sender@example.com",
@@ -38,8 +38,8 @@ func TestBuildAuthResultsHeader(t *testing.T) {
 
 func TestInjectHeaders(t *testing.T) {
 	raw := []byte("From: a@example.com\r\n\r\nbody")
-	got := string(InjectHeaders(raw, []string{"Authentication-Results: x", "X-Orinoco-Quarantine: true"}))
-	if !strings.HasPrefix(got, "Authentication-Results: x\r\nX-Orinoco-Quarantine: true\r\nFrom: a@example.com") {
+	got := string(InjectHeaders(raw, []string{"Authentication-Results: x", "X-Kuroshio-Quarantine: true"}))
+	if !strings.HasPrefix(got, "Authentication-Results: x\r\nX-Kuroshio-Quarantine: true\r\nFrom: a@example.com") {
 		t.Fatalf("unexpected injected headers: %q", got)
 	}
 	if !strings.HasSuffix(got, "\r\n\r\nbody") {

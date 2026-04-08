@@ -373,7 +373,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			case mailauth.ActionQuarantine:
 				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
-				ss.data = mailauth.InjectHeaders(ss.data, []string{ar, "X-Orinoco-Quarantine: true"})
+				ss.data = mailauth.InjectHeaders(ss.data, []string{ar, "X-Kuroshio-Quarantine: true"})
 			default:
 				ar := mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)
 				ss.data = mailauth.InjectHeaders(ss.data, []string{ar})

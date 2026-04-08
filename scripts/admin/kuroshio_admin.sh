@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${ORINOCO_ADMIN_URL:-http://127.0.0.1:9091}"
-TOKEN="${ORINOCO_ADMIN_TOKEN:-}"
-ACTOR="${ORINOCO_ADMIN_ACTOR:-cli}"
+BASE_URL="${KUROSHIO_ADMIN_URL:-http://127.0.0.1:9091}"
+TOKEN="${KUROSHIO_ADMIN_TOKEN:-}"
+ACTOR="${KUROSHIO_ADMIN_ACTOR:-cli}"
 
 if [[ -z "${TOKEN}" ]]; then
-  echo "ORINOCO_ADMIN_TOKEN is required" >&2
+  echo "KUROSHIO_ADMIN_TOKEN is required" >&2
   exit 1
 fi
 

@@ -3,7 +3,7 @@ version: "3.9"
 services:
   kafka:
     image: bitnami/kafka:3.7
-    container_name: orinoco-kafka
+    container_name: kuroshio-kafka
     ports:
       - "9092:9092"
     environment:

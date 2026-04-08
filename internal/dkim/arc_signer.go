@@ -35,7 +35,7 @@ func NewARCFileSigner(domain, selector, keyFile, authservID, headers string) (*A
 		return nil, errors.New("arc signer requires domain, selector, and private key file")
 	}
 	if a == "" {
-		a = "orinoco.local"
+		a = "kuroshio.local"
 	}
 	h := parseHeaderList(headers)
 	if len(h) == 0 {

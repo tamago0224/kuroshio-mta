@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Restore queue state from backup archive.
 # Example:
-#   scripts/dr/restore_queue.sh ./var/backups/orinoco-queue-20260316T000000Z.tar.gz ./var/queue --force
+#   scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-20260316T000000Z.tar.gz ./var/queue --force
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <backup-archive> [target-queue-dir] [--force]" >&2

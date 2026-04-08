@@ -18,7 +18,7 @@
 ## RFC対応状況（現時点）
 
 注記:
-- `対応済み（実装範囲内）` は、現行の Orinoco MTA が対象としている機能範囲では実装済みであることを示します。
+- `対応済み（実装範囲内）` は、現行の `kuroshio-mta` が対象としている機能範囲では実装済みであることを示します。
 - 周辺RFCとの完全な相互運用や、未採用オプションまで含む全面実装を意味するものではありません。
 
 | RFC | 技術 | 対応状況 | 補足 |
@@ -109,7 +109,7 @@ DNS を含む `docker compose` 環境を用意しています。
   - `smtp_auth_dmarc_policy_<policy>_total`（例: `reject`, `quarantine`, `none`）
   - `smtp_auth_action_<action>_total`（例: `accept`, `quarantine`, `reject`）
 
-Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/orinoco_slo_rules.yml) に配置しています。
+Prometheus alert rule の雛形は [kuroshio_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/kuroshio_slo_rules.yml) に配置しています。
 
 ## HA Reference
 
@@ -134,7 +134,7 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - runbook:
   [admin_api.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/admin_api.md)
 - 最小CLI:
-  `scripts/admin/orinoco_admin.sh`
+  `scripts/admin/kuroshio_admin.sh`
 - 対応操作:
   `suppression` 一覧/追加/削除、`retry` / `dlq` 一覧、再投入
 - 認可:
@@ -147,8 +147,8 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - 可視化:
   `GET /reputation`
 - 記録:
-  `scripts/admin/orinoco_admin.sh record-complaint gmail.com`
-  `scripts/admin/orinoco_admin.sh record-tlsrpt gmail.com false`
+  `scripts/admin/kuroshio_admin.sh record-complaint gmail.com`
+  `scripts/admin/kuroshio_admin.sh record-tlsrpt gmail.com false`
 
 ## DR Backup / Restore
 
@@ -157,7 +157,7 @@ Prometheus alert rule の雛形は [orinoco_slo_rules.yml](/home/tamago/ghq/gith
 - バックアップ:
   `scripts/dr/backup_queue.sh ./var/queue ./var/backups`
 - リストア:
-  `scripts/dr/restore_queue.sh ./var/backups/orinoco-queue-<timestamp>.tar.gz ./var/queue --force`
+  `scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-<timestamp>.tar.gz ./var/queue --force`
 - DRドリル:
   `scripts/chaos/run_dr_drill.sh ./var/queue ./var/backups --apply`
 

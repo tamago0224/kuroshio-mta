@@ -26,12 +26,12 @@ go run ./cmd/kuroshio -config ./config.yaml
 ## 3. 付属 CLI を使う
 
 ```bash
-export ORINOCO_ADMIN_URL=http://127.0.0.1:9091
-export ORINOCO_ADMIN_TOKEN=operator-token
-export ORINOCO_ADMIN_ACTOR=oncall@example.com
+export KUROSHIO_ADMIN_URL=http://127.0.0.1:9091
+export KUROSHIO_ADMIN_TOKEN=operator-token
+export KUROSHIO_ADMIN_ACTOR=oncall@example.com
 
-scripts/admin/orinoco_admin.sh list-suppressions
-scripts/admin/orinoco_admin.sh list-queue dlq 20
+scripts/admin/kuroshio_admin.sh list-suppressions
+scripts/admin/kuroshio_admin.sh list-queue dlq 20
 ```
 
 ## 4. dry-run で安全に試す
@@ -39,7 +39,7 @@ scripts/admin/orinoco_admin.sh list-queue dlq 20
 いきなり本操作をせず、まず dry-run で確認できます。
 
 ```bash
-scripts/admin/orinoco_admin.sh requeue dlq msg-1 --dry-run
+scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 ```
 
 ## 5. 制約
@@ -52,4 +52,3 @@ scripts/admin/orinoco_admin.sh requeue dlq msg-1 --dry-run
 - API 詳細: [Admin API Runbook](/runbooks/admin_api)
 - Kafka で動かす: [Kafka Queue モード](/kafka_queue_mode)
 - reputation 運用: [Reputation Ops](/runbooks/reputation_ops)
-

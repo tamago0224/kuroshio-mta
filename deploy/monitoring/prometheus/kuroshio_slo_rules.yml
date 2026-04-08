@@ -1,7 +1,7 @@
 groups:
-  - name: orinoco-slo
+  - name: kuroshio-slo
     rules:
-      - alert: OrinocoDeliverySuccessRateLow
+      - alert: KuroshioDeliverySuccessRateLow
         expr: |
           (
             rate(worker_delivery_success_total[5m]) /
@@ -16,10 +16,10 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: "Orinoco delivery success rate is below SLO"
+          summary: "kuroshio-mta delivery success rate is below SLO"
           runbook: "docs/runbooks/slo_delivery.md"
 
-      - alert: OrinocoRetryRateHigh
+      - alert: KuroshioRetryRateHigh
         expr: |
           (
             rate(worker_temporary_failure_total[10m]) /
@@ -34,14 +34,14 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: "Orinoco retry rate is above SLO"
+          summary: "kuroshio-mta retry rate is above SLO"
           runbook: "docs/runbooks/slo_retry.md"
 
-      - alert: OrinocoQueueBacklogHigh
+      - alert: KuroshioQueueBacklogHigh
         expr: (smtp_queued_messages_total - worker_ack_sent_total - worker_mark_failed_total) > 50000
         for: 10m
         labels:
           severity: ticket
         annotations:
-          summary: "Orinoco queue backlog exceeds threshold"
+          summary: "kuroshio-mta queue backlog exceeds threshold"
           runbook: "docs/runbooks/slo_backlog.md"

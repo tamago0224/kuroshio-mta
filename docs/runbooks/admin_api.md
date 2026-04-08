@@ -41,14 +41,14 @@ Issue: #36
 ## CLI
 
 ```bash
-export ORINOCO_ADMIN_URL=http://127.0.0.1:9091
-export ORINOCO_ADMIN_TOKEN=operator-token
-export ORINOCO_ADMIN_ACTOR=oncall@example.com
+export KUROSHIO_ADMIN_URL=http://127.0.0.1:9091
+export KUROSHIO_ADMIN_TOKEN=operator-token
+export KUROSHIO_ADMIN_ACTOR=oncall@example.com
 
-scripts/admin/orinoco_admin.sh list-suppressions
-scripts/admin/orinoco_admin.sh add-suppression user@example.com manual
-scripts/admin/orinoco_admin.sh list-queue dlq 20
-scripts/admin/orinoco_admin.sh requeue dlq msg-1 --dry-run
+scripts/admin/kuroshio_admin.sh list-suppressions
+scripts/admin/kuroshio_admin.sh add-suppression user@example.com manual
+scripts/admin/kuroshio_admin.sh list-queue dlq 20
+scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 ```
 
 ## 監査ログ

@@ -81,7 +81,7 @@ func (m *Metrics) RenderPrometheus() string {
 func sanitizeMetricName(in string) string {
 	in = strings.ToLower(strings.TrimSpace(in))
 	if in == "" {
-		return "orinoco_unknown_total"
+		return "kuroshio_unknown_total"
 	}
 	var b strings.Builder
 	for i := 0; i < len(in); i++ {
@@ -97,7 +97,7 @@ func sanitizeMetricName(in string) string {
 		name += "_total"
 	}
 	if name[0] >= '0' && name[0] <= '9' {
-		name = "orinoco_" + name
+		name = "kuroshio_" + name
 	}
 	return name
 }

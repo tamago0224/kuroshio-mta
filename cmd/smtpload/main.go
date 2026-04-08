@@ -169,7 +169,7 @@ func sendOne(addr, from, to string, timeout time.Duration) error {
 	msg := strings.Join([]string{
 		"From: <" + from + ">",
 		"To: <" + to + ">",
-		"Subject: Orinoco Load Test",
+		"Subject: kuroshio-mta Load Test",
 		"Date: " + time.Now().UTC().Format(time.RFC1123Z),
 		"",
 		"load test message",
