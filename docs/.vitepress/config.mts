@@ -10,7 +10,7 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   themeConfig: {
-    logo: "/logo.svg",
+    logo: "/kuroshio-logo.png",
     nav: [
       { text: "Getting Started", link: "/getting-started" },
       { text: "Tutorials", link: "/tutorials/basic-mail-flow" },
@@ -89,5 +89,5 @@ export default defineConfig({
       copyright: "kuroshio-mta"
     }
   },
-  head: [["link", { rel: "icon", href: "/logo.svg" }]]
+  head: [["link", { rel: "icon", type: "image/png", href: "/favicon.png" }]]
 });
