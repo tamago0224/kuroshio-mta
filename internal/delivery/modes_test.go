@@ -1,12 +1,16 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
@@ -155,8 +159,87 @@ func TestDeliverLocalSpoolRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
+func TestDeliverS3SpoolStoresObject(t *testing.T) {
+	orig := newS3PutObjectClient
+	t.Cleanup(func() { newS3PutObjectClient = orig })
+
+	fake := &fakeS3Client{}
+	newS3PutObjectClient = func(cfg config.Config) (s3PutObjectAPI, error) {
+		return fake, nil
+	}
+
+	cfg := config.Config{
+		DeliveryMode:          "local_spool",
+		SpoolBackend:          "s3",
+		SpoolS3Bucket:         "mail-spool",
+		SpoolS3Prefix:         "archive",
+		SpoolS3Region:         "ap-northeast-1",
+		SpoolS3ForcePathStyle: true,
+	}
+	cl := NewClient(cfg)
+	msg := &model.Message{ID: "m8", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err != nil {
+		t.Fatalf("deliver s3 spool: %v", err)
+	}
+	if fake.bucket != "mail-spool" {
+		t.Fatalf("bucket=%q", fake.bucket)
+	}
+	if fake.key != "archive/m8_user_example.net.eml" {
+		t.Fatalf("key=%q", fake.key)
+	}
+	if fake.contentType != "message/rfc822" {
+		t.Fatalf("contentType=%q", fake.contentType)
+	}
+	if !strings.Contains(string(fake.body), "hello") {
+		t.Fatalf("unexpected body: %q", string(fake.body))
+	}
+	if fake.metadata["message-id"] != "m8" {
+		t.Fatalf("metadata=%v", fake.metadata)
+	}
+}
+
+func TestDeliverS3SpoolRequiresBucket(t *testing.T) {
+	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "s3"}
+	cl := NewClient(cfg)
+	msg := &model.Message{ID: "m9", MailFrom: "sender@example.com", Data: []byte("Subject: hi\r\n\r\nhello")}
+
+	err := cl.Deliver(context.Background(), msg, "user@example.net")
+	if err == nil {
+		t.Fatal("expected spool backend error")
+	}
+	if !strings.Contains(err.Error(), "MTA_SPOOL_S3_BUCKET") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 type testSigner func([]byte) ([]byte, error)
 
 func (s testSigner) Sign(raw []byte) ([]byte, error) {
 	return s(raw)
+}
+
+type fakeS3Client struct {
+	bucket      string
+	key         string
+	contentType string
+	body        []byte
+	metadata    map[string]string
+}
+
+func (f *fakeS3Client) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	f.bucket = *in.Bucket
+	f.key = *in.Key
+	if in.ContentType != nil {
+		f.contentType = *in.ContentType
+	}
+	f.metadata = in.Metadata
+	if in.Body != nil {
+		body, err := io.ReadAll(in.Body)
+		if err != nil {
+			return nil, err
+		}
+		f.body = bytes.Clone(body)
+	}
+	return &s3.PutObjectOutput{}, nil
 }

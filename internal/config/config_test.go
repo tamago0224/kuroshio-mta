@@ -119,6 +119,42 @@ func TestLoadSpoolBackendConfig(t *testing.T) {
 		t.Fatalf("local spool dir=%q", cfg.LocalSpoolDir)
 	}
 
+	t.Setenv("MTA_SPOOL_BACKEND", "s3")
+	t.Setenv("MTA_SPOOL_S3_BUCKET", "mail-spool")
+	t.Setenv("MTA_SPOOL_S3_PREFIX", "outbound")
+	t.Setenv("MTA_SPOOL_S3_ENDPOINT", "http://minio:9000")
+	t.Setenv("MTA_SPOOL_S3_REGION", "ap-northeast-1")
+	t.Setenv("MTA_SPOOL_S3_ACCESS_KEY", "access")
+	t.Setenv("MTA_SPOOL_S3_SECRET_KEY", "secret")
+	t.Setenv("MTA_SPOOL_S3_FORCE_PATH_STYLE", "true")
+	t.Setenv("MTA_SPOOL_S3_USE_TLS", "false")
+
+	cfg = mustLoadForTest(t)
+	if cfg.SpoolBackend != "s3" {
+		t.Fatalf("spool backend=%q", cfg.SpoolBackend)
+	}
+	if cfg.SpoolS3Bucket != "mail-spool" {
+		t.Fatalf("s3 bucket=%q", cfg.SpoolS3Bucket)
+	}
+	if cfg.SpoolS3Prefix != "outbound" {
+		t.Fatalf("s3 prefix=%q", cfg.SpoolS3Prefix)
+	}
+	if cfg.SpoolS3Endpoint != "http://minio:9000" {
+		t.Fatalf("s3 endpoint=%q", cfg.SpoolS3Endpoint)
+	}
+	if cfg.SpoolS3Region != "ap-northeast-1" {
+		t.Fatalf("s3 region=%q", cfg.SpoolS3Region)
+	}
+	if cfg.SpoolS3AccessKey != "access" || cfg.SpoolS3SecretKey != "secret" {
+		t.Fatalf("unexpected s3 credentials: %q/%q", cfg.SpoolS3AccessKey, cfg.SpoolS3SecretKey)
+	}
+	if !cfg.SpoolS3ForcePathStyle {
+		t.Fatal("expected force path style")
+	}
+	if cfg.SpoolS3UseTLS {
+		t.Fatal("expected s3 use tls false")
+	}
+
 	t.Setenv("MTA_SPOOL_BACKEND", "invalid")
 	cfg = mustLoadForTest(t)
 	if cfg.SpoolBackend != "local" {
@@ -306,6 +342,12 @@ dnsbl_cache_ttl: 10m
 delivery_mode: local_spool
 spool_backend: local
 local_spool_dir: /var/spool/kuroshio
+spool_s3_bucket: mail-spool
+spool_s3_prefix: archive
+spool_s3_endpoint: http://minio:9000
+spool_s3_region: ap-northeast-1
+spool_s3_force_path_style: true
+spool_s3_use_tls: false
 retry_schedule:
   - 1m
   - 15m
@@ -355,6 +397,24 @@ domain_tempfail_threshold: 0.4
 	}
 	if cfg.LocalSpoolDir != "/var/spool/kuroshio" {
 		t.Fatalf("local spool dir=%q", cfg.LocalSpoolDir)
+	}
+	if cfg.SpoolS3Bucket != "mail-spool" {
+		t.Fatalf("spool s3 bucket=%q", cfg.SpoolS3Bucket)
+	}
+	if cfg.SpoolS3Prefix != "archive" {
+		t.Fatalf("spool s3 prefix=%q", cfg.SpoolS3Prefix)
+	}
+	if cfg.SpoolS3Endpoint != "http://minio:9000" {
+		t.Fatalf("spool s3 endpoint=%q", cfg.SpoolS3Endpoint)
+	}
+	if cfg.SpoolS3Region != "ap-northeast-1" {
+		t.Fatalf("spool s3 region=%q", cfg.SpoolS3Region)
+	}
+	if !cfg.SpoolS3ForcePathStyle {
+		t.Fatal("expected spool s3 force path style")
+	}
+	if cfg.SpoolS3UseTLS {
+		t.Fatal("expected spool s3 use tls false")
 	}
 	if cfg.RateLimitBackend != "redis" {
 		t.Fatalf("rate limit backend=%q", cfg.RateLimitBackend)

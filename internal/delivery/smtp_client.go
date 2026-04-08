@@ -112,6 +112,8 @@ func (c *Client) newSpoolBackend() (spoolBackend, error) {
 	switch backend {
 	case "local":
 		return spoolBackendFunc(c.writeLocalSpool), nil
+	case "s3":
+		return newS3SpoolStore(c.cfg, c.prepareOutboundData)
 	default:
 		return nil, fmt.Errorf("unknown spool backend: %s", backend)
 	}
