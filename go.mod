@@ -2,7 +2,7 @@ module github.com/tamago0224/kuroshio-mta
 
 go 1.25
 
-toolchain go1.25.8
+toolchain go1.25.9
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
