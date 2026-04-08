@@ -52,16 +52,19 @@ SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照して
 - 受信制御を試す: [Rate Limit を試す](/tutorials/rate-limit)
 - queue 操作を試す: [Admin API を試す](/tutorials/admin-operations)
 
-## 6. よく読む関連ドキュメント
+## 6. 次に読む Guide
 
-- 初期設定: [Configuration](/configuration)
+- 設定全体: [Configuration](/configuration)
 - 受信制御: [Rate Limit](/rate_limit)
 - S3-compatible 保存先: [S3 Spool Backend](/s3_spool_backend)
 - Kafka バックエンド: [Kafka Queue Mode](/kafka_queue_mode)
+
+## 7. 設計と運用のドキュメント
+
 - 設計メモ: [Normalization Policy](/architecture/normalization_policy)
 - HA 構成: [HA Reference](/architecture/ha_reference)
 
-## 7. docs サイトをローカル確認する
+## 8. docs サイトをローカル確認する
 
 ```bash
 npm install

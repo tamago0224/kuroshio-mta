@@ -27,16 +27,26 @@ export default defineConfig({
         text: "Getting Started",
         items: [
           { text: "Home", link: "/" },
-          { text: "Getting Started", link: "/getting-started" },
-          { text: "Basic Mail Flow", link: "/tutorials/basic-mail-flow" },
-          { text: "Mail Authentication", link: "/tutorials/mail-auth" },
-          { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
-          { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },
-          { text: "Admin API Tutorial", link: "/tutorials/admin-operations" },
+          { text: "Getting Started", link: "/getting-started" }
+        ]
+      },
+      {
+        text: "Guide",
+        items: [
           { text: "Configuration", link: "/configuration" },
           { text: "S3 Spool Backend", link: "/s3_spool_backend" },
           { text: "Rate Limit", link: "/rate_limit" },
           { text: "Kafka Queue Mode", link: "/kafka_queue_mode" }
+        ]
+      },
+      {
+        text: "Tutorials",
+        items: [
+          { text: "Basic Mail Flow", link: "/tutorials/basic-mail-flow" },
+          { text: "Mail Authentication", link: "/tutorials/mail-auth" },
+          { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
+          { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },
+          { text: "Admin API Tutorial", link: "/tutorials/admin-operations" }
         ]
       },
       {
