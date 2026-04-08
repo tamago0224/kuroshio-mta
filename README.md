@@ -5,60 +5,45 @@
 黒潮は日本近海を流れる世界有数の海流で、
 大量のメールを力強く安定して運ぶ MTA をイメージして命名しています。
 
-## 特徴 / 現在の実装範囲
+## 特徴
 
 - Go で実装した、外部 SMTP ライブラリ非依存の MTA
-- SMTP受信サーバーと Submission サーバーを備え、`SMTP AUTH PLAIN / LOGIN` に対応
-- ローカル永続キュー（`var/queue`）を持ち、MX 解決ベースの配送と再送バックオフ付き配送ワーカーを実装
+- SMTP 受信サーバーと Submission サーバーを備え、`SMTP AUTH PLAIN / LOGIN` に対応
+- ローカル永続キューと配送ワーカーを持ち、MX 解決ベースの配送と再送バックオフを実装
 - DKIM / ARC 送信署名と、SPF / DKIM / DMARC / ARC の受信評価に対応
 - STARTTLS、MTA-STS、DANE など送受信時のセキュリティ機能を段階的に実装
-- ローカルキューに加えて Kafka queue mode も選択できる
-- RateLimiter の状態は Redis / Valkey に外部化でき、複数ノード構成を取りやすい
+- Kafka queue mode、Redis / Valkey ベースの rate limit、S3-compatible spool backend を選択可能
 
-## RFC対応状況（現時点）
+## ドキュメント
 
-注記:
-- `対応済み（実装範囲内）` は、現行の `kuroshio-mta` が対象としている機能範囲では実装済みであることを示します。
-- 周辺RFCとの完全な相互運用や、未採用オプションまで含む全面実装を意味するものではありません。
+詳細なドキュメントは GitHub Pages で公開しています。
 
-| RFC | 技術 | 対応状況 | 補足 |
-| --- | --- | --- | --- |
-| RFC 5321 | SMTP | 対応済み（実装範囲内） | `EHLO/HELO`, `MAIL FROM`, `RCPT TO`, `DATA`, `RSET`, `NOOP`, `QUIT`, `HELP`, `VRFY` を実装。`EXPN` は `502` 応答、`Received:` トレースヘッダ、`postmaster` 宛特例、主要な構文/状態遷移/行長制限のコンフォーマンステストを整備。拡張は各RFCで管理 |
-| RFC 3207 | SMTP STARTTLS | 対応済み（実装範囲内） | 受信側/送信側で STARTTLS 昇格、TLS 後の再 EHLO、セッション再初期化を実装。詳細は [rfc_3207_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_3207_gap.md) |
-| RFC 1870 | SMTP SIZE | 対応済み（実装範囲内） | EHLO での `SIZE` 広告、`MAIL FROM SIZE=`、上限超過拒否、境界値テストを実装。詳細は [rfc_1870_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_1870_gap.md) |
-| RFC 6152 | 8BITMIME | 対応済み（実装範囲内） | EHLO での `8BITMIME` 広告、`BODY=8BITMIME` / `BODY=7BIT`、8bit 本文の受理/拒否を実装。詳細は [rfc_6152_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6152_gap.md) |
-| RFC 4954 | SMTP AUTH | 一部対応 | Submission 経路で `AUTH PLAIN` / `AUTH LOGIN`、`AUTH LOGIN` initial response、認証失敗後の再試行を実装。詳細は [rfc_4954_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_4954_gap.md) |
-| RFC 6409 | Message Submission | 一部対応 | Submission リスナ、認証必須化、送信者ドメイン制約、`STARTTLS` 後の再認証要求を実装。詳細は [rfc_6409_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6409_gap.md) |
-| RFC 6531 | SMTPUTF8 | 非対応（方針確定） | `SMTPUTF8` パラメータと UTF-8 メールアドレスは明示的に拒否（`555`/`553`） |
-| RFC 7208 | SPF | 一部対応 | `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`, `redirect`, `exp`, 主要 macro 展開、lookup 制限、複数 `v=spf1` の `permerror`、HELO/MAIL FROM ポリシー分離を実装。高度な macro transformer は未対応。詳細は [rfc_7208_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7208_gap.md) |
-| RFC 6376 | DKIM | 一部対応 | RSA の受信時 DKIM 検証、複数署名評価、`h/bh/b/l/t/x`、canonicalization、送信時 DKIM 署名を実装。Ed25519 は未対応。詳細は [rfc_6376_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_6376_gap.md) |
-| RFC 7489 | DMARC | 一部対応 | SPF/DKIM alignment、`p/sp/pct/fo/rf/ri/rua/ruf`、サブドメインポリシー、`fo`/`rf` の RFC 準拠パース、集計/失敗レポート生成を実装。詳細は [rfc_7489_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7489_gap.md) |
-| RFC 8617 | ARC | 一部対応 | ARC chain の構造検証・暗号検証、`i=` 連番検証、複数 hop 検証、ARC ヘッダ未付与メールへの署名付与、失敗時ポリシーを実装。既存 chain の継続署名は未対応。詳細は [rfc_8617_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_8617_gap.md) |
-| RFC 8461 | MTA-STS | 一部対応 | TXT `id` 検証、policy 取得・キャッシュ、`text/plain` 検証、stale 利用、`mode=enforce/testing`、安全なロールオーバー、MX wildcard 制約を実装。詳細は [rfc_8461_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_8461_gap.md) |
-| RFC 7672 | DANE for SMTP | 一部対応 | TLSA取得、CNAME 展開、`DANE-TA(2)` の証明書名チェック、優先適用（DANE > MTA-STS）を実装。詳細は [rfc_7672_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_7672_gap.md) |
-| RFC 3464 | DSN | 対応済み（実装範囲内） | DSN パース、DSN 生成（hard/soft bounce）、loop 防止、`Reporting-MTA` / `Status` 検証、相互運用テストを実装。詳細は [rfc_3464_gap.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rfc_3464_gap.md) |
+- docs サイト: https://tamago0224.github.io/kuroshio-mta/
+- Getting Started: https://tamago0224.github.io/kuroshio-mta/getting-started
+- Configuration: https://tamago0224.github.io/kuroshio-mta/configuration
+- Tutorials: https://tamago0224.github.io/kuroshio-mta/tutorials/basic-mail-flow
 
-## 実行方法
+リポジトリ内の Markdown を直接参照したい場合は、以下を入口にしてください。
+
+- [docs/index.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/index.md)
+- [Getting Started](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/getting-started.md)
+- [Configuration](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md)
+
+## クイックスタート
 
 ```bash
+cp config.example.yaml config.yaml
 go run ./cmd/kuroshio -config ./config.yaml
 ```
 
-`-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。デフォルトでは `:2525` でSMTP待受します。
+`-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。
 
 ## Docker
 
 本体用の [Dockerfile](/home/tamago/ghq/github.com/tamago/kuroshio-mta/Dockerfile) を用意しています。
 
-build:
-
 ```bash
 docker build -t kuroshio-mta:latest .
-```
-
-run:
-
-```bash
 docker run --rm \
   -p 2525:2525 \
   -p 9090:9090 \
@@ -71,129 +56,20 @@ docker run --rm \
 - TLS 証明書、鍵、queue ディレクトリ、spool ディレクトリを使う場合は必要なパスを追加で mount してください
 - `submission_addr` や `admin_addr` を有効にする場合は、必要なポートも `-p` で公開してください
 
-## 設定
+## 開発と確認
 
-- 設定全体と YAML / 環境変数の対応表: [configuration.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md)
-- Rate Limit の形式と運用例: [rate_limit.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/rate_limit.md)
-- Kafka Queue モードの設定例: [kafka_queue_mode.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/kafka_queue_mode.md)
-
-## Docs Site
-
-- VitePress で docs サイトを生成します
-- ローカル起動:
+- docs サイト:
   `npm install`
   `npm run docs:dev`
-- 静的 build:
+- docs build:
   `npm run docs:build`
-- docs 関連の変更では GitHub Actions が自動で build します
-- `main` にマージされた docs 関連変更は GitHub Pages へ自動 deploy します
-- 初回だけ GitHub の `Settings > Pages` で publish source を `GitHub Actions` に設定してください
-- もしくは `PAGES_ADMIN_TOKEN` secret を設定すると、workflow が Pages 有効化を試みます
-- deploy workflow は [docs.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.github/workflows/docs.yml) です
+- SMTP conformance:
+  `go test ./internal/smtp -run '^TestSMTPConformance$' -v`
+- DNS 結合テスト:
+  `./scripts/integration/run_dns_env_tests.sh`
 
-## 補足
+## リポジトリ内の補助ファイル
 
-このリポジトリのコアは、SMTPプロトコル処理を外部SMTPライブラリに依存せず実装しています。
-
-- 本 MTA がどのような正規化を行うかを整理した設計メモ:
-  [normalization_policy.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/architecture/normalization_policy.md)
-
-## 開発方針 (TDD)
-
-今後の機能追加・修正は、以下の順で進めます。
-
-1. 先に失敗するテストを書く (`Red`)
-2. 最小実装でテストを通す (`Green`)
-3. 振る舞いを維持したまま整理する (`Refactor`)
-
-## SMTP Conformance Test
-
-SMTP RFC の主要要件を `internal/smtp` のコンフォーマンステストで確認できます。
-
-```bash
-go test ./internal/smtp -run '^TestSMTPConformance$' -v
-```
-
-## DNS結合テスト環境
-
-受信側の `mailauth`（SPF/DMARC）と送信側の DANE/MTA-STS の検証用に、
-DNS を含む `docker compose` 環境を用意しています。
-
-```bash
-./scripts/integration/run_dns_env_tests.sh
-```
-
-詳細は `test/integration/README.md` を参照してください。
-
-## SLO/SLI Monitoring
-
-- `/metrics`: Prometheus metrics
-- `/slo`: 現在の SLI/SLO 判定結果（JSON, breach時は HTTP 503）
-- DMARC集計メトリクス（受信時）:
-  - `smtp_auth_dmarc_result_<result>_total`（例: `fail`, `pass`, `none`）
-  - `smtp_auth_dmarc_policy_<policy>_total`（例: `reject`, `quarantine`, `none`）
-  - `smtp_auth_action_<action>_total`（例: `accept`, `quarantine`, `reject`）
-
-Prometheus alert rule の雛形は [kuroshio_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/kuroshio_slo_rules.yml) に配置しています。
-
-## HA Reference
-
-- リファレンス構成とフェイルオーバー手順:
-  [ha_reference.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/architecture/ha_reference.md)
-- 障害注入ドリル補助スクリプト:
-  `scripts/chaos/run_ha_drill.sh`
-
-## Load / Chaos Testing
-
-- 負荷試験 runbook:
-  [load_chaos.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/load_chaos.md)
-- 単体シナリオ実行:
-  `scripts/load/run_smtp_load.sh normal 127.0.0.1:2525`
-- カオス併用スイート:
-  `scripts/chaos/run_load_chaos_suite.sh 127.0.0.1:2525 --apply ./var/load-chaos/results.ndjson`
-- 容量計画表への整形:
-  `scripts/load/plan_capacity.sh ./var/load-chaos/results.ndjson`
-
-## Admin API
-
-- runbook:
-  [admin_api.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/admin_api.md)
-- 最小CLI:
-  `scripts/admin/kuroshio_admin.sh`
-- 対応操作:
-  `suppression` 一覧/追加/削除、`retry` / `dlq` 一覧、再投入
-- 認可:
-  Bearer token + role（`viewer` / `operator` / `admin`）
-
-## Reputation Controls
-
-- runbook:
-  [reputation_ops.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/reputation_ops.md)
-- 可視化:
-  `GET /reputation`
-- 記録:
-  `scripts/admin/kuroshio_admin.sh record-complaint gmail.com`
-  `scripts/admin/kuroshio_admin.sh record-tlsrpt gmail.com false`
-
-## DR Backup / Restore
-
-- DR（Disaster Recovery, 災害対策）向け runbook:
-  [dr_backup_restore.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/runbooks/dr_backup_restore.md)
-- バックアップ:
-  `scripts/dr/backup_queue.sh ./var/queue ./var/backups`
-- リストア:
-  `scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-<timestamp>.tar.gz ./var/queue --force`
-- DRドリル:
-  `scripts/chaos/run_dr_drill.sh ./var/queue ./var/backups --apply`
-
-## Compliance Basics
-
-- ログは `slog(JSON)` で出力
-- メールアドレス等のPIIはログ出力時にマスキング
-- `sent / mail.dlq / mail.dlq/poison` は保持期間ポリシーに基づき自動削除
-
-## Security
-
-- 脆弱性スキャン: `.github/workflows/security.yml` で `govulncheck` を実行
-- SBOM生成: `scripts/security/generate_sbom.sh`
-- 詳細方針: [secrets_and_supply_chain.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/security/secrets_and_supply_chain.md)
+- 設定サンプル: [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml)
+- Prometheus alert rule ひな形: [kuroshio_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/kuroshio_slo_rules.yml)
+- Docker 設定: [Dockerfile](/home/tamago/ghq/github.com/tamago/kuroshio-mta/Dockerfile), [.dockerignore](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.dockerignore)
