@@ -13,7 +13,7 @@ export default defineConfig({
     logo: "/kuroshio-logo.png",
     nav: [
       { text: "Getting Started", link: "/getting-started" },
-      { text: "Tutorials", link: "/tutorials/basic-mail-flow" },
+      { text: "Tutorials", link: "/tutorials/" },
       { text: "Guide", link: "/configuration" },
       { text: "Architecture", link: "/architecture/normalization_policy" },
       { text: "Runbooks", link: "/runbooks/admin_api" },
@@ -42,6 +42,7 @@ export default defineConfig({
       {
         text: "Tutorials",
         items: [
+          { text: "Tutorials Home", link: "/tutorials/" },
           { text: "Basic Mail Flow", link: "/tutorials/basic-mail-flow" },
           { text: "Mail Authentication", link: "/tutorials/mail-auth" },
           { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
