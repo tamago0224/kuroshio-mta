@@ -1,4 +1,4 @@
-# Orinoco MTA HA Reference Architecture
+# kuroshio-mta HA Reference Architecture
 
 ## 目標
 

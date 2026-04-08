@@ -7,7 +7,7 @@ log_level: info
 observability_addr: ":9090"
 admin_addr: ":8080"
 admin_tokens: "viewer-token:viewer,operator-token:operator"
-hostname: orinoco.local
+hostname: kuroshio.local
 queue_dir: ./var/queue
 queue_backend: local
 kafka_brokers:

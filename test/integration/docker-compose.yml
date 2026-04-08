@@ -3,8 +3,8 @@ services:
     build:
       context: ./dnsmock
       dockerfile: Dockerfile
-    image: orinoco-dnsmock:latest
-    container_name: orinoco-dnsmock
+    image: kuroshio-dnsmock:latest
+    container_name: kuroshio-dnsmock
     volumes:
       - ./dns/records.json:/records.json:ro
     environment:
@@ -24,7 +24,7 @@ services:
 
   tester:
     image: golang:1.23
-    container_name: orinoco-integration-tester
+    container_name: kuroshio-integration-tester
     working_dir: /workspace
     volumes:
       - ../../:/workspace

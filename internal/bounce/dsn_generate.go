@@ -39,7 +39,7 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 	}
 	host := strings.TrimSpace(hostname)
 	if host == "" {
-		host = "orinoco.local"
+		host = "kuroshio.local"
 	}
 	status := defaultStatus
 	if s, ok := extractEnhancedStatus(diagnostic); ok {

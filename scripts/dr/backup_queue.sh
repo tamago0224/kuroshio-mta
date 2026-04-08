@@ -7,7 +7,7 @@ QUEUE_DIR="${1:-./var/queue}"
 BACKUP_DIR="${2:-./var/backups}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST="$(hostname 2>/dev/null || echo unknown)"
-ARCHIVE="${BACKUP_DIR}/orinoco-queue-${TS}.tar.gz"
+ARCHIVE="${BACKUP_DIR}/kuroshio-queue-${TS}.tar.gz"
 
 if [[ ! -d "${QUEUE_DIR}" ]]; then
   echo "queue dir not found: ${QUEUE_DIR}" >&2

@@ -30,7 +30,7 @@ START_TS="$(date +%s)"
 
 run "scripts/dr/backup_queue.sh '${QUEUE_DIR}' '${BACKUP_DIR}'"
 run "echo 'simulate outage: stop MTA / queue backend here'"
-run "LATEST=\$(ls -1t '${BACKUP_DIR}'/orinoco-queue-*.tar.gz | head -n1) && scripts/dr/restore_queue.sh \"\${LATEST}\" '${QUEUE_DIR}' --force"
+run "LATEST=\$(ls -1t '${BACKUP_DIR}'/kuroshio-queue-*.tar.gz | head -n1) && scripts/dr/restore_queue.sh \"\${LATEST}\" '${QUEUE_DIR}' --force"
 run "echo 'post-check: go run ./cmd/kuroshio and validate /healthz + queue processing'"
 
 END_TS="$(date +%s)"

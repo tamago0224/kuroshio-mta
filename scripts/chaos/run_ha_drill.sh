@@ -38,14 +38,14 @@ echo "Mode: ${APPLY:---dry-run--}"
 
 case "${SCENARIO}" in
   az-a-down)
-    run "docker compose stop orinoco-ingress-a"
-    run "docker compose stop orinoco-worker-a"
+    run "docker compose stop kuroshio-ingress-a"
+    run "docker compose stop kuroshio-worker-a"
     ;;
   broker-a-down)
     run "docker compose stop kafka-a"
     ;;
   dns-failure)
-    run "docker compose exec -T orinoco-worker-a sh -lc 'echo nameserver 203.0.113.1 > /etc/resolv.conf'"
+    run "docker compose exec -T kuroshio-worker-a sh -lc 'echo nameserver 203.0.113.1 > /etc/resolv.conf'"
     ;;
   *)
     echo "unknown scenario: ${SCENARIO}" >&2

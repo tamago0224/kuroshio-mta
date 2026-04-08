@@ -250,7 +250,7 @@ func defaultConfig() Config {
 		ObservabilityAddr:          ":9090",
 		AdminAddr:                  "",
 		AdminTokens:                "",
-		Hostname:                   "orinoco.local",
+		Hostname:                   "kuroshio.local",
 		QueueDir:                   "./var/queue",
 		QueueBackend:               "local",
 		KafkaBrokers:               []string{"localhost:9092"},

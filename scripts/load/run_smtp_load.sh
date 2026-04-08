@@ -33,8 +33,8 @@ RESULT="$(go run ./cmd/smtpload \
   -addr "${ADDR}" \
   -concurrency "${CONCURRENCY}" \
   -messages "${MESSAGES}" \
-  -from "loadtest@orinoco.local" \
-  -to "receiver@orinoco.local")"
+  -from "loadtest@kuroshio.local" \
+  -to "receiver@kuroshio.local")"
 
 echo "${RESULT}"
 
