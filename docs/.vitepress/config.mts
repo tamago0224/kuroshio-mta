@@ -34,6 +34,7 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Configuration", link: "/configuration" },
+          { text: "Observability", link: "/observability" },
           { text: "S3 Spool Backend", link: "/s3_spool_backend" },
           { text: "Rate Limit", link: "/rate_limit" },
           { text: "Kafka Queue Mode", link: "/kafka_queue_mode" }
