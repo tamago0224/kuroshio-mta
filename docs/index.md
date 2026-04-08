@@ -4,7 +4,7 @@ layout: home
 hero:
   name: kuroshio-mta
   text: Go で実装した MTA の設計と運用ドキュメント
-  tagline: 設定、RFC 対応、運用 runbook、アーキテクチャ方針をブラウザでたどれるように整理したドキュメントサイトです。
+  tagline: Getting Started、機能チュートリアル、RFC 対応、運用 runbook、アーキテクチャ方針をブラウザでたどれるように整理したドキュメントサイトです。
   actions:
     - theme: brand
       text: Getting Started を見る
@@ -13,12 +13,17 @@ hero:
       text: 設定ガイドを見る
       link: /configuration
     - theme: alt
+      text: チュートリアルを見る
+      link: /tutorials/basic-mail-flow
+    - theme: alt
       text: GitHub Repository
       link: https://github.com/tamago0224/kuroshio-mta
 
 features:
   - title: Getting Started
     details: サンプル設定の作成から `go run ./cmd/kuroshio -config ./config.yaml` での起動までを最短手順で追えます。
+  - title: 機能チュートリアル
+    details: 最小メールフロー、メール認証、TLS 配送、Rate Limit、Admin API など主要機能を順に試せます。
   - title: 設定と運用
     details: YAML ベースの設定、Rate Limit、Kafka Queue モード、Admin API や SLO runbook までまとめて参照できます。
   - title: RFC 対応状況
@@ -31,6 +36,11 @@ features:
 ## よく使うページ
 
 - [Getting Started](/getting-started)
+- [最小メールフローを試す](/tutorials/basic-mail-flow)
+- [メール認証を試す](/tutorials/mail-auth)
+- [TLS 配送ポリシーを試す](/tutorials/tls-policy)
+- [Rate Limit を試す](/tutorials/rate-limit)
+- [Admin API を試す](/tutorials/admin-operations)
 - [設定ガイド](/configuration)
 - [Rate Limit](/rate_limit)
 - [Kafka Queue モード](/kafka_queue_mode)

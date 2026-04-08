@@ -43,7 +43,15 @@ go run ./cmd/kuroshio -config ./config.yaml
 Admin API を有効化する場合は [Admin API](/runbooks/admin_api)、
 SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照してください。
 
-## 5. よく読む関連ドキュメント
+## 5. 次に試すチュートリアル
+
+- 最初の 1 通を受ける: [最小メールフローを試す](/tutorials/basic-mail-flow)
+- 認証評価を見る: [メール認証を試す](/tutorials/mail-auth)
+- STARTTLS / MTA-STS / DANE を追う: [TLS 配送ポリシーを試す](/tutorials/tls-policy)
+- 受信制御を試す: [Rate Limit を試す](/tutorials/rate-limit)
+- queue 操作を試す: [Admin API を試す](/tutorials/admin-operations)
+
+## 6. よく読む関連ドキュメント
 
 - 初期設定: [Configuration](/configuration)
 - 受信制御: [Rate Limit](/rate_limit)
@@ -51,7 +59,7 @@ SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照して
 - 設計メモ: [Normalization Policy](/architecture/normalization_policy)
 - HA 構成: [HA Reference](/architecture/ha_reference)
 
-## 6. docs サイトをローカル確認する
+## 7. docs サイトをローカル確認する
 
 ```bash
 npm install
