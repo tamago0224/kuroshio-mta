@@ -17,6 +17,9 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type Dispatcher struct {
@@ -28,6 +31,8 @@ type Dispatcher struct {
 	throttle *domainThrottle
 	rep      *reputation.Tracker
 }
+
+var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
 
 func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics, rep *reputation.Tracker) *Dispatcher {
 	return &Dispatcher{
@@ -83,6 +88,14 @@ func (d *Dispatcher) processBatch(ctx context.Context) error {
 }
 
 func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
+	ctx, span := workerTracer.Start(ctx, "worker.handle_message")
+	span.SetAttributes(
+		attribute.String("mail.message_id", msg.ID),
+		attribute.Int("mail.attempt", msg.Attempts),
+		attribute.Int("mail.rcpt_count", len(msg.RcptTo)),
+	)
+	defer span.End()
+
 	var (
 		errs    []error
 		reasons []string
@@ -157,6 +170,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	}
 
 	if len(errs) == 0 {
+		span.SetAttributes(attribute.String("worker.result", "sent"))
 		if err := d.queue.AckSent(msg.ID, msg); err != nil {
 			slog.Error("ack sent failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
@@ -166,6 +180,11 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 
 	reason := strings.Join(reasons, "; ")
 	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
+		if joined := errors.Join(errs...); joined != nil {
+			span.RecordError(joined)
+		}
+		span.SetAttributes(attribute.String("worker.result", "failed"))
+		span.SetStatus(codes.Error, reason)
 		if err := d.queue.Fail(msg, reason); err != nil {
 			slog.Error("mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
@@ -173,6 +192,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 	delay := backoff(msg.Attempts, d.cfg.RetrySchedule)
+	if joined := errors.Join(errs...); joined != nil {
+		span.RecordError(joined)
+	}
+	span.SetAttributes(
+		attribute.String("worker.result", "retry"),
+		attribute.String("worker.retry_delay", delay.String()),
+	)
+	span.SetStatus(codes.Error, reason)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
 		slog.Error("retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}

@@ -205,6 +205,41 @@ func TestLoadLogLevel(t *testing.T) {
 	}
 }
 
+func TestLoadOTELConfig(t *testing.T) {
+	t.Setenv("MTA_OTEL_ENABLED", "true")
+	t.Setenv("MTA_OTEL_SERVICE_NAME", "kuroshio-mta")
+	t.Setenv("MTA_OTEL_SERVICE_VERSION", "1.2.3")
+	t.Setenv("MTA_OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318/v1/traces")
+	t.Setenv("MTA_OTEL_EXPORTER_OTLP_INSECURE", "true")
+	t.Setenv("MTA_OTEL_TRACE_SAMPLE_RATIO", "0.25")
+
+	cfg := mustLoadForTest(t)
+	if !cfg.OTELEnabled {
+		t.Fatal("otel should be enabled")
+	}
+	if cfg.OTELServiceName != "kuroshio-mta" {
+		t.Fatalf("otel service name=%q", cfg.OTELServiceName)
+	}
+	if cfg.OTELServiceVersion != "1.2.3" {
+		t.Fatalf("otel service version=%q", cfg.OTELServiceVersion)
+	}
+	if cfg.OTELExporterOTLPEndpoint != "http://otel-collector:4318/v1/traces" {
+		t.Fatalf("otel endpoint=%q", cfg.OTELExporterOTLPEndpoint)
+	}
+	if !cfg.OTELExporterOTLPInsecure {
+		t.Fatal("otel insecure should be true")
+	}
+	if cfg.OTELTraceSampleRatio != 0.25 {
+		t.Fatalf("otel sample ratio=%v", cfg.OTELTraceSampleRatio)
+	}
+
+	t.Setenv("MTA_OTEL_TRACE_SAMPLE_RATIO", "2")
+	cfg = mustLoadForTest(t)
+	if cfg.OTELTraceSampleRatio != 1.0 {
+		t.Fatalf("out-of-range sample ratio should fallback to default, got=%v", cfg.OTELTraceSampleRatio)
+	}
+}
+
 func TestLoadDKIMSigningConfig(t *testing.T) {
 	t.Setenv("MTA_DKIM_SIGN_DOMAIN", "example.com")
 	t.Setenv("MTA_DKIM_SIGN_SELECTOR", "s1")

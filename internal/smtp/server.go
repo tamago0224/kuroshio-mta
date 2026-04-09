@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"strconv"
@@ -26,6 +27,10 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/userauth"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Server struct {
@@ -116,7 +121,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.wg.Add(1)
 		go func(c net.Conn) {
 			defer s.wg.Done()
-			s.handleConn(c)
+			s.handleConnWithContext(ctx, c)
 		}(conn)
 	}
 	s.wg.Wait()
@@ -152,13 +157,53 @@ var (
 	errMessageTooLarge      = errors.New("message too large")
 
 	evaluateAuthWithPolicy = mailauth.EvaluateWithPolicy
+	smtpTracer             = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/smtp")
 )
 
 func (s *Server) handleConn(conn net.Conn) {
+	s.handleConnWithContext(context.Background(), conn)
+}
+
+func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
 	s.metricInc("smtp_connections")
 	remoteIP := parseRemoteIP(conn.RemoteAddr().String())
+	spanAttrs := []attribute.KeyValue{
+		attribute.Bool("smtp.submission", s.submission),
+		attribute.String("smtp.remote_addr", conn.RemoteAddr().String()),
+	}
+	if remoteIP != nil {
+		spanAttrs = append(spanAttrs, attribute.String("smtp.remote_ip", remoteIP.String()))
+	}
+	_, span := smtpTracer.Start(ctx, "smtp.session", trace.WithAttributes(spanAttrs...))
+	defer span.End()
+
+	var (
+		ss           *session
+		rejectReason string
+		sessionErr   error
+	)
+	defer func() {
+		if ss != nil {
+			span.SetAttributes(
+				attribute.Bool("smtp.tls", ss.tls),
+				attribute.Bool("smtp.extended", ss.extended),
+				attribute.String("smtp.helo", ss.helo),
+				attribute.String("smtp.mail_from", ss.mailFrom),
+				attribute.Int("smtp.rcpt_count", len(ss.rcptTo)),
+				attribute.String("smtp.body_mode", ss.bodyMode),
+			)
+		}
+		if rejectReason != "" {
+			span.SetAttributes(attribute.String("smtp.reject_reason", rejectReason))
+			span.SetStatus(codes.Error, rejectReason)
+		}
+		if sessionErr != nil && !errors.Is(sessionErr, io.EOF) {
+			span.RecordError(sessionErr)
+			span.SetStatus(codes.Error, sessionErr.Error())
+		}
+	}()
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 	if remoteIP != nil {
@@ -169,6 +214,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr)
 			} else if !allowed {
+				rejectReason = "rate_limit"
 				s.metricInc("smtp_reject_rate_limit")
 				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_limit", "remote_ip", remoteStr)
 				writeResp(w, 421, "rate limit exceeded, try again later")
@@ -180,6 +226,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr, "event", "connect")
 			} else if !allowed {
+				rejectReason = "rate_rule_connect"
 				s.metricInc("smtp_reject_rate_limit")
 				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_connect", "remote_ip", remoteStr)
 				writeResp(w, 421, "rate limit exceeded, try again later")
@@ -188,6 +235,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		if s.dnsbl != nil {
 			if listed, zone := s.dnsbl.IsListed(remoteStr); listed {
+				rejectReason = "dnsbl:" + zone
 				s.metricInc("smtp_reject_dnsbl")
 				slog.Warn("ingress rejected", "component", "smtp", "reason", "dnsbl", "zone", zone, "remote_ip", remoteStr)
 				writeResp(w, 554, "connection rejected (dnsbl: "+zone+")")
@@ -195,12 +243,13 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 		}
 	}
-	ss := &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT"}
+	ss = &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT"}
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
+			sessionErr = err
 			return
 		}
 		if len(line) > 512 {

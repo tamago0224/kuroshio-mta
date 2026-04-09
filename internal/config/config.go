@@ -18,6 +18,12 @@ type Config struct {
 	SubmissionSenderID         bool
 	LogLevel                   string
 	ObservabilityAddr          string
+	OTELEnabled                bool
+	OTELServiceName            string
+	OTELServiceVersion         string
+	OTELExporterOTLPEndpoint   string
+	OTELExporterOTLPInsecure   bool
+	OTELTraceSampleRatio       float64
 	AdminAddr                  string
 	AdminTokens                string
 	Hostname                   string
@@ -97,6 +103,12 @@ type yamlConfig struct {
 	SubmissionSenderID         *bool    `yaml:"submission_enforce_sender_identity"`
 	LogLevel                   *string  `yaml:"log_level"`
 	ObservabilityAddr          *string  `yaml:"observability_addr"`
+	OTELEnabled                *bool    `yaml:"otel_enabled"`
+	OTELServiceName            *string  `yaml:"otel_service_name"`
+	OTELServiceVersion         *string  `yaml:"otel_service_version"`
+	OTELExporterOTLPEndpoint   *string  `yaml:"otel_exporter_otlp_endpoint"`
+	OTELExporterOTLPInsecure   *bool    `yaml:"otel_exporter_otlp_insecure"`
+	OTELTraceSampleRatio       *float64 `yaml:"otel_trace_sample_ratio"`
 	AdminAddr                  *string  `yaml:"admin_addr"`
 	AdminTokens                *string  `yaml:"admin_tokens"`
 	Hostname                   *string  `yaml:"hostname"`
@@ -193,6 +205,12 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.SubmissionSenderID = envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", cfg.SubmissionSenderID)
 	cfg.LogLevel = env("MTA_LOG_LEVEL", cfg.LogLevel)
 	cfg.ObservabilityAddr = env("MTA_OBSERVABILITY_ADDR", cfg.ObservabilityAddr)
+	cfg.OTELEnabled = envBool("MTA_OTEL_ENABLED", cfg.OTELEnabled)
+	cfg.OTELServiceName = env("MTA_OTEL_SERVICE_NAME", cfg.OTELServiceName)
+	cfg.OTELServiceVersion = env("MTA_OTEL_SERVICE_VERSION", cfg.OTELServiceVersion)
+	cfg.OTELExporterOTLPEndpoint = env("MTA_OTEL_EXPORTER_OTLP_ENDPOINT", cfg.OTELExporterOTLPEndpoint)
+	cfg.OTELExporterOTLPInsecure = envBool("MTA_OTEL_EXPORTER_OTLP_INSECURE", cfg.OTELExporterOTLPInsecure)
+	cfg.OTELTraceSampleRatio = normalizeSampleRatio(envFloat64("MTA_OTEL_TRACE_SAMPLE_RATIO", cfg.OTELTraceSampleRatio), cfg.OTELTraceSampleRatio)
 	cfg.AdminAddr = env("MTA_ADMIN_ADDR", cfg.AdminAddr)
 	cfg.AdminTokens = envOrFile("MTA_ADMIN_TOKENS", "MTA_ADMIN_TOKENS_FILE", cfg.AdminTokens)
 	cfg.Hostname = env("MTA_HOSTNAME", cfg.Hostname)
@@ -275,6 +293,12 @@ func defaultConfig() Config {
 		SubmissionSenderID:         true,
 		LogLevel:                   "info",
 		ObservabilityAddr:          ":9090",
+		OTELEnabled:                false,
+		OTELServiceName:            "kuroshio-mta",
+		OTELServiceVersion:         "",
+		OTELExporterOTLPEndpoint:   "",
+		OTELExporterOTLPInsecure:   false,
+		OTELTraceSampleRatio:       1.0,
 		AdminAddr:                  "",
 		AdminTokens:                "",
 		Hostname:                   "kuroshio.local",
@@ -394,6 +418,24 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.ObservabilityAddr != nil {
 		cfg.ObservabilityAddr = *raw.ObservabilityAddr
+	}
+	if raw.OTELEnabled != nil {
+		cfg.OTELEnabled = *raw.OTELEnabled
+	}
+	if raw.OTELServiceName != nil {
+		cfg.OTELServiceName = *raw.OTELServiceName
+	}
+	if raw.OTELServiceVersion != nil {
+		cfg.OTELServiceVersion = *raw.OTELServiceVersion
+	}
+	if raw.OTELExporterOTLPEndpoint != nil {
+		cfg.OTELExporterOTLPEndpoint = *raw.OTELExporterOTLPEndpoint
+	}
+	if raw.OTELExporterOTLPInsecure != nil {
+		cfg.OTELExporterOTLPInsecure = *raw.OTELExporterOTLPInsecure
+	}
+	if raw.OTELTraceSampleRatio != nil {
+		cfg.OTELTraceSampleRatio = normalizeSampleRatio(*raw.OTELTraceSampleRatio, cfg.OTELTraceSampleRatio)
 	}
 	if raw.AdminAddr != nil {
 		cfg.AdminAddr = *raw.AdminAddr
@@ -803,4 +845,11 @@ func envBool(k string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+func normalizeSampleRatio(v, def float64) float64 {
+	if v < 0 || v > 1 {
+		return def
+	}
+	return v
 }
