@@ -1,4 +1,13 @@
 services:
+  prepare-data:
+    image: busybox:1.37
+    command:
+      - sh
+      - -c
+      - mkdir -p /work/queue /work/spool && chown -R 65532:65532 /work/queue /work/spool
+    volumes:
+      - ./var:/work
+
   kuroshio:
     build:
       context: ../../..
@@ -11,7 +20,10 @@ services:
       - ./var/queue:/var/lib/kuroshio/queue
       - ./var/spool:/var/lib/kuroshio/spool
     depends_on:
-      - alloy
+      prepare-data:
+        condition: service_completed_successfully
+      alloy:
+        condition: service_started
 
   smtp-client:
     image: busybox:1.37
@@ -31,7 +43,7 @@ services:
       - loki
 
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.3.1
     command: ["-config.file=/etc/tempo.yaml"]
     volumes:
       - ./tempo.yaml:/etc/tempo.yaml:ro
