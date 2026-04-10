@@ -7,8 +7,14 @@ import (
 )
 
 type domainThrottle interface {
-	acquire(domain string) func()
-	observe(domain string, temporaryFailure bool)
+	acquire(domain string) domainThrottleLease
+	observe(domain string, temporaryFailure bool) bool
+}
+
+type domainThrottleLease struct {
+	release      func()
+	waitDuration time.Duration
+	backendError bool
 }
 
 type localDomainThrottle struct {
@@ -48,19 +54,23 @@ func newLocalDomainThrottle(defLimit int, rules map[string]int, adaptive bool, t
 	}
 }
 
-func (d *localDomainThrottle) acquire(domain string) func() {
+func (d *localDomainThrottle) acquire(domain string) domainThrottleLease {
+	started := time.Now()
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	st := d.get(domain)
 	if p := d.currentPenalty(st); p > 0 {
 		time.Sleep(p)
 	}
 	st.sem <- struct{}{}
-	return func() { <-st.sem }
+	return domainThrottleLease{
+		release:      func() { <-st.sem },
+		waitDuration: time.Since(started),
+	}
 }
 
-func (d *localDomainThrottle) observe(domain string, temporaryFailure bool) {
+func (d *localDomainThrottle) observe(domain string, temporaryFailure bool) bool {
 	if !d.adaptive {
-		return
+		return false
 	}
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	st := d.get(domain)
@@ -71,7 +81,7 @@ func (d *localDomainThrottle) observe(domain string, temporaryFailure bool) {
 		st.tempFail++
 	}
 	if st.samples < 20 {
-		return
+		return false
 	}
 	ratio := float64(st.tempFail) / float64(st.samples)
 	if ratio >= d.threshold {
@@ -91,6 +101,7 @@ func (d *localDomainThrottle) observe(domain string, temporaryFailure bool) {
 	}
 	st.samples = 0
 	st.tempFail = 0
+	return false
 }
 
 func (d *localDomainThrottle) get(domain string) *domainState {
