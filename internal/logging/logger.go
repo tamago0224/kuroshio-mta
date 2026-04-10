@@ -12,7 +12,7 @@ func New(level string, w io.Writer) *slog.Logger {
 		w = os.Stdout
 	}
 	lvl := parseLevel(level)
-	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lvl})
+	h := newOTELHandler(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lvl}))
 	return slog.New(h)
 }
 
