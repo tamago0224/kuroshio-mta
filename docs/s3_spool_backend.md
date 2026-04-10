@@ -88,6 +88,18 @@ outbound/m123_user_example.net.eml
 - object の一覧取得や再読込はまだ実装していません
 - provider 固有機能には依存していません
 
+## observability
+
+spool 保存自体は observability の対象に入っています。
+
+- metrics:
+  - `delivery_spool_store_total`
+  - `delivery_spool_store_bytes_total`
+  - `delivery_spool_store_s3_total`
+  - `delivery_spool_store_s3_error_total`
+- traces:
+  - `delivery.spool_store`
+
 ## 関連ドキュメント
 
 - 実際に試す: [S3 Spool Backend を観測する](/tutorials/s3-spool-observability)

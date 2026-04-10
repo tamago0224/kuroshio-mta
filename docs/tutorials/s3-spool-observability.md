@@ -59,10 +59,17 @@ EOF
 ## 3. metrics を確認する
 
 ```bash
-curl http://127.0.0.1:9090/metrics | head
+curl http://127.0.0.1:9090/metrics | grep delivery_spool_store
 ```
 
-まずは observability endpoint が生きていることを確認します。
+特に次を見ます。
+
+- `delivery_spool_store_total`
+- `delivery_spool_store_bytes_total`
+- `delivery_spool_store_s3_total`
+- `delivery_spool_store_s3_bytes_total`
+
+`delivery_spool_store_s3_total` が増えていれば、S3-compatible backend への保存が成功しています。
 
 ## 4. MinIO に object が入ったことを確認する
 
@@ -94,6 +101,8 @@ docker compose -f examples/tutorials/s3-spool-observability/compose.yaml logs ku
 - 保存結果: MinIO 上の object
 
 の 3 点で backend 切り替え時の挙動を確認できます。
+
+OpenTelemetry を有効化している構成では、`delivery.spool_store` span も trace 上で確認できます。
 
 ## 6. 後片付け
 

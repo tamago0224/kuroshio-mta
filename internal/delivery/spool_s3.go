@@ -76,11 +76,11 @@ func newS3SpoolStore(cfg config.Config, prepareFn func([]byte) ([]byte, error)) 
 	return &s3SpoolStore{cfg: cfg, client: client, prepareFn: prepareFn}, nil
 }
 
-func (s *s3SpoolStore) Store(msg *model.Message, rcpt string) error {
+func (s *s3SpoolStore) Store(_ context.Context, msg *model.Message, rcpt string) (int, error) {
 	key := spoolObjectKey(s.cfg, msg, rcpt)
 	payload, err := s.prepareFn(msg.Data)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	_, err = s.client.PutObject(context.Background(), &s3.PutObjectInput{
@@ -94,7 +94,10 @@ func (s *s3SpoolStore) Store(msg *model.Message, rcpt string) error {
 		},
 		StorageClass: types.StorageClassStandard,
 	})
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return len(payload), nil
 }
 
 func spoolObjectKey(cfg config.Config, msg *model.Message, rcpt string) string {
