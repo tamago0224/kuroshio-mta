@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Dispatcher struct {
@@ -88,6 +89,7 @@ func (d *Dispatcher) processBatch(ctx context.Context) error {
 }
 
 func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
+	ctx = observability.ExtractTraceContext(ctx, msg)
 	ctx, span := workerTracer.Start(ctx, "worker.handle_message")
 	span.SetAttributes(
 		attribute.String("mail.message_id", msg.ID),
@@ -95,6 +97,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		attribute.Int("mail.rcpt_count", len(msg.RcptTo)),
 	)
 	defer span.End()
+	observability.InjectTraceContext(ctx, msg)
 
 	var (
 		errs    []error
@@ -171,6 +174,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 
 	if len(errs) == 0 {
 		span.SetAttributes(attribute.String("worker.result", "sent"))
+		span.AddEvent("worker.ack_sent")
 		if err := d.queue.AckSent(msg.ID, msg); err != nil {
 			slog.ErrorContext(ctx, "ack sent failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
@@ -184,6 +188,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			span.RecordError(joined)
 		}
 		span.SetAttributes(attribute.String("worker.result", "failed"))
+		span.AddEvent("worker.failed", trace.WithAttributes(attribute.String("worker.reason", reason)))
 		span.SetStatus(codes.Error, reason)
 		if err := d.queue.Fail(msg, reason); err != nil {
 			slog.ErrorContext(ctx, "mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
@@ -199,6 +204,10 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		attribute.String("worker.result", "retry"),
 		attribute.String("worker.retry_delay", delay.String()),
 	)
+	span.AddEvent("worker.retry_scheduled", trace.WithAttributes(
+		attribute.String("worker.reason", reason),
+		attribute.String("worker.retry_delay", delay.String()),
+	))
 	span.SetStatus(codes.Error, reason)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
 		slog.ErrorContext(ctx, "retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
@@ -214,6 +223,7 @@ func (d *Dispatcher) emitHardBounceDSN(ctx context.Context, msg *model.Message, 
 	if err != nil {
 		return
 	}
+	observability.InjectTraceContext(ctx, dsnMsg)
 	if err := d.queue.Enqueue(dsnMsg); err != nil {
 		slog.ErrorContext(ctx, "enqueue hard dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
 	}
@@ -231,6 +241,7 @@ func (d *Dispatcher) emitSoftBounceDSN(ctx context.Context, msg *model.Message, 
 	if err != nil {
 		return
 	}
+	observability.InjectTraceContext(ctx, dsnMsg)
 	if err := d.queue.Enqueue(dsnMsg); err != nil {
 		slog.ErrorContext(ctx, "enqueue soft dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
 	}

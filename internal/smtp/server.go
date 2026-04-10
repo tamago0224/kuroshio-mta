@@ -511,7 +511,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			received := buildReceivedHeader(s.cfg.Hostname, ss.helo, ss.remote, id, time.Now().UTC(), ss.extended, ss.tls)
 			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
 
-			if err := s.enqueue(ss, id); err != nil {
+			if err := s.enqueue(ctx, ss, id); err != nil {
 				cmdSpan.recordError(err)
 				cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
 				cmdSpan.setResponse(451, "temporary local problem")
@@ -521,7 +521,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 451, "temporary local problem")
 				continue
 			}
-			s.enqueueDMARCReports(authRes, ss.mailFrom, id, time.Now().UTC())
+			s.enqueueDMARCReports(ctx, authRes, ss.mailFrom, id, time.Now().UTC())
 			s.metricInc("smtp_queued_messages")
 			cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
 			cmdSpan.setResponse(250, "queued")
@@ -690,7 +690,7 @@ func (s *smtpCommandSpan) end() {
 	s.End()
 }
 
-func (s *Server) enqueue(ss *session, id string) error {
+func (s *Server) enqueue(ctx context.Context, ss *session, id string) error {
 	msg := &model.Message{
 		ID:         id,
 		RemoteAddr: ss.remote,
@@ -699,10 +699,11 @@ func (s *Server) enqueue(ss *session, id string) error {
 		RcptTo:     append([]string(nil), ss.rcptTo...),
 		Data:       append([]byte(nil), ss.data...),
 	}
+	observability.InjectTraceContext(ctx, msg)
 	return s.queue.Enqueue(msg)
 }
 
-func (s *Server) enqueueDMARCReports(authRes mailauth.Result, mailFrom, msgID string, now time.Time) {
+func (s *Server) enqueueDMARCReports(ctx context.Context, authRes mailauth.Result, mailFrom, msgID string, now time.Time) {
 	if s.submission || s.queue == nil {
 		return
 	}
@@ -729,6 +730,7 @@ func (s *Server) enqueueDMARCReports(authRes mailauth.Result, mailFrom, msgID st
 			RcptTo:     []string{rep.To},
 			Data:       buildReportMessage(reportFrom, rep.To, rep.Subject, rep.Body, id, now),
 		}
+		observability.InjectTraceContext(ctx, msg)
 		if err := s.queue.Enqueue(msg); err != nil {
 			slog.Warn("enqueue dmarc report failed", "component", "smtp", "error", err, "parent_msg_id", msgID, "rcpt", logging.MaskEmail(rep.To))
 			continue

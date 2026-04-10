@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -64,7 +65,14 @@ func (b *observedBackend) AckSent(id string, msg *model.Message) error {
 
 func (b *observedBackend) Retry(msg *model.Message, delay time.Duration, reason string) error {
 	_, span := b.startSpan(context.Background(), "queue.retry", msg)
-	span.SetAttributes(attribute.String("queue.retry_delay", delay.String()))
+	span.SetAttributes(
+		attribute.String("queue.retry_delay", delay.String()),
+		attribute.String("queue.reason", reason),
+	)
+	span.AddEvent("queue.retry_scheduled", trace.WithAttributes(
+		attribute.String("queue.reason", reason),
+		attribute.String("queue.retry_delay", delay.String()),
+	))
 	defer span.End()
 
 	err := b.next.Retry(msg, delay, reason)
@@ -74,6 +82,8 @@ func (b *observedBackend) Retry(msg *model.Message, delay time.Duration, reason 
 
 func (b *observedBackend) Fail(msg *model.Message, reason string) error {
 	_, span := b.startSpan(context.Background(), "queue.fail", msg)
+	span.SetAttributes(attribute.String("queue.reason", reason))
+	span.AddEvent("queue.failed", trace.WithAttributes(attribute.String("queue.reason", reason)))
 	defer span.End()
 
 	err := b.next.Fail(msg, reason)
@@ -95,6 +105,7 @@ func (b *observedBackend) Close() error {
 }
 
 func (b *observedBackend) startSpan(ctx context.Context, name string, msg *model.Message) (context.Context, trace.Span) {
+	ctx = observability.ExtractTraceContext(ctx, msg)
 	attrs := []attribute.KeyValue{
 		attribute.String("queue.backend", b.name),
 	}
@@ -104,6 +115,9 @@ func (b *observedBackend) startSpan(ctx context.Context, name string, msg *model
 			attribute.Int("mail.attempt", msg.Attempts),
 			attribute.Int("mail.rcpt_count", len(msg.RcptTo)),
 		)
+		if msg.LastError != "" {
+			attrs = append(attrs, attribute.String("queue.last_error", msg.LastError))
+		}
 	}
 	return queueTracer.Start(ctx, name, trace.WithAttributes(attrs...))
 }
