@@ -296,6 +296,10 @@ func TestLoadARCFailurePolicyConfig(t *testing.T) {
 func TestLoadDomainThrottleConfig(t *testing.T) {
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", "4")
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_RULES", "gmail.com:2,yahoo.com:1")
+	t.Setenv("MTA_DOMAIN_THROTTLE_BACKEND", "redis")
+	t.Setenv("MTA_DOMAIN_THROTTLE_REDIS_ADDRS", "redis-1:6379,redis-2:6379")
+	t.Setenv("MTA_DOMAIN_THROTTLE_REDIS_DB", "5")
+	t.Setenv("MTA_DOMAIN_THROTTLE_REDIS_KEY_PREFIX", "custom:domainthrottle")
 	t.Setenv("MTA_DOMAIN_ADAPTIVE_THROTTLE", "true")
 	t.Setenv("MTA_DOMAIN_TEMPFAIL_THRESHOLD", "0.5")
 	t.Setenv("MTA_DOMAIN_PENALTY_MAX", "3s")
@@ -306,6 +310,18 @@ func TestLoadDomainThrottleConfig(t *testing.T) {
 	if cfg.DomainMaxConcurrentRules != "gmail.com:2,yahoo.com:1" {
 		t.Fatalf("rules=%q", cfg.DomainMaxConcurrentRules)
 	}
+	if cfg.DomainThrottleBackend != "redis" {
+		t.Fatalf("domain throttle backend=%q", cfg.DomainThrottleBackend)
+	}
+	if len(cfg.DomainThrottleRedisAddrs) != 2 || cfg.DomainThrottleRedisAddrs[0] != "redis-1:6379" || cfg.DomainThrottleRedisAddrs[1] != "redis-2:6379" {
+		t.Fatalf("domain throttle redis addrs=%v", cfg.DomainThrottleRedisAddrs)
+	}
+	if cfg.DomainThrottleRedisDB != 5 {
+		t.Fatalf("domain throttle redis db=%d", cfg.DomainThrottleRedisDB)
+	}
+	if cfg.DomainThrottleRedisKeyPrefix != "custom:domainthrottle" {
+		t.Fatalf("domain throttle redis key prefix=%q", cfg.DomainThrottleRedisKeyPrefix)
+	}
 	if !cfg.DomainAdaptiveThrottle {
 		t.Fatal("adaptive throttle should be true")
 	}
@@ -314,6 +330,12 @@ func TestLoadDomainThrottleConfig(t *testing.T) {
 	}
 	if cfg.DomainPenaltyMax != 3*time.Second {
 		t.Fatalf("penalty max=%s", cfg.DomainPenaltyMax)
+	}
+
+	t.Setenv("MTA_DOMAIN_THROTTLE_BACKEND", "invalid")
+	cfg = mustLoadForTest(t)
+	if cfg.DomainThrottleBackend != "memory" {
+		t.Fatalf("invalid domain throttle backend should fallback, got=%q", cfg.DomainThrottleBackend)
 	}
 }
 

@@ -135,9 +135,23 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | `rate_limit_redis_key_prefix` | `MTA_RATE_LIMIT_REDIS_KEY_PREFIX` | `kuroshio:ratelimit` | Redis/Valkey 上で RateLimiter 状態を保存するキー prefix です |
 | `domain_max_concurrent_default` | `MTA_DOMAIN_MAX_CONCURRENT_DEFAULT` | `8` | ドメインごとの同時配送数のデフォルト上限です |
 | `domain_max_concurrent_rules` | `MTA_DOMAIN_MAX_CONCURRENT_RULES` | unset | ドメイン別の同時配送上限を `gmail.com:2,yahoo.com:1` 形式で指定します |
+| `domain_throttle_backend` | `MTA_DOMAIN_THROTTLE_BACKEND` | `memory` | 配送側 domain throttle の状態保存先です。`memory` / `redis` を使います |
+| `domain_throttle_redis_addrs` | `MTA_DOMAIN_THROTTLE_REDIS_ADDRS` | `localhost:6379` | `domain_throttle_backend: redis` のときに使う Redis/Valkey アドレスです。YAML では配列、環境変数ではカンマ区切りで指定します |
+| `domain_throttle_redis_username` | `MTA_DOMAIN_THROTTLE_REDIS_USERNAME` | unset | Redis/Valkey 接続に使うユーザー名です |
+| `domain_throttle_redis_password` | `MTA_DOMAIN_THROTTLE_REDIS_PASSWORD` | unset | Redis/Valkey 接続に使うパスワードです |
+| `domain_throttle_redis_db` | `MTA_DOMAIN_THROTTLE_REDIS_DB` | `0` | 単一ノード接続時に使う DB 番号です |
+| `domain_throttle_redis_key_prefix` | `MTA_DOMAIN_THROTTLE_REDIS_KEY_PREFIX` | `kuroshio:domainthrottle` | Redis/Valkey 上で domain throttle lease を保存するキー prefix です |
 | `domain_adaptive_throttle` | `MTA_DOMAIN_ADAPTIVE_THROTTLE` | `true` | 一時失敗率に応じた自動スロットリングを有効にします |
 | `domain_tempfail_threshold` | `MTA_DOMAIN_TEMPFAIL_THRESHOLD` | `0.3` | ペナルティを強める tempfail 比率のしきい値です |
 | `domain_penalty_max` | `MTA_DOMAIN_PENALTY_MAX` | `5s` | 自動スロットリングで加える最大ペナルティです |
+
+`domain_throttle_backend: redis` を使うと、複数ノード間で少なくとも次を共有できます。
+
+- ドメインごとの同時実行 lease
+- adaptive throttle の sample / tempfail 集計
+- penalty 状態
+
+実行中の Redis / Valkey エラーは、現在の実装では fail-open で扱います。
 
 ## データ保持と reputation
 

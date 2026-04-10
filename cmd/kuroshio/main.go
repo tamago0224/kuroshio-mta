@@ -75,7 +75,10 @@ func main() {
 		MinSamples:         cfg.ReputationMinSamples,
 	})
 
-	d := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics, rep)
+	d, err := worker.New(cfg, q, delivery.NewClient(cfg), sup, metrics, rep)
+	if err != nil {
+		fatal("worker init failed", "error", err)
+	}
 	s := smtp.NewServer(cfg, q, metrics)
 	var submissionServer *smtp.Server
 	if cfg.SubmissionAddr != "" {

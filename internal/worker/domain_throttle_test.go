@@ -1,9 +1,12 @@
 package worker
 
 import (
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tamago0224/kuroshio-mta/internal/config"
 )
 
 func TestParseDomainRules(t *testing.T) {
@@ -17,7 +20,7 @@ func TestParseDomainRules(t *testing.T) {
 }
 
 func TestDomainThrottleConcurrencyLimit(t *testing.T) {
-	th := newDomainThrottle(1, map[string]int{"gmail.com": 2}, false, 0.3, time.Second)
+	th := newLocalDomainThrottle(1, map[string]int{"gmail.com": 2}, false, 0.3, time.Second)
 	release1 := th.acquire("gmail.com")
 	release2 := th.acquire("gmail.com")
 
@@ -40,12 +43,48 @@ func TestDomainThrottleConcurrencyLimit(t *testing.T) {
 }
 
 func TestDomainThrottleAdaptivePenalty(t *testing.T) {
-	th := newDomainThrottle(2, nil, true, 0.3, time.Second)
+	th := newLocalDomainThrottle(2, nil, true, 0.3, time.Second)
 	for i := 0; i < 20; i++ {
 		th.observe("example.com", true)
 	}
 	st := th.get("example.com")
 	if p := th.currentPenalty(st); p == 0 {
 		t.Fatal("penalty must increase after high temporary failure ratio")
+	}
+}
+
+func TestNewDomainThrottleDefaultsToMemory(t *testing.T) {
+	cfg := config.Config{
+		DomainThrottleBackend:      "memory",
+		DomainMaxConcurrentDefault: 2,
+		DomainAdaptiveThrottle:     true,
+		DomainTempFailThreshold:    0.3,
+		DomainPenaltyMax:           time.Second,
+	}
+
+	th, err := newDomainThrottle(cfg)
+	if err != nil {
+		t.Fatalf("newDomainThrottle() error: %v", err)
+	}
+	if _, ok := th.(*localDomainThrottle); !ok {
+		t.Fatalf("expected localDomainThrottle, got %T", th)
+	}
+}
+
+func TestNewDomainThrottleRedisRequiresAddrs(t *testing.T) {
+	cfg := config.Config{
+		DomainThrottleBackend:      "redis",
+		DomainMaxConcurrentDefault: 2,
+		DomainAdaptiveThrottle:     true,
+		DomainTempFailThreshold:    0.3,
+		DomainPenaltyMax:           time.Second,
+	}
+
+	_, err := newDomainThrottle(cfg)
+	if err == nil {
+		t.Fatal("expected redis backend error")
+	}
+	if !strings.Contains(err.Error(), "requires at least one address") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

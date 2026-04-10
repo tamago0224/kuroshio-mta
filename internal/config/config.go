@@ -11,173 +11,185 @@ import (
 )
 
 type Config struct {
-	ListenAddr                 string
-	SubmissionAddr             string
-	SubmissionAuth             bool
-	SubmissionUsers            string
-	SubmissionSenderID         bool
-	LogLevel                   string
-	ObservabilityAddr          string
-	OTELEnabled                bool
-	OTELServiceName            string
-	OTELServiceVersion         string
-	OTELExporterOTLPEndpoint   string
-	OTELExporterOTLPInsecure   bool
-	OTELTraceSampleRatio       float64
-	AdminAddr                  string
-	AdminTokens                string
-	Hostname                   string
-	QueueDir                   string
-	QueueBackend               string
-	KafkaBrokers               []string
-	KafkaConsumerGroup         string
-	KafkaTopicInbound          string
-	KafkaTopicRetry            string
-	KafkaTopicDLQ              string
-	KafkaTopicSent             string
-	TLSCertFile                string
-	TLSKeyFile                 string
-	IngressRateLimit           int
-	RateLimitRules             string
-	RateLimitBackend           string
-	RateLimitRedisAddrs        []string
-	RateLimitRedisUsername     string
-	RateLimitRedisPassword     string
-	RateLimitRedisDB           int
-	RateLimitRedisKeyPrefix    string
-	DNSBLZones                 []string
-	DNSBLCacheTTL              time.Duration
-	DANEDNSSECTrustModel       string
-	MTASTSCacheTTL             time.Duration
-	MTASTSFetchTimeout         time.Duration
-	DeliveryMode               string
-	SpoolBackend               string
-	LocalSpoolDir              string
-	SpoolS3Bucket              string
-	SpoolS3Prefix              string
-	SpoolS3Endpoint            string
-	SpoolS3Region              string
-	SpoolS3AccessKey           string
-	SpoolS3SecretKey           string
-	SpoolS3ForcePathStyle      bool
-	SpoolS3UseTLS              bool
-	RelayHost                  string
-	RelayPort                  int
-	RelayRequireTLS            bool
-	MaxMessageBytes            int64
-	WorkerCount                int
-	MaxAttempts                int
-	MaxRetryAge                time.Duration
-	RetrySchedule              []time.Duration
-	ScanInterval               time.Duration
-	DialTimeout                time.Duration
-	SendTimeout                time.Duration
-	DKIMSignDomain             string
-	DKIMSignSelector           string
-	DKIMPrivateKeyFile         string
-	DKIMSignHeaders            string
-	ARCFailurePolicy           string
-	SPFHeloPolicy              string
-	SPFMailFromPolicy          string
-	DomainMaxConcurrentDefault int
-	DomainMaxConcurrentRules   string
-	DomainAdaptiveThrottle     bool
-	DomainTempFailThreshold    float64
-	DomainPenaltyMax           time.Duration
-	DataRetentionSent          time.Duration
-	DataRetentionDLQ           time.Duration
-	DataRetentionPoison        time.Duration
-	RetentionSweepInterval     time.Duration
-	ReputationStartDate        string
-	ReputationWarmupRules      string
-	ReputationBounceThreshold  float64
-	ReputationComplaintThresh  float64
-	ReputationMinSamples       int
+	ListenAddr                   string
+	SubmissionAddr               string
+	SubmissionAuth               bool
+	SubmissionUsers              string
+	SubmissionSenderID           bool
+	LogLevel                     string
+	ObservabilityAddr            string
+	OTELEnabled                  bool
+	OTELServiceName              string
+	OTELServiceVersion           string
+	OTELExporterOTLPEndpoint     string
+	OTELExporterOTLPInsecure     bool
+	OTELTraceSampleRatio         float64
+	AdminAddr                    string
+	AdminTokens                  string
+	Hostname                     string
+	QueueDir                     string
+	QueueBackend                 string
+	KafkaBrokers                 []string
+	KafkaConsumerGroup           string
+	KafkaTopicInbound            string
+	KafkaTopicRetry              string
+	KafkaTopicDLQ                string
+	KafkaTopicSent               string
+	TLSCertFile                  string
+	TLSKeyFile                   string
+	IngressRateLimit             int
+	RateLimitRules               string
+	RateLimitBackend             string
+	RateLimitRedisAddrs          []string
+	RateLimitRedisUsername       string
+	RateLimitRedisPassword       string
+	RateLimitRedisDB             int
+	RateLimitRedisKeyPrefix      string
+	DNSBLZones                   []string
+	DNSBLCacheTTL                time.Duration
+	DANEDNSSECTrustModel         string
+	MTASTSCacheTTL               time.Duration
+	MTASTSFetchTimeout           time.Duration
+	DeliveryMode                 string
+	SpoolBackend                 string
+	LocalSpoolDir                string
+	SpoolS3Bucket                string
+	SpoolS3Prefix                string
+	SpoolS3Endpoint              string
+	SpoolS3Region                string
+	SpoolS3AccessKey             string
+	SpoolS3SecretKey             string
+	SpoolS3ForcePathStyle        bool
+	SpoolS3UseTLS                bool
+	RelayHost                    string
+	RelayPort                    int
+	RelayRequireTLS              bool
+	MaxMessageBytes              int64
+	WorkerCount                  int
+	MaxAttempts                  int
+	MaxRetryAge                  time.Duration
+	RetrySchedule                []time.Duration
+	ScanInterval                 time.Duration
+	DialTimeout                  time.Duration
+	SendTimeout                  time.Duration
+	DKIMSignDomain               string
+	DKIMSignSelector             string
+	DKIMPrivateKeyFile           string
+	DKIMSignHeaders              string
+	ARCFailurePolicy             string
+	SPFHeloPolicy                string
+	SPFMailFromPolicy            string
+	DomainMaxConcurrentDefault   int
+	DomainMaxConcurrentRules     string
+	DomainThrottleBackend        string
+	DomainThrottleRedisAddrs     []string
+	DomainThrottleRedisUsername  string
+	DomainThrottleRedisPassword  string
+	DomainThrottleRedisDB        int
+	DomainThrottleRedisKeyPrefix string
+	DomainAdaptiveThrottle       bool
+	DomainTempFailThreshold      float64
+	DomainPenaltyMax             time.Duration
+	DataRetentionSent            time.Duration
+	DataRetentionDLQ             time.Duration
+	DataRetentionPoison          time.Duration
+	RetentionSweepInterval       time.Duration
+	ReputationStartDate          string
+	ReputationWarmupRules        string
+	ReputationBounceThreshold    float64
+	ReputationComplaintThresh    float64
+	ReputationMinSamples         int
 }
 
 type yamlConfig struct {
-	ListenAddr                 *string  `yaml:"listen_addr"`
-	SubmissionAddr             *string  `yaml:"submission_addr"`
-	SubmissionAuth             *bool    `yaml:"submission_auth_required"`
-	SubmissionUsers            *string  `yaml:"submission_users"`
-	SubmissionSenderID         *bool    `yaml:"submission_enforce_sender_identity"`
-	LogLevel                   *string  `yaml:"log_level"`
-	ObservabilityAddr          *string  `yaml:"observability_addr"`
-	OTELEnabled                *bool    `yaml:"otel_enabled"`
-	OTELServiceName            *string  `yaml:"otel_service_name"`
-	OTELServiceVersion         *string  `yaml:"otel_service_version"`
-	OTELExporterOTLPEndpoint   *string  `yaml:"otel_exporter_otlp_endpoint"`
-	OTELExporterOTLPInsecure   *bool    `yaml:"otel_exporter_otlp_insecure"`
-	OTELTraceSampleRatio       *float64 `yaml:"otel_trace_sample_ratio"`
-	AdminAddr                  *string  `yaml:"admin_addr"`
-	AdminTokens                *string  `yaml:"admin_tokens"`
-	Hostname                   *string  `yaml:"hostname"`
-	QueueDir                   *string  `yaml:"queue_dir"`
-	QueueBackend               *string  `yaml:"queue_backend"`
-	KafkaBrokers               []string `yaml:"kafka_brokers"`
-	KafkaConsumerGroup         *string  `yaml:"kafka_consumer_group"`
-	KafkaTopicInbound          *string  `yaml:"kafka_topic_inbound"`
-	KafkaTopicRetry            *string  `yaml:"kafka_topic_retry"`
-	KafkaTopicDLQ              *string  `yaml:"kafka_topic_dlq"`
-	KafkaTopicSent             *string  `yaml:"kafka_topic_sent"`
-	TLSCertFile                *string  `yaml:"tls_cert_file"`
-	TLSKeyFile                 *string  `yaml:"tls_key_file"`
-	IngressRateLimit           *int     `yaml:"ingress_rate_limit_per_minute"`
-	RateLimitRules             *string  `yaml:"rate_limit_rules"`
-	RateLimitBackend           *string  `yaml:"rate_limit_backend"`
-	RateLimitRedisAddrs        []string `yaml:"rate_limit_redis_addrs"`
-	RateLimitRedisUsername     *string  `yaml:"rate_limit_redis_username"`
-	RateLimitRedisPassword     *string  `yaml:"rate_limit_redis_password"`
-	RateLimitRedisDB           *int     `yaml:"rate_limit_redis_db"`
-	RateLimitRedisKeyPrefix    *string  `yaml:"rate_limit_redis_key_prefix"`
-	DNSBLZones                 []string `yaml:"dnsbl_zones"`
-	DNSBLCacheTTL              *string  `yaml:"dnsbl_cache_ttl"`
-	DANEDNSSECTrustModel       *string  `yaml:"dane_dnssec_trust_model"`
-	MTASTSCacheTTL             *string  `yaml:"mta_sts_cache_ttl"`
-	MTASTSFetchTimeout         *string  `yaml:"mta_sts_fetch_timeout"`
-	DeliveryMode               *string  `yaml:"delivery_mode"`
-	SpoolBackend               *string  `yaml:"spool_backend"`
-	LocalSpoolDir              *string  `yaml:"local_spool_dir"`
-	SpoolS3Bucket              *string  `yaml:"spool_s3_bucket"`
-	SpoolS3Prefix              *string  `yaml:"spool_s3_prefix"`
-	SpoolS3Endpoint            *string  `yaml:"spool_s3_endpoint"`
-	SpoolS3Region              *string  `yaml:"spool_s3_region"`
-	SpoolS3AccessKey           *string  `yaml:"spool_s3_access_key"`
-	SpoolS3SecretKey           *string  `yaml:"spool_s3_secret_key"`
-	SpoolS3ForcePathStyle      *bool    `yaml:"spool_s3_force_path_style"`
-	SpoolS3UseTLS              *bool    `yaml:"spool_s3_use_tls"`
-	RelayHost                  *string  `yaml:"relay_host"`
-	RelayPort                  *int     `yaml:"relay_port"`
-	RelayRequireTLS            *bool    `yaml:"relay_require_tls"`
-	MaxMessageBytes            *int64   `yaml:"max_message_bytes"`
-	WorkerCount                *int     `yaml:"worker_count"`
-	MaxAttempts                *int     `yaml:"max_attempts"`
-	MaxRetryAge                *string  `yaml:"max_retry_age"`
-	RetrySchedule              []string `yaml:"retry_schedule"`
-	ScanInterval               *string  `yaml:"scan_interval"`
-	DialTimeout                *string  `yaml:"dial_timeout"`
-	SendTimeout                *string  `yaml:"send_timeout"`
-	DKIMSignDomain             *string  `yaml:"dkim_sign_domain"`
-	DKIMSignSelector           *string  `yaml:"dkim_sign_selector"`
-	DKIMPrivateKeyFile         *string  `yaml:"dkim_private_key_file"`
-	DKIMSignHeaders            *string  `yaml:"dkim_sign_headers"`
-	ARCFailurePolicy           *string  `yaml:"arc_failure_policy"`
-	SPFHeloPolicy              *string  `yaml:"spf_helo_policy"`
-	SPFMailFromPolicy          *string  `yaml:"spf_mailfrom_policy"`
-	DomainMaxConcurrentDefault *int     `yaml:"domain_max_concurrent_default"`
-	DomainMaxConcurrentRules   *string  `yaml:"domain_max_concurrent_rules"`
-	DomainAdaptiveThrottle     *bool    `yaml:"domain_adaptive_throttle"`
-	DomainTempFailThreshold    *float64 `yaml:"domain_tempfail_threshold"`
-	DomainPenaltyMax           *string  `yaml:"domain_penalty_max"`
-	DataRetentionSent          *string  `yaml:"data_retention_sent"`
-	DataRetentionDLQ           *string  `yaml:"data_retention_dlq"`
-	DataRetentionPoison        *string  `yaml:"data_retention_poison"`
-	RetentionSweepInterval     *string  `yaml:"retention_sweep_interval"`
-	ReputationStartDate        *string  `yaml:"reputation_start_date"`
-	ReputationWarmupRules      *string  `yaml:"reputation_warmup_rules"`
-	ReputationBounceThreshold  *float64 `yaml:"reputation_bounce_threshold"`
-	ReputationComplaintThresh  *float64 `yaml:"reputation_complaint_threshold"`
-	ReputationMinSamples       *int     `yaml:"reputation_min_samples"`
+	ListenAddr                   *string  `yaml:"listen_addr"`
+	SubmissionAddr               *string  `yaml:"submission_addr"`
+	SubmissionAuth               *bool    `yaml:"submission_auth_required"`
+	SubmissionUsers              *string  `yaml:"submission_users"`
+	SubmissionSenderID           *bool    `yaml:"submission_enforce_sender_identity"`
+	LogLevel                     *string  `yaml:"log_level"`
+	ObservabilityAddr            *string  `yaml:"observability_addr"`
+	OTELEnabled                  *bool    `yaml:"otel_enabled"`
+	OTELServiceName              *string  `yaml:"otel_service_name"`
+	OTELServiceVersion           *string  `yaml:"otel_service_version"`
+	OTELExporterOTLPEndpoint     *string  `yaml:"otel_exporter_otlp_endpoint"`
+	OTELExporterOTLPInsecure     *bool    `yaml:"otel_exporter_otlp_insecure"`
+	OTELTraceSampleRatio         *float64 `yaml:"otel_trace_sample_ratio"`
+	AdminAddr                    *string  `yaml:"admin_addr"`
+	AdminTokens                  *string  `yaml:"admin_tokens"`
+	Hostname                     *string  `yaml:"hostname"`
+	QueueDir                     *string  `yaml:"queue_dir"`
+	QueueBackend                 *string  `yaml:"queue_backend"`
+	KafkaBrokers                 []string `yaml:"kafka_brokers"`
+	KafkaConsumerGroup           *string  `yaml:"kafka_consumer_group"`
+	KafkaTopicInbound            *string  `yaml:"kafka_topic_inbound"`
+	KafkaTopicRetry              *string  `yaml:"kafka_topic_retry"`
+	KafkaTopicDLQ                *string  `yaml:"kafka_topic_dlq"`
+	KafkaTopicSent               *string  `yaml:"kafka_topic_sent"`
+	TLSCertFile                  *string  `yaml:"tls_cert_file"`
+	TLSKeyFile                   *string  `yaml:"tls_key_file"`
+	IngressRateLimit             *int     `yaml:"ingress_rate_limit_per_minute"`
+	RateLimitRules               *string  `yaml:"rate_limit_rules"`
+	RateLimitBackend             *string  `yaml:"rate_limit_backend"`
+	RateLimitRedisAddrs          []string `yaml:"rate_limit_redis_addrs"`
+	RateLimitRedisUsername       *string  `yaml:"rate_limit_redis_username"`
+	RateLimitRedisPassword       *string  `yaml:"rate_limit_redis_password"`
+	RateLimitRedisDB             *int     `yaml:"rate_limit_redis_db"`
+	RateLimitRedisKeyPrefix      *string  `yaml:"rate_limit_redis_key_prefix"`
+	DNSBLZones                   []string `yaml:"dnsbl_zones"`
+	DNSBLCacheTTL                *string  `yaml:"dnsbl_cache_ttl"`
+	DANEDNSSECTrustModel         *string  `yaml:"dane_dnssec_trust_model"`
+	MTASTSCacheTTL               *string  `yaml:"mta_sts_cache_ttl"`
+	MTASTSFetchTimeout           *string  `yaml:"mta_sts_fetch_timeout"`
+	DeliveryMode                 *string  `yaml:"delivery_mode"`
+	SpoolBackend                 *string  `yaml:"spool_backend"`
+	LocalSpoolDir                *string  `yaml:"local_spool_dir"`
+	SpoolS3Bucket                *string  `yaml:"spool_s3_bucket"`
+	SpoolS3Prefix                *string  `yaml:"spool_s3_prefix"`
+	SpoolS3Endpoint              *string  `yaml:"spool_s3_endpoint"`
+	SpoolS3Region                *string  `yaml:"spool_s3_region"`
+	SpoolS3AccessKey             *string  `yaml:"spool_s3_access_key"`
+	SpoolS3SecretKey             *string  `yaml:"spool_s3_secret_key"`
+	SpoolS3ForcePathStyle        *bool    `yaml:"spool_s3_force_path_style"`
+	SpoolS3UseTLS                *bool    `yaml:"spool_s3_use_tls"`
+	RelayHost                    *string  `yaml:"relay_host"`
+	RelayPort                    *int     `yaml:"relay_port"`
+	RelayRequireTLS              *bool    `yaml:"relay_require_tls"`
+	MaxMessageBytes              *int64   `yaml:"max_message_bytes"`
+	WorkerCount                  *int     `yaml:"worker_count"`
+	MaxAttempts                  *int     `yaml:"max_attempts"`
+	MaxRetryAge                  *string  `yaml:"max_retry_age"`
+	RetrySchedule                []string `yaml:"retry_schedule"`
+	ScanInterval                 *string  `yaml:"scan_interval"`
+	DialTimeout                  *string  `yaml:"dial_timeout"`
+	SendTimeout                  *string  `yaml:"send_timeout"`
+	DKIMSignDomain               *string  `yaml:"dkim_sign_domain"`
+	DKIMSignSelector             *string  `yaml:"dkim_sign_selector"`
+	DKIMPrivateKeyFile           *string  `yaml:"dkim_private_key_file"`
+	DKIMSignHeaders              *string  `yaml:"dkim_sign_headers"`
+	ARCFailurePolicy             *string  `yaml:"arc_failure_policy"`
+	SPFHeloPolicy                *string  `yaml:"spf_helo_policy"`
+	SPFMailFromPolicy            *string  `yaml:"spf_mailfrom_policy"`
+	DomainMaxConcurrentDefault   *int     `yaml:"domain_max_concurrent_default"`
+	DomainMaxConcurrentRules     *string  `yaml:"domain_max_concurrent_rules"`
+	DomainThrottleBackend        *string  `yaml:"domain_throttle_backend"`
+	DomainThrottleRedisAddrs     []string `yaml:"domain_throttle_redis_addrs"`
+	DomainThrottleRedisUsername  *string  `yaml:"domain_throttle_redis_username"`
+	DomainThrottleRedisPassword  *string  `yaml:"domain_throttle_redis_password"`
+	DomainThrottleRedisDB        *int     `yaml:"domain_throttle_redis_db"`
+	DomainThrottleRedisKeyPrefix *string  `yaml:"domain_throttle_redis_key_prefix"`
+	DomainAdaptiveThrottle       *bool    `yaml:"domain_adaptive_throttle"`
+	DomainTempFailThreshold      *float64 `yaml:"domain_tempfail_threshold"`
+	DomainPenaltyMax             *string  `yaml:"domain_penalty_max"`
+	DataRetentionSent            *string  `yaml:"data_retention_sent"`
+	DataRetentionDLQ             *string  `yaml:"data_retention_dlq"`
+	DataRetentionPoison          *string  `yaml:"data_retention_poison"`
+	RetentionSweepInterval       *string  `yaml:"retention_sweep_interval"`
+	ReputationStartDate          *string  `yaml:"reputation_start_date"`
+	ReputationWarmupRules        *string  `yaml:"reputation_warmup_rules"`
+	ReputationBounceThreshold    *float64 `yaml:"reputation_bounce_threshold"`
+	ReputationComplaintThresh    *float64 `yaml:"reputation_complaint_threshold"`
+	ReputationMinSamples         *int     `yaml:"reputation_min_samples"`
 }
 
 func Load() (Config, error) {
@@ -268,6 +280,12 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.SPFMailFromPolicy = envEnum("MTA_SPF_MAILFROM_POLICY", cfg.SPFMailFromPolicy, []string{"off", "advisory", "enforce"})
 	cfg.DomainMaxConcurrentDefault = envInt("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", cfg.DomainMaxConcurrentDefault)
 	cfg.DomainMaxConcurrentRules = env("MTA_DOMAIN_MAX_CONCURRENT_RULES", cfg.DomainMaxConcurrentRules)
+	cfg.DomainThrottleBackend = envEnum("MTA_DOMAIN_THROTTLE_BACKEND", cfg.DomainThrottleBackend, []string{"memory", "redis"})
+	cfg.DomainThrottleRedisAddrs = envCSV("MTA_DOMAIN_THROTTLE_REDIS_ADDRS", cfg.DomainThrottleRedisAddrs)
+	cfg.DomainThrottleRedisUsername = env("MTA_DOMAIN_THROTTLE_REDIS_USERNAME", cfg.DomainThrottleRedisUsername)
+	cfg.DomainThrottleRedisPassword = env("MTA_DOMAIN_THROTTLE_REDIS_PASSWORD", cfg.DomainThrottleRedisPassword)
+	cfg.DomainThrottleRedisDB = envInt("MTA_DOMAIN_THROTTLE_REDIS_DB", cfg.DomainThrottleRedisDB)
+	cfg.DomainThrottleRedisKeyPrefix = env("MTA_DOMAIN_THROTTLE_REDIS_KEY_PREFIX", cfg.DomainThrottleRedisKeyPrefix)
 	cfg.DomainAdaptiveThrottle = envBool("MTA_DOMAIN_ADAPTIVE_THROTTLE", cfg.DomainAdaptiveThrottle)
 	cfg.DomainTempFailThreshold = envFloat64("MTA_DOMAIN_TEMPFAIL_THRESHOLD", cfg.DomainTempFailThreshold)
 	cfg.DomainPenaltyMax = envDuration("MTA_DOMAIN_PENALTY_MAX", cfg.DomainPenaltyMax)
@@ -286,82 +304,88 @@ func LoadWithPath(explicitPath string) (Config, error) {
 
 func defaultConfig() Config {
 	return Config{
-		ListenAddr:                 ":2525",
-		SubmissionAddr:             "",
-		SubmissionAuth:             true,
-		SubmissionUsers:            "",
-		SubmissionSenderID:         true,
-		LogLevel:                   "info",
-		ObservabilityAddr:          ":9090",
-		OTELEnabled:                false,
-		OTELServiceName:            "kuroshio-mta",
-		OTELServiceVersion:         "",
-		OTELExporterOTLPEndpoint:   "",
-		OTELExporterOTLPInsecure:   false,
-		OTELTraceSampleRatio:       1.0,
-		AdminAddr:                  "",
-		AdminTokens:                "",
-		Hostname:                   "kuroshio.local",
-		QueueDir:                   "./var/queue",
-		QueueBackend:               "local",
-		KafkaBrokers:               []string{"localhost:9092"},
-		KafkaConsumerGroup:         "kuroshio-mta",
-		KafkaTopicInbound:          "mail.inbound",
-		KafkaTopicRetry:            "mail.retry",
-		KafkaTopicDLQ:              "mail.dlq",
-		KafkaTopicSent:             "mail.sent",
-		TLSCertFile:                "",
-		TLSKeyFile:                 "",
-		IngressRateLimit:           100,
-		RateLimitRules:             "",
-		RateLimitBackend:           "memory",
-		RateLimitRedisAddrs:        []string{"localhost:6379"},
-		RateLimitRedisUsername:     "",
-		RateLimitRedisPassword:     "",
-		RateLimitRedisDB:           0,
-		RateLimitRedisKeyPrefix:    "kuroshio:ratelimit",
-		DNSBLZones:                 []string{},
-		DNSBLCacheTTL:              5 * time.Minute,
-		DANEDNSSECTrustModel:       "ad_required",
-		MTASTSCacheTTL:             time.Hour,
-		MTASTSFetchTimeout:         5 * time.Second,
-		DeliveryMode:               "mx",
-		SpoolBackend:               "local",
-		LocalSpoolDir:              "./var/spool",
-		SpoolS3Region:              "us-east-1",
-		SpoolS3UseTLS:              true,
-		RelayHost:                  "",
-		RelayPort:                  25,
-		RelayRequireTLS:            false,
-		MaxMessageBytes:            10 * 1024 * 1024,
-		WorkerCount:                4,
-		MaxAttempts:                12,
-		MaxRetryAge:                5 * 24 * time.Hour,
-		RetrySchedule:              []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
-		ScanInterval:               5 * time.Second,
-		DialTimeout:                8 * time.Second,
-		SendTimeout:                20 * time.Second,
-		DKIMSignDomain:             "",
-		DKIMSignSelector:           "",
-		DKIMPrivateKeyFile:         "",
-		DKIMSignHeaders:            "from:to:subject:date:message-id",
-		ARCFailurePolicy:           "accept",
-		SPFHeloPolicy:              "advisory",
-		SPFMailFromPolicy:          "advisory",
-		DomainMaxConcurrentDefault: 8,
-		DomainMaxConcurrentRules:   "",
-		DomainAdaptiveThrottle:     true,
-		DomainTempFailThreshold:    0.3,
-		DomainPenaltyMax:           5 * time.Second,
-		DataRetentionSent:          30 * 24 * time.Hour,
-		DataRetentionDLQ:           90 * 24 * time.Hour,
-		DataRetentionPoison:        180 * 24 * time.Hour,
-		RetentionSweepInterval:     time.Hour,
-		ReputationStartDate:        "",
-		ReputationWarmupRules:      "0:100,7:1000,14:5000",
-		ReputationBounceThreshold:  0.05,
-		ReputationComplaintThresh:  0.001,
-		ReputationMinSamples:       100,
+		ListenAddr:                   ":2525",
+		SubmissionAddr:               "",
+		SubmissionAuth:               true,
+		SubmissionUsers:              "",
+		SubmissionSenderID:           true,
+		LogLevel:                     "info",
+		ObservabilityAddr:            ":9090",
+		OTELEnabled:                  false,
+		OTELServiceName:              "kuroshio-mta",
+		OTELServiceVersion:           "",
+		OTELExporterOTLPEndpoint:     "",
+		OTELExporterOTLPInsecure:     false,
+		OTELTraceSampleRatio:         1.0,
+		AdminAddr:                    "",
+		AdminTokens:                  "",
+		Hostname:                     "kuroshio.local",
+		QueueDir:                     "./var/queue",
+		QueueBackend:                 "local",
+		KafkaBrokers:                 []string{"localhost:9092"},
+		KafkaConsumerGroup:           "kuroshio-mta",
+		KafkaTopicInbound:            "mail.inbound",
+		KafkaTopicRetry:              "mail.retry",
+		KafkaTopicDLQ:                "mail.dlq",
+		KafkaTopicSent:               "mail.sent",
+		TLSCertFile:                  "",
+		TLSKeyFile:                   "",
+		IngressRateLimit:             100,
+		RateLimitRules:               "",
+		RateLimitBackend:             "memory",
+		RateLimitRedisAddrs:          []string{"localhost:6379"},
+		RateLimitRedisUsername:       "",
+		RateLimitRedisPassword:       "",
+		RateLimitRedisDB:             0,
+		RateLimitRedisKeyPrefix:      "kuroshio:ratelimit",
+		DNSBLZones:                   []string{},
+		DNSBLCacheTTL:                5 * time.Minute,
+		DANEDNSSECTrustModel:         "ad_required",
+		MTASTSCacheTTL:               time.Hour,
+		MTASTSFetchTimeout:           5 * time.Second,
+		DeliveryMode:                 "mx",
+		SpoolBackend:                 "local",
+		LocalSpoolDir:                "./var/spool",
+		SpoolS3Region:                "us-east-1",
+		SpoolS3UseTLS:                true,
+		RelayHost:                    "",
+		RelayPort:                    25,
+		RelayRequireTLS:              false,
+		MaxMessageBytes:              10 * 1024 * 1024,
+		WorkerCount:                  4,
+		MaxAttempts:                  12,
+		MaxRetryAge:                  5 * 24 * time.Hour,
+		RetrySchedule:                []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
+		ScanInterval:                 5 * time.Second,
+		DialTimeout:                  8 * time.Second,
+		SendTimeout:                  20 * time.Second,
+		DKIMSignDomain:               "",
+		DKIMSignSelector:             "",
+		DKIMPrivateKeyFile:           "",
+		DKIMSignHeaders:              "from:to:subject:date:message-id",
+		ARCFailurePolicy:             "accept",
+		SPFHeloPolicy:                "advisory",
+		SPFMailFromPolicy:            "advisory",
+		DomainMaxConcurrentDefault:   8,
+		DomainMaxConcurrentRules:     "",
+		DomainThrottleBackend:        "memory",
+		DomainThrottleRedisAddrs:     []string{"localhost:6379"},
+		DomainThrottleRedisUsername:  "",
+		DomainThrottleRedisPassword:  "",
+		DomainThrottleRedisDB:        0,
+		DomainThrottleRedisKeyPrefix: "kuroshio:domainthrottle",
+		DomainAdaptiveThrottle:       true,
+		DomainTempFailThreshold:      0.3,
+		DomainPenaltyMax:             5 * time.Second,
+		DataRetentionSent:            30 * 24 * time.Hour,
+		DataRetentionDLQ:             90 * 24 * time.Hour,
+		DataRetentionPoison:          180 * 24 * time.Hour,
+		RetentionSweepInterval:       time.Hour,
+		ReputationStartDate:          "",
+		ReputationWarmupRules:        "0:100,7:1000,14:5000",
+		ReputationBounceThreshold:    0.05,
+		ReputationComplaintThresh:    0.001,
+		ReputationMinSamples:         100,
 	}
 }
 
@@ -631,6 +655,24 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.DomainMaxConcurrentRules != nil {
 		cfg.DomainMaxConcurrentRules = *raw.DomainMaxConcurrentRules
+	}
+	if raw.DomainThrottleBackend != nil {
+		cfg.DomainThrottleBackend = normalizeEnum(*raw.DomainThrottleBackend, cfg.DomainThrottleBackend, []string{"memory", "redis"})
+	}
+	if raw.DomainThrottleRedisAddrs != nil {
+		cfg.DomainThrottleRedisAddrs = append([]string(nil), raw.DomainThrottleRedisAddrs...)
+	}
+	if raw.DomainThrottleRedisUsername != nil {
+		cfg.DomainThrottleRedisUsername = *raw.DomainThrottleRedisUsername
+	}
+	if raw.DomainThrottleRedisPassword != nil {
+		cfg.DomainThrottleRedisPassword = *raw.DomainThrottleRedisPassword
+	}
+	if raw.DomainThrottleRedisDB != nil {
+		cfg.DomainThrottleRedisDB = *raw.DomainThrottleRedisDB
+	}
+	if raw.DomainThrottleRedisKeyPrefix != nil {
+		cfg.DomainThrottleRedisKeyPrefix = *raw.DomainThrottleRedisKeyPrefix
 	}
 	if raw.DomainAdaptiveThrottle != nil {
 		cfg.DomainAdaptiveThrottle = *raw.DomainAdaptiveThrottle

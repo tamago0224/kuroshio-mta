@@ -29,22 +29,26 @@ type Dispatcher struct {
 	cl       *delivery.Client
 	sup      *bounce.SuppressionStore
 	m        *observability.Metrics
-	throttle *domainThrottle
+	throttle domainThrottle
 	rep      *reputation.Tracker
 }
 
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
 
-func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics, rep *reputation.Tracker) *Dispatcher {
+func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics, rep *reputation.Tracker) (*Dispatcher, error) {
+	throttle, err := newDomainThrottle(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Dispatcher{
 		cfg:      cfg,
 		queue:    q,
 		cl:       cl,
 		sup:      sup,
 		m:        metrics,
-		throttle: newDomainThrottle(cfg.DomainMaxConcurrentDefault, parseDomainRules(cfg.DomainMaxConcurrentRules), cfg.DomainAdaptiveThrottle, cfg.DomainTempFailThreshold, cfg.DomainPenaltyMax),
+		throttle: throttle,
 		rep:      rep,
-	}
+	}, nil
 }
 
 func (d *Dispatcher) Run(ctx context.Context) error {
