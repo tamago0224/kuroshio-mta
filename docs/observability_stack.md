@@ -65,6 +65,7 @@ trace では、少なくとも次の流れを追えます。
 - delivery の MX / DANE / MTA-STS / SMTP 試行
 
 実装側の signal については [Observability](/observability) を参照してください。
+signal ごとの役割分担と今後の方針は [Observability Signals](/observability_signals) にまとめています。
 
 ### `Alloy`
 

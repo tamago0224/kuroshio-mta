@@ -6,6 +6,8 @@
 
 Alloy / Tempo / Loki / Grafana を含む stack 全体の見取り図は
 [Observability Stack](/observability_stack) を参照してください。
+signal ごとの役割分担と今後の方針は
+[Observability Signals](/observability_signals) にまとめています。
 
 ## 現在あるもの
 
@@ -118,6 +120,7 @@ tutorial から試すなら次を入口にしてください。
 
 - [Configuration](/configuration)
 - [Observability Stack](/observability_stack)
+- [Observability Signals](/observability_signals)
 - [SLO Delivery](/runbooks/slo_delivery)
 - [SLO Retry](/runbooks/slo_retry)
 - [HA Reference](/architecture/ha_reference)
