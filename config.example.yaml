@@ -12,7 +12,7 @@ otel_exporter_otlp_endpoint: http://localhost:4318/v1/traces
 otel_exporter_otlp_insecure: true
 otel_trace_sample_ratio: 1.0
 admin_addr: ":8080"
-admin_tokens: "viewer-token:viewer,operator-token:operator"
+admin_tokens: "sha256=d036bd6d01a1cae081d39a2f8dab751dc042de814fd60df31fcb553170950f29:viewer,sha256=0850123315d21ab90f4f7236408a52ef6dbd6a02a6550e5c10dc73f4d993680e:operator"
 hostname: kuroshio.local
 queue_dir: ./var/queue
 queue_backend: local

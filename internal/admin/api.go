@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -32,7 +35,7 @@ type API struct {
 	suppressions *bounce.SuppressionStore
 	queue        queueManager
 	reputation   *reputation.Tracker
-	tokens       map[string]role
+	tokens       tokenStore
 	now          func() time.Time
 }
 
@@ -56,26 +59,47 @@ func (a *API) Handler() http.Handler {
 	return mux
 }
 
-func parseTokens(v string) map[string]role {
-	out := map[string]role{}
+type tokenStore struct {
+	plain  map[string]role
+	hashed []hashedToken
+}
+
+type hashedToken struct {
+	sum  [32]byte
+	role role
+}
+
+func parseTokens(v string) tokenStore {
+	out := tokenStore{plain: map[string]role{}}
 	for _, part := range strings.Split(v, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		fields := strings.SplitN(part, ":", 2)
-		if len(fields) != 2 {
+		tokenSpec, roleSpec, ok := strings.Cut(part, ":")
+		if !ok {
 			continue
 		}
-		token := strings.TrimSpace(fields[0])
-		r := role(strings.ToLower(strings.TrimSpace(fields[1])))
-		if token == "" {
-			continue
-		}
+		tokenSpec = strings.TrimSpace(tokenSpec)
+		r := role(strings.ToLower(strings.TrimSpace(roleSpec)))
 		switch r {
 		case roleViewer, roleOperator, roleAdmin:
-			out[token] = r
+		default:
+			continue
 		}
+		if tokenSpec == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(tokenSpec), "sha256=") {
+			raw := strings.TrimSpace(tokenSpec[len("sha256="):])
+			sum, ok := decodeSHA256Hex(raw)
+			if !ok {
+				continue
+			}
+			out.hashed = append(out.hashed, hashedToken{sum: sum, role: r})
+			continue
+		}
+		out.plain[tokenSpec] = r
 	}
 	return out
 }
@@ -87,12 +111,35 @@ func (a *API) authorize(w http.ResponseWriter, r *http.Request, min role) (role,
 		return "", false
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-	got, ok := a.tokens[token]
+	got, ok := a.tokens.lookup(token)
 	if !ok || !roleAllowed(got, min) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return "", false
 	}
 	return got, true
+}
+
+func (s tokenStore) lookup(token string) (role, bool) {
+	if got, ok := s.plain[token]; ok {
+		return got, true
+	}
+	sum := sha256.Sum256([]byte(token))
+	for _, hashed := range s.hashed {
+		if subtle.ConstantTimeCompare(sum[:], hashed.sum[:]) == 1 {
+			return hashed.role, true
+		}
+	}
+	return "", false
+}
+
+func decodeSHA256Hex(v string) ([32]byte, bool) {
+	var out [32]byte
+	b, err := hex.DecodeString(v)
+	if err != nil || len(b) != len(out) {
+		return out, false
+	}
+	copy(out[:], b)
+	return out, true
 }
 
 func roleAllowed(got, min role) bool {

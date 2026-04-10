@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +30,38 @@ func TestSuppressionsAPIRequiresBearerToken(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d want=%d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSuppressionsAPIAcceptsSHA256Token(t *testing.T) {
+	s, err := bounce.NewSuppressionStore(filepath.Join(t.TempDir(), "suppression.json"))
+	if err != nil {
+		t.Fatalf("new suppression store: %v", err)
+	}
+	token := "operator-token"
+	sum := sha256.Sum256([]byte(token))
+	api := NewAPI(s, nil, nil, "sha256="+hex.EncodeToString(sum[:])+":operator")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/suppressions", strings.NewReader(`{"address":"user@example.com","reason":"manual"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !s.IsSuppressed("user@example.com") {
+		t.Fatal("suppression was not added")
+	}
+}
+
+func TestParseTokensSkipsInvalidSHA256Spec(t *testing.T) {
+	store := parseTokens("sha256=not-hex:viewer,viewer-token:viewer")
+	if _, ok := store.lookup("viewer-token"); !ok {
+		t.Fatal("expected plain token to remain available")
+	}
+	if _, ok := store.lookup("not-hex"); ok {
+		t.Fatal("invalid sha256 token spec must be ignored")
 	}
 }
 
