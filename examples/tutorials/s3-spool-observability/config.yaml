@@ -1,0 +1,20 @@
+listen_addr: ":2525"
+hostname: "mx.example.test"
+queue_dir: "/var/lib/kuroshio/queue"
+queue_backend: "local"
+delivery_mode: "local_spool"
+spool_backend: "s3"
+spool_dir: "/var/lib/kuroshio/spool"
+
+spool_s3_bucket: "mail-spool"
+spool_s3_prefix: "tutorial"
+spool_s3_endpoint: "http://minio:9000"
+spool_s3_region: "us-east-1"
+spool_s3_access_key: "minioadmin"
+spool_s3_secret_key: "minioadmin"
+spool_s3_force_path_style: true
+spool_s3_use_tls: false
+
+observability_addr: ":9090"
+max_message_bytes: 1048576
+scan_interval: "2s"

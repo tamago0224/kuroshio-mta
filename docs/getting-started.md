@@ -50,6 +50,8 @@ compose ベースの tutorial 一覧は [Tutorials](/tutorials/) にまとめて
 
 - 最初の 1 通を受ける: [最小メールフローを試す](/tutorials/basic-mail-flow)
 - trace を見る: [OTEL Tracing を試す](/tutorials/otel-tracing)
+- S3-compatible backend を見る: [S3 Spool Backend を観測する](/tutorials/s3-spool-observability)
+- Kafka backend を見る: [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability)
 - 認証評価を見る: [メール認証を試す](/tutorials/mail-auth)
 - STARTTLS / MTA-STS / DANE を追う: [TLS 配送ポリシーを試す](/tutorials/tls-policy)
 - 受信制御を試す: [Rate Limit を試す](/tutorials/rate-limit)

@@ -1,0 +1,20 @@
+listen_addr: ":2525"
+hostname: "mx.example.test"
+queue_dir: "/var/lib/kuroshio/queue"
+queue_backend: "kafka"
+
+kafka_brokers:
+  - "kafka:9092"
+kafka_consumer_group: "kuroshio-tutorial"
+kafka_topic_inbound: "mail.inbound"
+kafka_topic_retry: "mail.retry"
+kafka_topic_dlq: "mail.dlq"
+kafka_topic_sent: "mail.sent"
+
+delivery_mode: "local_spool"
+spool_backend: "local"
+spool_dir: "/var/lib/kuroshio/spool"
+
+observability_addr: ":9090"
+max_message_bytes: 1048576
+scan_interval: "2s"

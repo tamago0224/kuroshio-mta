@@ -1,0 +1,51 @@
+services:
+  prepare-data:
+    image: busybox:1.37
+    command:
+      - sh
+      - -c
+      - mkdir -p /work/queue /work/spool && chown -R 65532:65532 /work/queue /work/spool
+    volumes:
+      - ./var:/work
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done
+        /usr/bin/mc mb --ignore-existing local/mail-spool
+
+  kuroshio:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    ports:
+      - "2525:2525"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/etc/kuroshio/config.yaml:ro
+      - ./var/queue:/var/lib/kuroshio/queue
+      - ./var/spool:/var/lib/kuroshio/spool
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
+      create-bucket:
+        condition: service_completed_successfully
+
+  smtp-client:
+    image: busybox:1.37
+    command: ["sh", "-c", "tail -f /dev/null"]

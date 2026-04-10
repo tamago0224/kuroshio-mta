@@ -90,6 +90,7 @@ outbound/m123_user_example.net.eml
 
 ## 関連ドキュメント
 
+- 実際に試す: [S3 Spool Backend を観測する](/tutorials/s3-spool-observability)
 - 全体設定: [Configuration](/configuration)
 - 起動手順: [Getting Started](/getting-started)
 - 今後の設計背景: [Spec](/spec)
