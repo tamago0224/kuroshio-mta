@@ -144,8 +144,10 @@ func newRedisDomainThrottle(cfg redisDomainThrottleConfig) (domainThrottle, erro
 	}, nil
 }
 
-func (d *redisDomainThrottle) acquire(domain string) func() {
+func (d *redisDomainThrottle) acquire(domain string) domainThrottleLease {
+	started := time.Now()
 	domain = strings.ToLower(strings.TrimSpace(domain))
+	backendError := false
 	if p := d.currentPenalty(domain); p > 0 {
 		time.Sleep(p)
 	}
@@ -161,32 +163,43 @@ func (d *redisDomainThrottle) acquire(domain string) func() {
 	for {
 		token, err := d.tryAcquire(domain, limit)
 		if err != nil {
+			backendError = true
 			slog.Warn("domain throttle backend error", "component", "worker", "backend", "redis", "domain", domain, "error", err)
-			return func() {}
+			return domainThrottleLease{
+				release:      func() {},
+				waitDuration: time.Since(started),
+				backendError: backendError,
+			}
 		}
 		if token != "" {
-			return func() {
-				if err := d.release(domain, token); err != nil {
-					slog.Warn("domain throttle release failed", "component", "worker", "backend", "redis", "domain", domain, "error", err)
-				}
+			return domainThrottleLease{
+				release: func() {
+					if err := d.release(domain, token); err != nil {
+						slog.Warn("domain throttle release failed", "component", "worker", "backend", "redis", "domain", domain, "error", err)
+					}
+				},
+				waitDuration: time.Since(started),
+				backendError: backendError,
 			}
 		}
 		time.Sleep(redisDomainThrottlePollInterval)
 	}
 }
 
-func (d *redisDomainThrottle) observe(domain string, temporaryFailure bool) {
+func (d *redisDomainThrottle) observe(domain string, temporaryFailure bool) bool {
 	d.penalty.observe(domain, temporaryFailure)
 	if !d.adaptive {
-		return
+		return false
 	}
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	if domain == "" {
-		return
+		return false
 	}
 	if err := d.observeRedis(domain, temporaryFailure); err != nil {
 		slog.Warn("domain throttle observe failed", "component", "worker", "backend", "redis", "domain", domain, "error", err)
+		return true
 	}
+	return false
 }
 
 func (d *redisDomainThrottle) tryAcquire(domain string, limit int) (string, error) {

@@ -111,7 +111,25 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		domain, _ := util.DomainOf(rcpt)
 		release := func() {}
 		if d.throttle != nil {
-			release = d.throttle.acquire(domain)
+			lease := d.throttle.acquire(domain)
+			release = lease.release
+			if lease.waitDuration > 0 {
+				waitMs := lease.waitDuration.Milliseconds()
+				d.metricInc("worker_domain_throttle_acquire")
+				d.metricAdd("worker_domain_throttle_wait_ms", uint64(waitMs))
+				span.AddEvent("domain_throttle.acquire", trace.WithAttributes(
+					attribute.String("mail.domain", domain),
+					attribute.Int64("domain_throttle.wait_ms", waitMs),
+				))
+			}
+			if lease.backendError {
+				d.metricInc("worker_domain_throttle_backend_error")
+				span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+					attribute.String("mail.domain", domain),
+					attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+					attribute.String("domain_throttle.stage", "acquire"),
+				))
+			}
 		}
 		func() {
 			defer release()
@@ -145,7 +163,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					}
 					d.emitHardBounceDSN(ctx, msg, rcpt, smtpErr.Error())
 					if d.throttle != nil {
-						d.throttle.observe(domain, false)
+						if d.throttle.observe(domain, false) {
+							d.metricInc("worker_domain_throttle_backend_error")
+							span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+								attribute.String("mail.domain", domain),
+								attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+								attribute.String("domain_throttle.stage", "observe"),
+							))
+						}
 					}
 					d.metricInc("worker_permanent_bounce")
 					if d.sup != nil {
@@ -161,7 +186,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 				d.emitSoftBounceDSN(ctx, msg, rcpt, err.Error())
 				if d.throttle != nil {
-					d.throttle.observe(domain, true)
+					if d.throttle.observe(domain, true) {
+						d.metricInc("worker_domain_throttle_backend_error")
+						span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+							attribute.String("mail.domain", domain),
+							attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+							attribute.String("domain_throttle.stage", "observe"),
+						))
+					}
 				}
 				errs = append(errs, err)
 			} else {
@@ -169,7 +201,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					d.rep.ObserveDelivery(domain, false, false)
 				}
 				if d.throttle != nil {
-					d.throttle.observe(domain, false)
+					if d.throttle.observe(domain, false) {
+						d.metricInc("worker_domain_throttle_backend_error")
+						span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+							attribute.String("mail.domain", domain),
+							attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+							attribute.String("domain_throttle.stage", "observe"),
+						))
+					}
 				}
 				d.metricInc("worker_delivery_success")
 			}
@@ -303,5 +342,11 @@ func shouldFail(msg *model.Message, errs []error, cfg config.Config, now time.Ti
 func (d *Dispatcher) metricInc(name string) {
 	if d.m != nil {
 		d.m.Counter(name).Inc()
+	}
+}
+
+func (d *Dispatcher) metricAdd(name string, value uint64) {
+	if d.m != nil {
+		d.m.Counter(name).Add(value)
 	}
 }

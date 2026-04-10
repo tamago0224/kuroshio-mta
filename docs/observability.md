@@ -68,6 +68,7 @@ OpenTelemetry tracing を有効にしていて、かつ `InfoContext` / `WarnCon
   - SMTP session
   - worker の message 処理
   - queue の enqueue / due / ack / retry / fail
+  - domain throttle の acquire wait と backend fallback event
   - MX lookup
   - DANE lookup
   - MTA-STS lookup
@@ -115,6 +116,21 @@ tutorial から試すなら次を入口にしてください。
 - [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki)
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
+
+## domain throttle の観測
+
+配送側 `domain throttle` では、少なくとも次の signal を見られます。
+
+- metrics:
+  - `worker_domain_throttle_acquire_total`
+  - `worker_domain_throttle_wait_ms_total`
+  - `worker_domain_throttle_backend_error_total`
+- traces:
+  - `domain_throttle.acquire`
+  - `domain_throttle.backend_error`
+
+`domain_throttle_backend: redis` を使っている場合、Redis / Valkey 障害で fail-open に入ると
+`domain_throttle.backend_error` event と `worker_domain_throttle_backend_error_total` が増えます。
 
 ## 関連ドキュメント
 

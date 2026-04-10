@@ -21,14 +21,16 @@ func TestParseDomainRules(t *testing.T) {
 
 func TestDomainThrottleConcurrencyLimit(t *testing.T) {
 	th := newLocalDomainThrottle(1, map[string]int{"gmail.com": 2}, false, 0.3, time.Second)
-	release1 := th.acquire("gmail.com")
-	release2 := th.acquire("gmail.com")
+	lease1 := th.acquire("gmail.com")
+	lease2 := th.acquire("gmail.com")
+	release1 := lease1.release
+	release2 := lease2.release
 
 	var done int32
 	go func() {
-		release3 := th.acquire("gmail.com")
+		lease3 := th.acquire("gmail.com")
 		atomic.StoreInt32(&done, 1)
-		release3()
+		lease3.release()
 	}()
 	time.Sleep(100 * time.Millisecond)
 	if atomic.LoadInt32(&done) != 0 {
@@ -51,6 +53,18 @@ func TestDomainThrottleAdaptivePenalty(t *testing.T) {
 	if p := th.currentPenalty(st); p == 0 {
 		t.Fatal("penalty must increase after high temporary failure ratio")
 	}
+}
+
+func TestLocalDomainThrottleAcquireReportsWaitDuration(t *testing.T) {
+	th := newLocalDomainThrottle(1, nil, false, 0.3, time.Second)
+	lease := th.acquire("example.com")
+	if lease.waitDuration < 0 {
+		t.Fatalf("wait duration must be non-negative: %s", lease.waitDuration)
+	}
+	if lease.backendError {
+		t.Fatal("local throttle should not report backend error")
+	}
+	lease.release()
 }
 
 func TestNewDomainThrottleDefaultsToMemory(t *testing.T) {
