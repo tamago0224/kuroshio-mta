@@ -176,7 +176,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	if remoteIP != nil {
 		spanAttrs = append(spanAttrs, attribute.String("smtp.remote_ip", remoteIP.String()))
 	}
-	_, span := smtpTracer.Start(ctx, "smtp.session", trace.WithAttributes(spanAttrs...))
+	sessionCtx, span := smtpTracer.Start(ctx, "smtp.session", trace.WithAttributes(spanAttrs...))
 	defer span.End()
 
 	var (
@@ -301,48 +301,79 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.data = nil
 			writeResp(w, 250, s.cfg.Hostname)
 		case "MAIL":
+			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.mail")
 			if !ss.seenHelo {
+				cmdSpan.setResponse(503, "send EHLO/HELO first")
+				cmdSpan.end()
 				writeResp(w, 503, "send EHLO/HELO first")
 				continue
 			}
 			if s.submission && s.cfg.SubmissionAuth && !ss.authOK {
+				cmdSpan.reject("auth_required", 530, "authentication required")
+				cmdSpan.end()
 				writeResp(w, 530, "authentication required")
 				continue
 			}
 			mailArgs, err := parseMailFrom(arg)
 			if err != nil {
+				cmdSpan.recordError(err)
 				if errors.Is(err, errSMTPUTF8Address) {
+					cmdSpan.reject("smtputf8_address", 553, err.Error())
+					cmdSpan.end()
 					writeResp(w, 553, err.Error())
 					continue
 				}
 				if errors.Is(err, errSMTPUTF8Param) {
+					cmdSpan.reject("smtputf8_parameter", 555, err.Error())
+					cmdSpan.end()
 					writeResp(w, 555, err.Error())
 					continue
 				}
 				if errors.Is(err, errMailParamUnsupported) {
+					cmdSpan.reject("unsupported_parameter", 555, err.Error())
+					cmdSpan.end()
 					writeResp(w, 555, err.Error())
 					continue
 				}
+				cmdSpan.setResponse(501, err.Error())
+				cmdSpan.end()
 				writeResp(w, 501, err.Error())
 				continue
 			}
+			cmdSpan.SetAttributes(
+				attribute.String("smtp.mail_from", logging.MaskEmail(mailArgs.Address)),
+				attribute.Bool("smtp.mail.has_size", mailArgs.HasSize),
+				attribute.String("smtp.mail.body_mode", mailArgs.Body),
+			)
+			if mailArgs.HasSize {
+				cmdSpan.SetAttributes(attribute.Int64("smtp.mail.size", mailArgs.Size))
+			}
 			if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "") {
+				cmdSpan.reject("mail_params_require_ehlo", 555, "MAIL parameters require EHLO")
+				cmdSpan.end()
 				writeResp(w, 555, "MAIL parameters require EHLO")
 				continue
 			}
 			if mailArgs.HasSize && mailArgs.Size > s.cfg.MaxMessageBytes {
+				cmdSpan.reject("message_too_large", 552, "message size exceeds fixed maximum message size")
+				cmdSpan.end()
 				writeResp(w, 552, "message size exceeds fixed maximum message size")
 				continue
 			}
 			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.authUser, mailArgs.Address) {
+				cmdSpan.reject("sender_not_allowed_for_auth", 553, "sender address rejected for authenticated identity")
+				cmdSpan.end()
 				writeResp(w, 553, "sender address rejected for authenticated identity")
 				continue
 			}
 			if remoteIP != nil && s.flexLimiter != nil {
 				allowed, err := s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC())
 				if err != nil {
+					cmdSpan.recordError(err)
 					slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "mailfrom", "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
 				} else if !allowed {
+					cmdSpan.reject("rate_rule_mailfrom", 421, "rate limit exceeded, try again later")
+					cmdSpan.end()
 					s.metricInc("smtp_reject_rate_limit")
 					slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
 					writeResp(w, 421, "rate limit exceeded, try again later")
@@ -356,46 +387,81 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			}
 			ss.rcptTo = nil
 			ss.data = nil
+			cmdSpan.setResponse(250, "sender ok")
+			cmdSpan.end()
 			writeResp(w, 250, "sender ok")
 		case "RCPT":
+			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.rcpt")
 			if ss.mailFrom == "" {
+				cmdSpan.setResponse(503, "send MAIL FROM first")
+				cmdSpan.end()
 				writeResp(w, 503, "send MAIL FROM first")
 				continue
 			}
 			addr, err := parseRcptTo(arg, s.cfg.Hostname)
 			if err != nil {
+				cmdSpan.recordError(err)
 				if errors.Is(err, errSMTPUTF8Address) {
+					cmdSpan.reject("smtputf8_address", 553, err.Error())
+					cmdSpan.end()
 					writeResp(w, 553, err.Error())
 					continue
 				}
 				if strings.Contains(strings.ToLower(err.Error()), "parameters") {
+					cmdSpan.reject("unsupported_parameters", 555, err.Error())
+					cmdSpan.end()
 					writeResp(w, 555, err.Error())
 				} else {
+					cmdSpan.setResponse(501, err.Error())
+					cmdSpan.end()
 					writeResp(w, 501, err.Error())
 				}
 				continue
 			}
+			cmdSpan.SetAttributes(attribute.String("smtp.rcpt_to", logging.MaskEmail(addr)))
 			ss.rcptTo = append(ss.rcptTo, addr)
+			cmdSpan.setResponse(250, "recipient ok")
+			cmdSpan.end()
 			writeResp(w, 250, "recipient ok")
 		case "DATA":
+			_, cmdSpan := startSMTPCommandSpan(
+				sessionCtx,
+				"smtp.data",
+				attribute.Int("smtp.rcpt_count", len(ss.rcptTo)),
+				attribute.String("smtp.body_mode", ss.bodyMode),
+				attribute.String("smtp.mail_from", logging.MaskEmail(ss.mailFrom)),
+			)
 			if len(ss.rcptTo) == 0 {
+				cmdSpan.setResponse(503, "need RCPT TO before DATA")
+				cmdSpan.end()
 				writeResp(w, 503, "need RCPT TO before DATA")
 				continue
 			}
+			cmdSpan.addEvent("smtp.data.ready")
 			writeResp(w, 354, "end with <CRLF>.<CRLF>")
 			data, err := readData(r, s.cfg.MaxMessageBytes)
 			if err != nil {
+				cmdSpan.recordError(err)
 				switch {
 				case errors.Is(err, errDataLineTooLong):
+					cmdSpan.reject("data_line_too_long", 500, "line too long")
+					cmdSpan.end()
 					writeResp(w, 500, "line too long")
 				case errors.Is(err, errMessageTooLarge):
+					cmdSpan.reject("message_too_large", 552, "message size exceeds fixed maximum message size")
+					cmdSpan.end()
 					writeResp(w, 552, "message size exceeds fixed maximum message size")
 				default:
+					cmdSpan.setResponse(451, "temporary local problem")
+					cmdSpan.end()
 					writeResp(w, 451, "temporary local problem")
 				}
 				continue
 			}
+			cmdSpan.SetAttributes(attribute.Int("smtp.data.bytes", len(data)))
 			if !strings.EqualFold(ss.bodyMode, "8BITMIME") && contains8Bit(data) {
+				cmdSpan.reject("body_requires_8bitmime", 554, "8-bit data is not permitted without BODY=8BITMIME")
+				cmdSpan.end()
 				writeResp(w, 554, "8-bit data is not permitted without BODY=8BITMIME")
 				ss.mailFrom = ""
 				ss.rcptTo = nil
@@ -413,8 +479,15 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				ARCFailureMode: s.cfg.ARCFailurePolicy,
 			})
 			s.metricAuthResult(authRes)
+			cmdSpan.SetAttributes(
+				attribute.String("smtp.auth.action", string(authRes.Action)),
+				attribute.String("smtp.auth.dmarc.result", authRes.DMARC.Result),
+				attribute.String("smtp.auth.dmarc.policy", authRes.DMARC.Policy),
+			)
 			switch authRes.Action {
 			case mailauth.ActionReject:
+				cmdSpan.reject("auth_policy_reject", 550, "message rejected by auth policy")
+				cmdSpan.end()
 				writeResp(w, 550, "message rejected by auth policy")
 				ss.mailFrom = ""
 				ss.rcptTo = nil
@@ -429,6 +502,9 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			}
 			id, err := newID()
 			if err != nil {
+				cmdSpan.recordError(err)
+				cmdSpan.setResponse(451, "temporary local problem")
+				cmdSpan.end()
 				writeResp(w, 451, "temporary local problem")
 				continue
 			}
@@ -436,6 +512,10 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.data = mailauth.InjectHeaders(ss.data, []string{received})
 
 			if err := s.enqueue(ss, id); err != nil {
+				cmdSpan.recordError(err)
+				cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
+				cmdSpan.setResponse(451, "temporary local problem")
+				cmdSpan.end()
 				slog.Error("enqueue failed", "component", "smtp", "error", err, "msg_id", id, "remote_ip", ipString(msgRemoteIP))
 				s.metricInc("smtp_enqueue_fail")
 				writeResp(w, 451, "temporary local problem")
@@ -443,6 +523,9 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			}
 			s.enqueueDMARCReports(authRes, ss.mailFrom, id, time.Now().UTC())
 			s.metricInc("smtp_queued_messages")
+			cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
+			cmdSpan.setResponse(250, "queued")
+			cmdSpan.end()
 			writeResp(w, 250, "queued")
 			ss.mailFrom = ""
 			ss.rcptTo = nil
@@ -454,29 +537,49 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.data = nil
 			writeResp(w, 250, "reset state")
 		case "AUTH":
+			mech, _ := authMechanism(arg)
+			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.auth", attribute.String("smtp.auth.mechanism", mech))
 			if !s.submission {
+				cmdSpan.setResponse(502, "AUTH is not supported")
+				cmdSpan.end()
 				writeResp(w, 502, "AUTH is not supported")
 				continue
 			}
 			if !ss.extended {
+				cmdSpan.setResponse(503, "send EHLO first")
+				cmdSpan.end()
 				writeResp(w, 503, "send EHLO first")
 				continue
 			}
 			if s.authBackend == nil {
+				cmdSpan.setResponse(454, "authentication backend unavailable")
+				cmdSpan.end()
 				writeResp(w, 454, "authentication backend unavailable")
 				continue
 			}
 			user, ok, err := s.handleAuth(r, w, arg)
 			if err != nil {
+				cmdSpan.recordError(err)
+				cmdSpan.setResponse(501, err.Error())
+				cmdSpan.end()
 				writeResp(w, 501, err.Error())
 				continue
 			}
 			if !ok {
+				cmdSpan.SetAttributes(attribute.Bool("smtp.auth.success", false))
+				cmdSpan.reject("invalid_credentials", 535, "authentication credentials invalid")
+				cmdSpan.end()
 				writeResp(w, 535, "authentication credentials invalid")
 				continue
 			}
 			ss.authUser = user
 			ss.authOK = true
+			cmdSpan.SetAttributes(
+				attribute.Bool("smtp.auth.success", true),
+				attribute.String("smtp.auth.user", logging.MaskEmail(user)),
+			)
+			cmdSpan.setResponse(235, "authentication successful")
+			cmdSpan.end()
 			writeResp(w, 235, "authentication successful")
 		case "NOOP":
 			writeResp(w, 250, "ok")
@@ -494,17 +597,24 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			writeResp(w, 221, "bye")
 			return
 		case "STARTTLS":
+			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.starttls")
 			if ss.tls {
+				cmdSpan.setResponse(503, "already using TLS")
+				cmdSpan.end()
 				writeResp(w, 503, "already using TLS")
 				continue
 			}
 			if s.tlsConfig == nil {
+				cmdSpan.setResponse(454, "TLS not available due to temporary reason")
+				cmdSpan.end()
 				writeResp(w, 454, "TLS not available due to temporary reason")
 				continue
 			}
 			writeResp(w, 220, "Ready to start TLS")
 			tlsConn := tls.Server(conn, s.tlsConfig)
 			if err := tlsConn.Handshake(); err != nil {
+				cmdSpan.recordError(err)
+				cmdSpan.end()
 				return
 			}
 			conn = tlsConn
@@ -520,6 +630,9 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.data = nil
 			ss.authUser = ""
 			ss.authOK = false
+			cmdSpan.SetAttributes(attribute.Bool("smtp.tls", true))
+			cmdSpan.setResponse(220, "Ready to start TLS")
+			cmdSpan.end()
 		default:
 			writeResp(w, 500, "unsupported command")
 		}
@@ -536,6 +649,45 @@ func (s *Server) metricAuthResult(res mailauth.Result) {
 	s.metricInc("smtp_auth_action_" + sanitizeMetricToken(string(res.Action)))
 	s.metricInc("smtp_auth_dmarc_result_" + sanitizeMetricToken(res.DMARC.Result))
 	s.metricInc("smtp_auth_dmarc_policy_" + sanitizeMetricToken(res.DMARC.Policy))
+}
+
+type smtpCommandSpan struct {
+	trace.Span
+}
+
+func startSMTPCommandSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, *smtpCommandSpan) {
+	cmdCtx, span := smtpTracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	return cmdCtx, &smtpCommandSpan{Span: span}
+}
+
+func (s *smtpCommandSpan) setResponse(code int, message string) {
+	s.SetAttributes(attribute.Int("smtp.response.code", code))
+	if code >= 400 {
+		s.SetStatus(codes.Error, message)
+		return
+	}
+	s.SetStatus(codes.Ok, message)
+}
+
+func (s *smtpCommandSpan) reject(reason string, code int, message string) {
+	s.SetAttributes(attribute.String("smtp.reject_reason", reason))
+	s.AddEvent("smtp.reject", trace.WithAttributes(attribute.String("smtp.reject_reason", reason)))
+	s.setResponse(code, message)
+}
+
+func (s *smtpCommandSpan) recordError(err error) {
+	if err == nil {
+		return
+	}
+	s.RecordError(err)
+}
+
+func (s *smtpCommandSpan) addEvent(name string, attrs ...attribute.KeyValue) {
+	s.AddEvent(name, trace.WithAttributes(attrs...))
+}
+
+func (s *smtpCommandSpan) end() {
+	s.End()
 }
 
 func (s *Server) enqueue(ss *session, id string) error {
@@ -943,6 +1095,14 @@ func decodeAuthPlain(payload string) (string, string, error) {
 
 func decodeBase64Line(v string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(strings.TrimSpace(v))
+}
+
+func authMechanism(arg string) (string, bool) {
+	parts := strings.Fields(strings.TrimSpace(arg))
+	if len(parts) == 0 {
+		return "", false
+	}
+	return strings.ToUpper(parts[0]), true
 }
 
 func senderAllowedForAuth(authUser, mailFrom string) bool {
