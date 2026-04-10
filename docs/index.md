@@ -44,6 +44,7 @@ features:
 - [Admin API を試す](/tutorials/admin-operations)
 - [設定ガイド](/configuration)
 - [Observability Stack](/observability_stack)
+- [Observability Signals](/observability_signals)
 - [Observability](/observability)
 - [S3 Spool Backend](/s3_spool_backend)
 - [Rate Limit](/rate_limit)
