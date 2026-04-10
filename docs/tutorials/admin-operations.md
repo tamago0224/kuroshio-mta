@@ -25,6 +25,9 @@ token は次を使います。
 - `viewer-token`
 - `operator-token`
 
+設定ファイル側では、これらの token をそのまま平文で置く代わりに
+`sha256=<hex>:role` 形式で hash 保存することもできます。
+
 ## 2. queue に 1 通入れる
 
 ```bash
@@ -66,7 +69,7 @@ scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 
 ```bash
 curl -H 'Authorization: Bearer viewer-token' \
-  http://127.0.0.1:9091/suppressions
+  http://127.0.0.1:9091/api/v1/suppressions
 ```
 
 ## 6. 後片付け

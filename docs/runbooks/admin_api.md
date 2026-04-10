@@ -11,9 +11,17 @@ Issue: #36
 ## 有効化
 
 - `MTA_ADMIN_ADDR=:9091`
-- `MTA_ADMIN_TOKENS=viewer-token:viewer,operator-token:operator,admin-token:admin`
+- `MTA_ADMIN_TOKENS=sha256=d036bd6d01a1cae081d39a2f8dab751dc042de814fd60df31fcb553170950f29:viewer,sha256=0850123315d21ab90f4f7236408a52ef6dbd6a02a6550e5c10dc73f4d993680e:operator`
 
-`MTA_ADMIN_TOKENS` は `token:role` のカンマ区切りで指定する。
+`MTA_ADMIN_TOKENS` は `token:role` のカンマ区切り、または `sha256=<hex>:role` のカンマ区切りで指定する。
+短期的には hash 形式を推奨する。
+
+例:
+
+```bash
+printf 'viewer-token' | sha256sum
+printf 'operator-token' | sha256sum
+```
 
 ## 権限
 
