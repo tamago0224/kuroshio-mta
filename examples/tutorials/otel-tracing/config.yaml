@@ -1,0 +1,15 @@
+listen_addr: ":2525"
+observability_addr: ":9090"
+hostname: kuroshio.local
+queue_dir: /var/lib/kuroshio/queue
+queue_backend: local
+delivery_mode: local_spool
+spool_backend: local
+local_spool_dir: /var/lib/kuroshio/spool
+worker_count: 1
+scan_interval: 1s
+otel_enabled: true
+otel_service_name: kuroshio-mta
+otel_exporter_otlp_endpoint: http://otel-collector:4318/v1/traces
+otel_exporter_otlp_insecure: true
+otel_trace_sample_ratio: 1.0

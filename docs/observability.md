@@ -90,8 +90,6 @@ OTEL 観点で見ると、将来的には次のような分離が自然です。
 
 - OpenTelemetry Meter を使った metrics export
 - OpenTelemetry Log SDK 連携
-- trace と log の相関 ID 自動付与
-- Collector 前提の deployment サンプル
 
 ただし、これは今後の拡張方針であって、現実装の説明ではありません。
 
@@ -108,6 +106,7 @@ curl http://127.0.0.1:9090/slo
 tutorial から試すなら次を入口にしてください。
 
 - [最小メールフローを試す](/tutorials/basic-mail-flow)
+- [OTEL Tracing を試す](/tutorials/otel-tracing)
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
 
