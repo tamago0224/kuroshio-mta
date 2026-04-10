@@ -143,7 +143,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					d.metricInc("worker_permanent_bounce")
 					if d.sup != nil {
 						if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
-							slog.Error("suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", sErr)
+							slog.ErrorContext(ctx, "suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", sErr)
 						}
 					}
 					return
@@ -172,7 +172,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	if len(errs) == 0 {
 		span.SetAttributes(attribute.String("worker.result", "sent"))
 		if err := d.queue.AckSent(msg.ID, msg); err != nil {
-			slog.Error("ack sent failed", "component", "worker", "msg_id", msg.ID, "error", err)
+			slog.ErrorContext(ctx, "ack sent failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		d.metricInc("worker_ack_sent")
 		return
@@ -186,7 +186,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		span.SetAttributes(attribute.String("worker.result", "failed"))
 		span.SetStatus(codes.Error, reason)
 		if err := d.queue.Fail(msg, reason); err != nil {
-			slog.Error("mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
+			slog.ErrorContext(ctx, "mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		d.metricInc("worker_mark_failed")
 		return
@@ -201,7 +201,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	)
 	span.SetStatus(codes.Error, reason)
 	if err := d.queue.Retry(msg, delay, reason); err != nil {
-		slog.Error("retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
+		slog.ErrorContext(ctx, "retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
 }
@@ -215,7 +215,7 @@ func (d *Dispatcher) emitHardBounceDSN(ctx context.Context, msg *model.Message, 
 		return
 	}
 	if err := d.queue.Enqueue(dsnMsg); err != nil {
-		slog.Error("enqueue hard dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+		slog.ErrorContext(ctx, "enqueue hard dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
 	}
 }
 
@@ -232,7 +232,7 @@ func (d *Dispatcher) emitSoftBounceDSN(ctx context.Context, msg *model.Message, 
 		return
 	}
 	if err := d.queue.Enqueue(dsnMsg); err != nil {
-		slog.Error("enqueue soft dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+		slog.ErrorContext(ctx, "enqueue soft dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
 	}
 }
 

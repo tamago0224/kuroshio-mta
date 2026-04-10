@@ -49,6 +49,8 @@ reputation tracker を有効にしている場合だけ値が返ります。
 アプリケーションログは `slog` ベースの JSON です。
 `log_level` で `debug` / `info` / `warn` / `error` を切り替えます。
 
+OpenTelemetry tracing を有効にしていて、かつ `InfoContext` / `WarnContext` / `ErrorContext` 経由で出力されたログには、`trace_id` と `span_id` も付与されます。
+
 ## 現在の OTEL 対応状況
 
 現時点の `kuroshio-mta` では、OpenTelemetry SDK を使った trace export を有効化できます。

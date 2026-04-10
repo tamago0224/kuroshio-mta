@@ -212,11 +212,11 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 		if s.limiter != nil {
 			allowed, err := s.limiter.Allow(remoteStr, now)
 			if err != nil {
-				slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr)
+				slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr)
 			} else if !allowed {
 				rejectReason = "rate_limit"
 				s.metricInc("smtp_reject_rate_limit")
-				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_limit", "remote_ip", remoteStr)
+				slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_limit", "remote_ip", remoteStr)
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
@@ -224,11 +224,11 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 		if s.flexLimiter != nil {
 			allowed, err := s.flexLimiter.Allow("connect", remoteStr, "", "", now)
 			if err != nil {
-				slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr, "event", "connect")
+				slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteStr, "event", "connect")
 			} else if !allowed {
 				rejectReason = "rate_rule_connect"
 				s.metricInc("smtp_reject_rate_limit")
-				slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_connect", "remote_ip", remoteStr)
+				slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_rule_connect", "remote_ip", remoteStr)
 				writeResp(w, 421, "rate limit exceeded, try again later")
 				return
 			}
@@ -237,7 +237,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			if listed, zone := s.dnsbl.IsListed(remoteStr); listed {
 				rejectReason = "dnsbl:" + zone
 				s.metricInc("smtp_reject_dnsbl")
-				slog.Warn("ingress rejected", "component", "smtp", "reason", "dnsbl", "zone", zone, "remote_ip", remoteStr)
+				slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "dnsbl", "zone", zone, "remote_ip", remoteStr)
 				writeResp(w, 554, "connection rejected (dnsbl: "+zone+")")
 				return
 			}
@@ -272,10 +272,10 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			if remoteIP != nil && s.flexLimiter != nil {
 				allowed, err := s.flexLimiter.Allow("helo", remoteIP.String(), ss.helo, "", time.Now().UTC())
 				if err != nil {
-					slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "helo", "helo", ss.helo)
+					slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "helo", "helo", ss.helo)
 				} else if !allowed {
 					s.metricInc("smtp_reject_rate_limit")
-					slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_helo", "remote_ip", remoteIP.String(), "helo", ss.helo)
+					slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_rule_helo", "remote_ip", remoteIP.String(), "helo", ss.helo)
 					writeResp(w, 421, "rate limit exceeded, try again later")
 					return
 				}
@@ -341,10 +341,10 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			if remoteIP != nil && s.flexLimiter != nil {
 				allowed, err := s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC())
 				if err != nil {
-					slog.Warn("rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "mailfrom", "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
+					slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "mailfrom", "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
 				} else if !allowed {
 					s.metricInc("smtp_reject_rate_limit")
-					slog.Warn("ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
+					slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
 					writeResp(w, 421, "rate limit exceeded, try again later")
 					return
 				}
