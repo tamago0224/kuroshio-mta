@@ -9,7 +9,7 @@
 | Tutorial | 何を確認するか | 主な環境 |
 | --- | --- | --- |
 | [最小メールフローを試す](/tutorials/basic-mail-flow) | SMTP で 1 通受信し、local queue に入るところ | `kuroshio` + `smtp-client` |
-| [OTEL Tracing を試す](/tutorials/otel-tracing) | OTLP/HTTP で Collector に trace を送り、Jaeger で見る | `kuroshio` + `otel-collector` + `jaeger` |
+| [OTEL Tracing を試す](/tutorials/otel-tracing) | OTLP/HTTP で Collector に trace を送り、Grafana で見る | `kuroshio` + `otel-collector` + `tempo` + `grafana` |
 | [Rate Limit を試す](/tutorials/rate-limit) | 接続元 IP や `MAIL FROM` 単位の制限 | `kuroshio` + `smtp-client` |
 | [Admin API を試す](/tutorials/admin-operations) | queue 操作と Admin API / CLI | `kuroshio` + `smtp-client` |
 | [メール認証を試す](/tutorials/mail-auth) | SPF / DMARC 評価、DKIM / ARC 署名 | `CoreDNS` + `policy` + `tester` |

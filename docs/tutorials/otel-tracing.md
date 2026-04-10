@@ -1,13 +1,13 @@
 # OTEL Tracing を試す
 
-`kuroshio-mta` の OpenTelemetry tracing を、`OTLP/HTTP -> OpenTelemetry Collector -> Jaeger` の最小構成で確認する tutorial です。
+`kuroshio-mta` の OpenTelemetry tracing を、`OTLP/HTTP -> OpenTelemetry Collector -> Tempo -> Grafana` の最小構成で確認する tutorial です。
 
-この tutorial では、SMTP で 1 通受けたときの trace を Collector 経由で Jaeger に送り、UI と API の両方から確認します。
+この tutorial では、SMTP で 1 通受けたときの trace を Collector 経由で Tempo に送り、Grafana から確認します。
 
 ## 前提
 
 - Docker と `docker compose` が使えること
-- ローカルで `:2525`、`:9090`、`:16686`、`:4318` を使えること
+- ローカルで `:2525`、`:9090`、`:3000`、`:3200`、`:4318` を使えること
 
 使う compose 一式は [examples/tutorials/otel-tracing](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/otel-tracing) にあります。
 
@@ -15,8 +15,9 @@
 
 - `kuroshio`: tutorial 用の MTA 本体
 - `smtp-client`: SMTP セッション投入用の補助コンテナ
-- `otel-collector`: OTLP/HTTP receiver と Jaeger 向け exporter
-- `jaeger`: trace 可視化用 UI
+- `otel-collector`: OTLP/HTTP receiver と Tempo 向け exporter
+- `tempo`: trace 保存先
+- `grafana`: trace 可視化用 UI
 
 ## 1. compose を起動する
 
@@ -52,16 +53,16 @@ EOF
 
 `delivery_mode: local_spool` にしているので、外部配送先は不要です。
 
-## 3. Jaeger UI で trace を見る
+## 3. Grafana で trace を見る
 
-ブラウザで `http://127.0.0.1:16686` を開き、`Service` に `kuroshio-mta` を選びます。
+ブラウザで `http://127.0.0.1:3000` を開き、左メニューから `Explore` を開きます。
 
-最新 trace がまだ見えないときは、`Lookback` を広げて `Find Traces` を押してください。
+datasource は provisioning 済みなので、最初から `Tempo` が使えます。`Search` タブで `Service Name` に `kuroshio-mta` を指定し、最新 trace を探してください。
 
-CLI から確認するなら次でも service 一覧を見られます。
+Tempo の到達性だけ先に確認するなら次を使います。
 
 ```bash
-curl http://127.0.0.1:16686/api/services
+curl http://127.0.0.1:3200/ready
 ```
 
 ## 4. Collector 側で受信も確認する
