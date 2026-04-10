@@ -9,12 +9,14 @@ processors:
 
 exporters:
   debug: {}
-  otlphttp/jaeger:
-    endpoint: http://jaeger:4318
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug, otlphttp/jaeger]
+      exporters: [debug, otlphttp/tempo]

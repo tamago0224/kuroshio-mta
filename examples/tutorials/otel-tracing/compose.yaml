@@ -23,11 +23,28 @@ services:
     ports:
       - "4318:4318"
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./collector-config.yaml:/etc/otelcol/config.yaml:ro
     depends_on:
-      - jaeger
+      - tempo
 
-  jaeger:
-    image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
     ports:
-      - "16686:16686"
+      - "3200:3200"
+      - "4319:4318"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - tempo
