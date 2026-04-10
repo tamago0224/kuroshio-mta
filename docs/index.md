@@ -53,6 +53,7 @@ features:
 - [Rate Limit](/rate_limit)
 - [Kafka Queue モード](/kafka_queue_mode)
 - [正規化方針](/architecture/normalization_policy)
+- [SMTP AUTH Modern Auth Direction](/architecture/smtp_auth_modern_auth)
 - [Domain Throttle Externalization](/architecture/domain_throttle_externalization)
 - [HA Reference](/architecture/ha_reference)
 

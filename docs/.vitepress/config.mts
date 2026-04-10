@@ -62,6 +62,7 @@ export default defineConfig({
         text: "Architecture",
         items: [
           { text: "Normalization Policy", link: "/architecture/normalization_policy" },
+          { text: "SMTP AUTH Modern Auth", link: "/architecture/smtp_auth_modern_auth" },
           { text: "Domain Throttle Externalization", link: "/architecture/domain_throttle_externalization" },
           { text: "HA Reference", link: "/architecture/ha_reference" },
           { text: "Spec", link: "/spec" }
