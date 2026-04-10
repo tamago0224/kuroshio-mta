@@ -61,6 +61,7 @@ export default defineConfig({
       {
         text: "Architecture",
         items: [
+          { text: "Admin Auth DB Direction", link: "/architecture/admin_auth_db_direction" },
           { text: "Normalization Policy", link: "/architecture/normalization_policy" },
           { text: "SMTP AUTH Modern Auth", link: "/architecture/smtp_auth_modern_auth" },
           { text: "Domain Throttle Externalization", link: "/architecture/domain_throttle_externalization" },

@@ -37,6 +37,7 @@ features:
 
 - [Getting Started](/getting-started)
 - [Tutorials](/tutorials/)
+- [Admin Auth DB Direction](/architecture/admin_auth_db_direction)
 - [最小メールフローを試す](/tutorials/basic-mail-flow)
 - [S3 Spool Backend を観測する](/tutorials/s3-spool-observability)
 - [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability)

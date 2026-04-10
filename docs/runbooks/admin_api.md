@@ -68,3 +68,7 @@ scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 
 - 現時点の queue 操作はローカルファイルバックエンド専用
 - Kafka バックエンドの運用APIは別対応
+
+将来の DB-backed Admin 認証方針は
+[Admin Auth DB Direction](/architecture/admin_auth_db_direction)
+を参照してください。
