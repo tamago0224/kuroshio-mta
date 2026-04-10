@@ -14,6 +14,7 @@
 | [S3 Spool Backend を観測する](/tutorials/s3-spool-observability) | `spool_backend: s3` で MinIO に `.eml` が保存される流れ | `kuroshio` + `minio` + `smtp-client` |
 | [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability) | `queue_backend: kafka` で topic と worker 処理を追う | `kuroshio` + `kafka` + `smtp-client` |
 | [Rate Limit を試す](/tutorials/rate-limit) | 接続元 IP や `MAIL FROM` 単位の制限 | `kuroshio` + `smtp-client` |
+| [Domain Throttle を観測する](/tutorials/domain-throttle-observability) | Redis backend で配送側 throttle の wait と fail-open を見る | `kuroshio` + `redis` + `slow-smtp` |
 | [Admin API を試す](/tutorials/admin-operations) | queue 操作と Admin API / CLI | `kuroshio` + `smtp-client` |
 | [メール認証を試す](/tutorials/mail-auth) | SPF / DMARC 評価、DKIM / ARC 署名 | `CoreDNS` + `policy` + `tester` |
 | [TLS 配送ポリシーを試す](/tutorials/tls-policy) | STARTTLS、MTA-STS、DANE | `CoreDNS` + `policy` + `tester` |
@@ -25,6 +26,7 @@
 - S3 spool observability: [examples/tutorials/s3-spool-observability](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/s3-spool-observability)
 - Kafka queue observability: [examples/tutorials/kafka-queue-observability](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/kafka-queue-observability)
 - Rate Limit: [examples/tutorials/rate-limit](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/rate-limit)
+- Domain throttle observability: [examples/tutorials/domain-throttle-observability](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/domain-throttle-observability)
 - Admin API: [examples/tutorials/admin-operations](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/admin-operations)
 - DNS / Web: [examples/tutorials/dns-services](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/dns-services)
 
@@ -36,5 +38,5 @@
 4. [OTEL Tracing を試す](/tutorials/otel-tracing) で trace の見え方を確認する
 5. [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki) で trace とログの相関を見る
 6. [S3 Spool Backend を観測する](/tutorials/s3-spool-observability) と [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability) で backend 差し替え時の見え方を確認する
-7. [Rate Limit を試す](/tutorials/rate-limit) と [Admin API を試す](/tutorials/admin-operations) で運用系を見る
+7. [Rate Limit を試す](/tutorials/rate-limit) と [Domain Throttle を観測する](/tutorials/domain-throttle-observability) と [Admin API を試す](/tutorials/admin-operations) で運用系を見る
 8. [メール認証を試す](/tutorials/mail-auth) と [TLS 配送ポリシーを試す](/tutorials/tls-policy) で DNS / policy 系を確認する

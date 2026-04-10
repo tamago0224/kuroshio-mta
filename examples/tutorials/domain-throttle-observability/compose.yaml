@@ -1,0 +1,56 @@
+services:
+  prepare-data:
+    image: busybox:1.37
+    command:
+      - sh
+      - -c
+      - mkdir -p /work/queue && chown -R 65532:65532 /work/queue
+    volumes:
+      - ./var:/work
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+
+  slow-smtp:
+    image: python:3.11-alpine
+    command:
+      - python
+      - -c
+      - |
+        import asyncore
+        import smtpd
+        import time
+
+        class SlowServer(smtpd.SMTPServer):
+            def process_message(self, peer, mailfrom, rcpttos, data, **kwargs):
+                time.sleep(3)
+                return None
+
+        SlowServer(("0.0.0.0", 2526), None)
+        asyncore.loop()
+    ports:
+      - "2526:2526"
+
+  kuroshio:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    ports:
+      - "2525:2525"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/etc/kuroshio/config.yaml:ro
+      - ./var/queue:/var/lib/kuroshio/queue
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      slow-smtp:
+        condition: service_started
+
+  smtp-client:
+    image: busybox:1.37
+    command: ["sh", "-c", "tail -f /dev/null"]

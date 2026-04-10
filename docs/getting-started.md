@@ -55,6 +55,7 @@ compose ベースの tutorial 一覧は [Tutorials](/tutorials/) にまとめて
 - 認証評価を見る: [メール認証を試す](/tutorials/mail-auth)
 - STARTTLS / MTA-STS / DANE を追う: [TLS 配送ポリシーを試す](/tutorials/tls-policy)
 - 受信制御を試す: [Rate Limit を試す](/tutorials/rate-limit)
+- 配送側 throttle を見る: [Domain Throttle を観測する](/tutorials/domain-throttle-observability)
 - queue 操作を試す: [Admin API を試す](/tutorials/admin-operations)
 
 ## 6. 次に読む Guide

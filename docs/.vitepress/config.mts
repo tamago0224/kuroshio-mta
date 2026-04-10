@@ -54,6 +54,7 @@ export default defineConfig({
           { text: "Mail Authentication", link: "/tutorials/mail-auth" },
           { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
           { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },
+          { text: "Domain Throttle Observability", link: "/tutorials/domain-throttle-observability" },
           { text: "Admin API Tutorial", link: "/tutorials/admin-operations" }
         ]
       },

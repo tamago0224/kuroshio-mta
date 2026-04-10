@@ -1,0 +1,16 @@
+listen_addr: ":2525"
+observability_addr: ":9090"
+hostname: kuroshio.local
+queue_dir: /var/lib/kuroshio/queue
+queue_backend: local
+delivery_mode: relay
+relay_host: slow-smtp
+relay_port: 2526
+worker_count: 4
+scan_interval: 1s
+domain_max_concurrent_default: 1
+domain_throttle_backend: redis
+domain_throttle_redis_addrs:
+  - redis:6379
+domain_throttle_redis_key_prefix: kuroshio:domainthrottle
+domain_adaptive_throttle: false
