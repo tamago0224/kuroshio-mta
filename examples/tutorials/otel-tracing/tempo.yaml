@@ -1,3 +1,5 @@
+target: all
+
 server:
   http_listen_port: 3200
 
@@ -22,8 +24,3 @@ storage:
       path: /tmp/tempo/blocks
     wal:
       path: /tmp/tempo/wal
-
-overrides:
-  defaults:
-    metrics_generator:
-      processors: []

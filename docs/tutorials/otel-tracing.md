@@ -26,6 +26,8 @@ docker compose -f examples/tutorials/otel-tracing/compose.yaml up --build -d
 ```
 
 MTA は `otel_enabled: true` で起動し、`otel_exporter_otlp_endpoint` として `http://alloy:4318/v1/traces` を使います。
+compose には bind mount 用の初期化 service も入っているので、`var/queue` と `var/spool` の権限は自動で整います。
+Tempo は tutorial の再現性を優先して compose 内で version を固定しています。
 
 ## 2. SMTP で 1 通投入する
 
@@ -64,6 +66,8 @@ Tempo の到達性だけ先に確認するなら次を使います。
 ```bash
 curl http://127.0.0.1:3200/ready
 ```
+
+起動直後は `503` になることがあるので、その場合は数秒待ってから再試行してください。
 
 ## 4. Alloy 側で受信も確認する
 
