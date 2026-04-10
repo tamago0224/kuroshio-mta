@@ -52,6 +52,7 @@ features:
 - [Rate Limit](/rate_limit)
 - [Kafka Queue モード](/kafka_queue_mode)
 - [正規化方針](/architecture/normalization_policy)
+- [Domain Throttle Externalization](/architecture/domain_throttle_externalization)
 - [HA Reference](/architecture/ha_reference)
 
 ## RFC ギャップメモ
