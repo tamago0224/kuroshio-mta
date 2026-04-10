@@ -62,6 +62,13 @@ EOF
 curl http://127.0.0.1:9090/metrics | grep delivery_spool_store
 ```
 
+ホスト側から取りづらい環境では、compose network の中から確認しても構いません。
+
+```bash
+docker compose -f examples/tutorials/s3-spool-observability/compose.yaml exec -T smtp-client sh -lc \
+  "wget -qO- http://kuroshio:9090/metrics | grep delivery_spool_store"
+```
+
 特に次を見ます。
 
 - `delivery_spool_store_total`
@@ -81,12 +88,13 @@ MinIO の Web UI は `http://127.0.0.1:9001` です。
 CLI で見たい場合は次でも確認できます。
 
 ```bash
-docker compose -f examples/tutorials/s3-spool-observability/compose.yaml exec minio sh -lc '
-find /data -maxdepth 5 -type f | sort
+docker compose -f examples/tutorials/s3-spool-observability/compose.yaml run --rm --entrypoint /bin/sh create-bucket -lc '
+/usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null &&
+/usr/bin/mc ls --recursive local/mail-spool
 '
 ```
 
-`mail-spool/tutorial/` 配下に `.eml` object が作られていれば成功です。
+`mail-spool/tutorial/` 配下に `.eml` object が見えれば成功です。
 
 ## 5. ログを見る
 
