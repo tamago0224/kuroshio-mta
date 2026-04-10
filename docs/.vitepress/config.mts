@@ -49,6 +49,8 @@ export default defineConfig({
           { text: "Basic Mail Flow", link: "/tutorials/basic-mail-flow" },
           { text: "OTEL Tracing", link: "/tutorials/otel-tracing" },
           { text: "Trace / Log Correlation", link: "/tutorials/otel-logs-loki" },
+          { text: "S3 Spool Observability", link: "/tutorials/s3-spool-observability" },
+          { text: "Kafka Queue Observability", link: "/tutorials/kafka-queue-observability" },
           { text: "Mail Authentication", link: "/tutorials/mail-auth" },
           { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
           { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },

@@ -49,6 +49,9 @@ go run ./cmd/kuroshio
 docker compose -f docker-compose.kafka.yml up -d
 ```
 
+compose で queue の流れと observability をまとめて確認したい場合は
+[Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability) を参照してください。
+
 ## 運用メモ
 
 - `kafka_brokers` は YAML では配列、環境変数ではカンマ区切りで指定します
