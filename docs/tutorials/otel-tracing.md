@@ -1,13 +1,13 @@
 # OTEL Tracing を試す
 
-`kuroshio-mta` の OpenTelemetry tracing を、`OTLP/HTTP -> OpenTelemetry Collector -> Tempo -> Grafana` の最小構成で確認する tutorial です。
+`kuroshio-mta` の OpenTelemetry tracing を、`OTLP/HTTP -> Grafana Alloy -> Tempo -> Grafana` の最小構成で確認する tutorial です。
 
-この tutorial では、SMTP で 1 通受けたときの trace を Collector 経由で Tempo に送り、Grafana から確認します。
+この tutorial では、SMTP で 1 通受けたときの trace を Alloy 経由で Tempo に送り、Grafana から確認します。
 
 ## 前提
 
 - Docker と `docker compose` が使えること
-- ローカルで `:2525`、`:9090`、`:3000`、`:3200`、`:4318` を使えること
+- ローカルで `:2525`、`:9090`、`:3000`、`:3200`、`:4318`、`:12345` を使えること
 
 使う compose 一式は [examples/tutorials/otel-tracing](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/otel-tracing) にあります。
 
@@ -15,7 +15,7 @@
 
 - `kuroshio`: tutorial 用の MTA 本体
 - `smtp-client`: SMTP セッション投入用の補助コンテナ
-- `otel-collector`: OTLP/HTTP receiver と Tempo 向け exporter
+- `alloy`: OTLP/HTTP receiver と Tempo / Loki 向けの統合 collector
 - `tempo`: trace 保存先
 - `grafana`: trace 可視化用 UI
 
@@ -25,7 +25,7 @@
 docker compose -f examples/tutorials/otel-tracing/compose.yaml up --build -d
 ```
 
-MTA は `otel_enabled: true` で起動し、`otel_exporter_otlp_endpoint` として `http://otel-collector:4318/v1/traces` を使います。
+MTA は `otel_enabled: true` で起動し、`otel_exporter_otlp_endpoint` として `http://alloy:4318/v1/traces` を使います。
 
 ## 2. SMTP で 1 通投入する
 
@@ -65,12 +65,18 @@ Tempo の到達性だけ先に確認するなら次を使います。
 curl http://127.0.0.1:3200/ready
 ```
 
-## 4. Collector 側で受信も確認する
+## 4. Alloy 側で受信も確認する
 
-Collector の `debug` exporter を有効にしているので、trace を受け取るとログにも span が出ます。
+Alloy は OTLP/HTTP receiver と Docker logs の両方を受け持ちます。
 
 ```bash
-docker compose -f examples/tutorials/otel-tracing/compose.yaml logs otel-collector
+docker compose -f examples/tutorials/otel-tracing/compose.yaml logs alloy
+```
+
+Alloy 自体の状態は次でも見られます。
+
+```bash
+curl http://127.0.0.1:12345/
 ```
 
 ## 5. MTA の metrics と spool も見る

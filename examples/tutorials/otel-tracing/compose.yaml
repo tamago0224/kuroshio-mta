@@ -11,21 +11,24 @@ services:
       - ./var/queue:/var/lib/kuroshio/queue
       - ./var/spool:/var/lib/kuroshio/spool
     depends_on:
-      - otel-collector
+      - alloy
 
   smtp-client:
     image: busybox:1.37
     command: ["sh", "-c", "tail -f /dev/null"]
 
-  otel-collector:
-    image: otel/opentelemetry-collector:0.147.0
-    command: ["--config=/etc/otelcol/config.yaml"]
+  alloy:
+    image: grafana/alloy:latest
+    command: ["run", "/etc/alloy/config.alloy", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data"]
     ports:
       - "4318:4318"
+      - "12345:12345"
     volumes:
-      - ./collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - tempo
+      - loki
 
   tempo:
     image: grafana/tempo:latest
@@ -43,15 +46,6 @@ services:
       - ./loki.yaml:/etc/loki/local-config.yaml:ro
     ports:
       - "3100:3100"
-
-  promtail:
-    image: grafana/promtail:latest
-    command: ["-config.file=/etc/promtail/config.yml"]
-    volumes:
-      - ./promtail.yaml:/etc/promtail/config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - loki
 
   grafana:
     image: grafana/grafana:latest

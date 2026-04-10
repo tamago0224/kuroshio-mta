@@ -2,7 +2,7 @@
 
 `kuroshio-mta` の JSON ログには、OpenTelemetry tracing を有効にすると `trace_id` と `span_id` が入ります。
 
-この tutorial では、[OTEL Tracing を試す](/tutorials/otel-tracing) と同じ compose 環境に `Loki` と `Promtail` を追加し、Grafana 上で trace と log を相互に辿れるようにします。
+この tutorial では、[OTEL Tracing を試す](/tutorials/otel-tracing) と同じ compose 環境で `Grafana Alloy` を trace と log の collector にまとめ、Grafana 上で trace と log を相互に辿れるようにします。
 
 ## 前提
 
@@ -15,10 +15,9 @@
 ## 起動するもの
 
 - `kuroshio`: JSON ログと trace を出す MTA 本体
-- `otel-collector`: trace を Tempo に送る Collector
+- `alloy`: trace と log をまとめて受ける collector
 - `tempo`: trace 保存先
 - `loki`: log 保存先
-- `promtail`: Docker logs を Loki に送る agent
 - `grafana`: trace / log の UI
 
 ## 1. compose を起動する
@@ -63,10 +62,10 @@ EOF
 curl http://127.0.0.1:3100/ready
 ```
 
-Promtail が `kuroshio` コンテナを拾えているかは次で見られます。
+Alloy が `kuroshio` コンテナの Docker logs を拾えているかは次で見られます。
 
 ```bash
-docker compose -f examples/tutorials/otel-tracing/compose.yaml logs promtail
+docker compose -f examples/tutorials/otel-tracing/compose.yaml logs alloy
 ```
 
 ## 4. Grafana Explore でログを見る
