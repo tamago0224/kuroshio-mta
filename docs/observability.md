@@ -68,6 +68,7 @@ OpenTelemetry tracing を有効にしていて、かつ `InfoContext` / `WarnCon
   - SMTP session
   - worker の message 処理
   - queue の enqueue / due / ack / retry / fail
+  - spool backend への保存
   - domain throttle の acquire wait と backend fallback event
   - MX lookup
   - DANE lookup
@@ -131,6 +132,23 @@ tutorial から試すなら次を入口にしてください。
 
 `domain_throttle_backend: redis` を使っている場合、Redis / Valkey 障害で fail-open に入ると
 `domain_throttle.backend_error` event と `worker_domain_throttle_backend_error_total` が増えます。
+
+## spool backend の観測
+
+`delivery_mode: local_spool` を使っている場合、spool backend 保存では次の signal を見られます。
+
+- metrics:
+  - `delivery_spool_store_total`
+  - `delivery_spool_store_bytes_total`
+  - `delivery_spool_store_error_total`
+  - `delivery_spool_store_local_total`
+  - `delivery_spool_store_s3_total`
+- traces:
+  - `delivery.spool_store`
+
+`spool_backend: s3` を使っているときは、S3-compatible object storage への保存成功や失敗を
+`delivery.spool_store` span と `delivery_spool_store_s3_total` / `delivery_spool_store_s3_error_total`
+で追えます。
 
 ## 関連ドキュメント
 

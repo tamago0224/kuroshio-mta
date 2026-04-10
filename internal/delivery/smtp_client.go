@@ -16,6 +16,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/dkim"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"github.com/tamago0224/kuroshio-mta/internal/router"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
 	"go.opentelemetry.io/otel"
@@ -29,13 +30,13 @@ type messageSigner interface {
 }
 
 type spoolBackend interface {
-	Store(*model.Message, string) error
+	Store(context.Context, *model.Message, string) (int, error)
 }
 
-type spoolBackendFunc func(*model.Message, string) error
+type spoolBackendFunc func(context.Context, *model.Message, string) (int, error)
 
-func (f spoolBackendFunc) Store(msg *model.Message, rcpt string) error {
-	return f(msg, rcpt)
+func (f spoolBackendFunc) Store(ctx context.Context, msg *model.Message, rcpt string) (int, error) {
+	return f(ctx, msg, rcpt)
 }
 
 var deliveryTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery")
@@ -51,14 +52,20 @@ type Client struct {
 	spoolStore                     spoolBackend
 	spoolStoreErr                  error
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
+	metrics                        *observability.Metrics
 }
 
 func NewClient(cfg config.Config) *Client {
+	return NewClientWithMetrics(cfg, nil)
+}
+
+func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Client {
 	c := &Client{
 		cfg:         cfg,
 		dane:        NewDANEResolver(cfg.DialTimeout, nil),
 		mtaSTS:      NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
 		resolveMXFn: router.LookupWithTimeout,
+		metrics:     metrics,
 	}
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
 		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
@@ -115,7 +122,7 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 			err = errors.New("spool backend is not configured")
 			break
 		}
-		err = c.spoolStore.Store(msg, rcpt)
+		err = c.storeToSpool(ctx, msg, rcpt)
 	case "relay":
 		if strings.TrimSpace(c.cfg.RelayHost) == "" {
 			err = errors.New("relay mode requires MTA_RELAY_HOST")
@@ -145,6 +152,37 @@ func (c *Client) newSpoolBackend() (spoolBackend, error) {
 	default:
 		return nil, fmt.Errorf("unknown spool backend: %s", backend)
 	}
+}
+
+func (c *Client) storeToSpool(ctx context.Context, msg *model.Message, rcpt string) error {
+	backend := strings.ToLower(strings.TrimSpace(c.cfg.SpoolBackend))
+	if backend == "" {
+		backend = "local"
+	}
+	ctx, span := deliveryTracer.Start(ctx, "delivery.spool_store")
+	span.SetAttributes(
+		attribute.String("delivery.spool_backend", backend),
+		attribute.String("mail.message_id", msg.ID),
+	)
+	defer span.End()
+
+	size, err := c.spoolStore.Store(ctx, msg, rcpt)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		c.metricInc("delivery_spool_store_error")
+		c.metricInc("delivery_spool_store_" + backend + "_error")
+		return err
+	}
+
+	span.SetAttributes(attribute.Int("mail.size_bytes", size))
+	c.metricInc("delivery_spool_store")
+	c.metricInc("delivery_spool_store_" + backend)
+	if size > 0 {
+		c.metricAdd("delivery_spool_store_bytes", uint64(size))
+		c.metricAdd("delivery_spool_store_"+backend+"_bytes", uint64(size))
+	}
+	return nil
 }
 
 func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt string) error {
@@ -400,13 +438,13 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	return nil
 }
 
-func (c *Client) writeLocalSpool(msg *model.Message, rcpt string) error {
+func (c *Client) writeLocalSpool(_ context.Context, msg *model.Message, rcpt string) (int, error) {
 	dir := strings.TrimSpace(c.cfg.LocalSpoolDir)
 	if dir == "" {
 		dir = "./var/spool"
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return 0, err
 	}
 	id := strings.TrimSpace(msg.ID)
 	if id == "" {
@@ -416,9 +454,26 @@ func (c *Client) writeLocalSpool(msg *model.Message, rcpt string) error {
 	path := filepath.Join(dir, name)
 	payload, err := c.prepareOutboundData(msg.Data)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return os.WriteFile(path, payload, 0o644)
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		return 0, err
+	}
+	return len(payload), nil
+}
+
+func (c *Client) metricInc(name string) {
+	if c.metrics == nil {
+		return
+	}
+	c.metrics.Counter(name).Inc()
+}
+
+func (c *Client) metricAdd(name string, n uint64) {
+	if c.metrics == nil {
+		return
+	}
+	c.metrics.Counter(name).Add(n)
 }
 
 func sanitizeFilename(v string) string {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
 )
 
 func TestDeliverLocalSpoolWritesFile(t *testing.T) {
@@ -199,6 +200,75 @@ func TestDeliverS3SpoolStoresObject(t *testing.T) {
 	}
 }
 
+func TestDeliverS3SpoolRecordsMetrics(t *testing.T) {
+	orig := newS3PutObjectClient
+	t.Cleanup(func() { newS3PutObjectClient = orig })
+
+	fake := &fakeS3Client{}
+	newS3PutObjectClient = func(cfg config.Config) (s3PutObjectAPI, error) {
+		return fake, nil
+	}
+
+	metrics := observability.NewMetrics()
+	cfg := config.Config{
+		DeliveryMode:  "local_spool",
+		SpoolBackend:  "s3",
+		SpoolS3Bucket: "mail-spool",
+	}
+	cl := NewClientWithMetrics(cfg, metrics)
+	msg := &model.Message{ID: "m8m", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+
+	if err := cl.Deliver(context.Background(), msg, "user@example.net"); err != nil {
+		t.Fatalf("deliver s3 spool with metrics: %v", err)
+	}
+
+	snap := metrics.Snapshot()
+	if snap["delivery_spool_store_total"] != 1 {
+		t.Fatalf("delivery_spool_store_total=%d", snap["delivery_spool_store_total"])
+	}
+	if snap["delivery_spool_store_s3_total"] != 1 {
+		t.Fatalf("delivery_spool_store_s3_total=%d", snap["delivery_spool_store_s3_total"])
+	}
+	if snap["delivery_spool_store_bytes_total"] == 0 {
+		t.Fatal("expected delivery_spool_store_bytes_total to be > 0")
+	}
+	if snap["delivery_spool_store_s3_bytes_total"] == 0 {
+		t.Fatal("expected delivery_spool_store_s3_bytes_total to be > 0")
+	}
+}
+
+func TestDeliverS3SpoolRecordsErrorMetrics(t *testing.T) {
+	orig := newS3PutObjectClient
+	t.Cleanup(func() { newS3PutObjectClient = orig })
+
+	fake := &fakeS3Client{err: errors.New("put failed")}
+	newS3PutObjectClient = func(cfg config.Config) (s3PutObjectAPI, error) {
+		return fake, nil
+	}
+
+	metrics := observability.NewMetrics()
+	cfg := config.Config{
+		DeliveryMode:  "local_spool",
+		SpoolBackend:  "s3",
+		SpoolS3Bucket: "mail-spool",
+	}
+	cl := NewClientWithMetrics(cfg, metrics)
+	msg := &model.Message{ID: "m8e", MailFrom: "sender@example.com", Data: []byte("From: sender@example.com\r\n\r\nhello")}
+
+	err := cl.Deliver(context.Background(), msg, "user@example.net")
+	if err == nil {
+		t.Fatal("expected s3 spool error")
+	}
+
+	snap := metrics.Snapshot()
+	if snap["delivery_spool_store_error_total"] != 1 {
+		t.Fatalf("delivery_spool_store_error_total=%d", snap["delivery_spool_store_error_total"])
+	}
+	if snap["delivery_spool_store_s3_error_total"] != 1 {
+		t.Fatalf("delivery_spool_store_s3_error_total=%d", snap["delivery_spool_store_s3_error_total"])
+	}
+}
+
 func TestDeliverS3SpoolRequiresBucket(t *testing.T) {
 	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "s3"}
 	cl := NewClient(cfg)
@@ -225,9 +295,13 @@ type fakeS3Client struct {
 	contentType string
 	body        []byte
 	metadata    map[string]string
+	err         error
 }
 
 func (f *fakeS3Client) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	f.bucket = *in.Bucket
 	f.key = *in.Key
 	if in.ContentType != nil {
