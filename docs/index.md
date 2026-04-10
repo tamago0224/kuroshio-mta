@@ -25,7 +25,7 @@ features:
   - title: 機能チュートリアル
     details: 最小メールフロー、メール認証、TLS 配送、Rate Limit、Admin API など主要機能を `docker compose` で順に試せます。
   - title: 設定と運用
-    details: YAML ベースの設定、Observability、Rate Limit、Kafka Queue モード、Admin API や SLO runbook までまとめて参照できます。
+    details: YAML ベースの設定、Observability Stack、Rate Limit、Kafka Queue モード、Admin API や SLO runbook までまとめて参照できます。
   - title: RFC 対応状況
     details: SMTP、STARTTLS、SPF、DKIM、DMARC、ARC、MTA-STS、DANE などの実装範囲とギャップを追えます。
   - title: 設計メモ
@@ -43,6 +43,7 @@ features:
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
 - [設定ガイド](/configuration)
+- [Observability Stack](/observability_stack)
 - [Observability](/observability)
 - [S3 Spool Backend](/s3_spool_backend)
 - [Rate Limit](/rate_limit)

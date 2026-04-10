@@ -58,6 +58,7 @@ compose ベースの tutorial 一覧は [Tutorials](/tutorials/) にまとめて
 ## 6. 次に読む Guide
 
 - 設定全体: [Configuration](/configuration)
+- 全体像: [Observability Stack](/observability_stack)
 - 観測系: [Observability](/observability)
 - 受信制御: [Rate Limit](/rate_limit)
 - S3-compatible 保存先: [S3 Spool Backend](/s3_spool_backend)
