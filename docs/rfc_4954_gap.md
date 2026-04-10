@@ -21,3 +21,7 @@
 
 README の RFC 4954 行は、上記の Submission 向け基本認証フローを指します。
 RFC 4954 のすべての SASL 拡張や運用パターンを網羅する全面実装を意味するものではありません。
+
+長期的な modern auth の進め方は
+[SMTP AUTH Modern Auth Direction](/architecture/smtp_auth_modern_auth)
+を参照してください。
