@@ -40,6 +40,7 @@ features:
 - [最小メールフローを試す](/tutorials/basic-mail-flow)
 - [S3 Spool Backend を観測する](/tutorials/s3-spool-observability)
 - [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability)
+- [Domain Throttle を観測する](/tutorials/domain-throttle-observability)
 - [メール認証を試す](/tutorials/mail-auth)
 - [TLS 配送ポリシーを試す](/tutorials/tls-policy)
 - [Rate Limit を試す](/tutorials/rate-limit)
