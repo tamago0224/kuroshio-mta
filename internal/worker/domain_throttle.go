@@ -6,7 +6,12 @@ import (
 	"time"
 )
 
-type domainThrottle struct {
+type domainThrottle interface {
+	acquire(domain string) func()
+	observe(domain string, temporaryFailure bool)
+}
+
+type localDomainThrottle struct {
 	defLimit   int
 	rules      map[string]int
 	adaptive   bool
@@ -23,7 +28,7 @@ type domainState struct {
 	tempFail int
 }
 
-func newDomainThrottle(defLimit int, rules map[string]int, adaptive bool, threshold float64, maxPenalty time.Duration) *domainThrottle {
+func newLocalDomainThrottle(defLimit int, rules map[string]int, adaptive bool, threshold float64, maxPenalty time.Duration) *localDomainThrottle {
 	if defLimit <= 0 {
 		defLimit = 1
 	}
@@ -33,7 +38,7 @@ func newDomainThrottle(defLimit int, rules map[string]int, adaptive bool, thresh
 	if maxPenalty <= 0 {
 		maxPenalty = 5 * time.Second
 	}
-	return &domainThrottle{
+	return &localDomainThrottle{
 		defLimit:   defLimit,
 		rules:      rules,
 		adaptive:   adaptive,
@@ -43,7 +48,7 @@ func newDomainThrottle(defLimit int, rules map[string]int, adaptive bool, thresh
 	}
 }
 
-func (d *domainThrottle) acquire(domain string) func() {
+func (d *localDomainThrottle) acquire(domain string) func() {
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	st := d.get(domain)
 	if p := d.currentPenalty(st); p > 0 {
@@ -53,7 +58,7 @@ func (d *domainThrottle) acquire(domain string) func() {
 	return func() { <-st.sem }
 }
 
-func (d *domainThrottle) observe(domain string, temporaryFailure bool) {
+func (d *localDomainThrottle) observe(domain string, temporaryFailure bool) {
 	if !d.adaptive {
 		return
 	}
@@ -88,7 +93,7 @@ func (d *domainThrottle) observe(domain string, temporaryFailure bool) {
 	st.tempFail = 0
 }
 
-func (d *domainThrottle) get(domain string) *domainState {
+func (d *localDomainThrottle) get(domain string) *domainState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if st, ok := d.perDomain[domain]; ok {
@@ -103,7 +108,7 @@ func (d *domainThrottle) get(domain string) *domainState {
 	return st
 }
 
-func (d *domainThrottle) currentPenalty(st *domainState) time.Duration {
+func (d *localDomainThrottle) currentPenalty(st *domainState) time.Duration {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return st.penalty

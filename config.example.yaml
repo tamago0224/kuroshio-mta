@@ -74,6 +74,11 @@ spf_helo_policy: advisory
 spf_mailfrom_policy: advisory
 domain_max_concurrent_default: 8
 domain_max_concurrent_rules: "gmail.com:2,yahoo.com:1"
+domain_throttle_backend: memory
+domain_throttle_redis_addrs:
+  - localhost:6379
+domain_throttle_redis_db: 0
+domain_throttle_redis_key_prefix: kuroshio:domainthrottle
 domain_adaptive_throttle: true
 domain_tempfail_threshold: 0.3
 domain_penalty_max: 5s
