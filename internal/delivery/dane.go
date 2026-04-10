@@ -13,12 +13,18 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
 	dnsTypeTLSA = 52
 	dnsClassIN  = 1
 )
+
+var daneTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery/dane")
 
 type TLSARecord struct {
 	Usage                  uint8
@@ -163,14 +169,25 @@ func NewDANEResolver(timeout time.Duration, lookupFn func(context.Context, strin
 }
 
 func (r *DANEResolver) LookupHost(ctx context.Context, host string, port int) (DANEResult, error) {
+	ctx, span := daneTracer.Start(ctx, "delivery.lookup_dane")
+	span.SetAttributes(
+		attribute.String("delivery.host", host),
+		attribute.Int("delivery.port", port),
+	)
+	defer span.End()
+
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	if host == "" {
-		return DANEResult{}, errors.New("empty host")
+		err := errors.New("empty host")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return DANEResult{}, err
 	}
 	if port <= 0 {
 		port = 25
 	}
 	candidates := r.expandDANECandidates(ctx, host)
+	span.SetAttributes(attribute.Int("delivery.dane_candidate_count", len(candidates)))
 	merged := DANEResult{}
 	var lastErr error
 	for _, cand := range candidates {
@@ -187,9 +204,15 @@ func (r *DANEResolver) LookupHost(ctx context.Context, host string, port int) (D
 		}
 	}
 	if len(merged.Records) > 0 {
+		span.SetAttributes(
+			attribute.Bool("delivery.dane_authenticated_data", merged.AuthenticatedData),
+			attribute.Int("delivery.dane_tlsa_record_count", len(merged.Records)),
+		)
 		return merged, nil
 	}
 	if lastErr != nil {
+		span.RecordError(lastErr)
+		span.SetStatus(codes.Error, lastErr.Error())
 		return DANEResult{}, lastErr
 	}
 	return DANEResult{}, nil
