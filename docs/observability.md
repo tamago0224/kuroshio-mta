@@ -2,7 +2,10 @@
 
 `kuroshio-mta` の observability は、`Prometheus` 形式の metrics、`/slo` の JSON レポート、`slog` による JSON ログを中心に構成しています。加えて、現在は OpenTelemetry tracing を OTLP/HTTP exporter 経由で有効化できます。
 
-このページでは、今ある観測手段と OpenTelemetry (`OTEL`) との関係を整理します。
+このページでは、`kuroshio-mta` 自身が今どんな signal を出しているかを整理します。
+
+Alloy / Tempo / Loki / Grafana を含む stack 全体の見取り図は
+[Observability Stack](/observability_stack) を参照してください。
 
 ## 現在あるもの
 
@@ -107,12 +110,14 @@ tutorial から試すなら次を入口にしてください。
 
 - [最小メールフローを試す](/tutorials/basic-mail-flow)
 - [OTEL Tracing を試す](/tutorials/otel-tracing)
+- [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki)
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
 
 ## 関連ドキュメント
 
 - [Configuration](/configuration)
+- [Observability Stack](/observability_stack)
 - [SLO Delivery](/runbooks/slo_delivery)
 - [SLO Retry](/runbooks/slo_retry)
 - [HA Reference](/architecture/ha_reference)

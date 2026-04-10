@@ -27,8 +27,9 @@
 ## 進み方のおすすめ
 
 1. [Getting Started](/getting-started) で最初の起動方法を確認する
-2. [最小メールフローを試す](/tutorials/basic-mail-flow) で 1 通受ける
-3. [OTEL Tracing を試す](/tutorials/otel-tracing) で trace の見え方を確認する
-4. [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki) で trace とログの相関を見る
-5. [Rate Limit を試す](/tutorials/rate-limit) と [Admin API を試す](/tutorials/admin-operations) で運用系を見る
-6. [メール認証を試す](/tutorials/mail-auth) と [TLS 配送ポリシーを試す](/tutorials/tls-policy) で DNS / policy 系を確認する
+2. 先に [Observability Stack](/observability_stack) で Alloy / Tempo / Loki / Grafana の役割をつかむ
+3. [最小メールフローを試す](/tutorials/basic-mail-flow) で 1 通受ける
+4. [OTEL Tracing を試す](/tutorials/otel-tracing) で trace の見え方を確認する
+5. [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki) で trace とログの相関を見る
+6. [Rate Limit を試す](/tutorials/rate-limit) と [Admin API を試す](/tutorials/admin-operations) で運用系を見る
+7. [メール認証を試す](/tutorials/mail-auth) と [TLS 配送ポリシーを試す](/tutorials/tls-policy) で DNS / policy 系を確認する
