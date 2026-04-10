@@ -55,13 +55,45 @@ func TestSuppressionsAPIAcceptsSHA256Token(t *testing.T) {
 	}
 }
 
-func TestParseTokensSkipsInvalidSHA256Spec(t *testing.T) {
-	store := parseTokens("sha256=not-hex:viewer,viewer-token:viewer")
-	if _, ok := store.lookup("viewer-token"); !ok {
+func TestConfigTokenBackendSkipsInvalidSHA256Spec(t *testing.T) {
+	backend := NewConfigTokenBackend("sha256=not-hex:viewer,viewer-token:viewer")
+	if _, ok := backend.AuthenticateBearerToken("viewer-token"); !ok {
 		t.Fatal("expected plain token to remain available")
 	}
-	if _, ok := store.lookup("not-hex"); ok {
+	if _, ok := backend.AuthenticateBearerToken("not-hex"); ok {
 		t.Fatal("invalid sha256 token spec must be ignored")
+	}
+}
+
+type fakeAuthBackend struct {
+	principal Principal
+	ok        bool
+}
+
+func (f fakeAuthBackend) AuthenticateBearerToken(string) (Principal, bool) {
+	return f.principal, f.ok
+}
+
+func TestAPIUsesAuthBackend(t *testing.T) {
+	s, err := bounce.NewSuppressionStore(filepath.Join(t.TempDir(), "suppression.json"))
+	if err != nil {
+		t.Fatalf("new suppression store: %v", err)
+	}
+	api := NewAPIWithBackend(s, nil, nil, fakeAuthBackend{
+		principal: Principal{Role: roleOperator},
+		ok:        true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/suppressions", strings.NewReader(`{"address":"user@example.com","reason":"manual"}`))
+	req.Header.Set("Authorization", "Bearer any-token")
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !s.IsSuppressed("user@example.com") {
+		t.Fatal("suppression was not added")
 	}
 }
 

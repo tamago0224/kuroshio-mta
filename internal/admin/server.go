@@ -10,10 +10,14 @@ import (
 )
 
 func RunServer(ctx context.Context, addr, tokenConfig string, suppressions *bounce.SuppressionStore, queue queueManager, rep *reputation.Tracker) error {
+	return RunServerWithBackend(ctx, addr, NewConfigTokenBackend(tokenConfig), suppressions, queue, rep)
+}
+
+func RunServerWithBackend(ctx context.Context, addr string, authBackend AuthBackend, suppressions *bounce.SuppressionStore, queue queueManager, rep *reputation.Tracker) error {
 	if addr == "" {
 		return nil
 	}
-	api := NewAPI(suppressions, queue, rep, tokenConfig)
+	api := NewAPIWithBackend(suppressions, queue, rep, authBackend)
 	srv := &http.Server{Addr: addr, Handler: api.Handler()}
 	go func() {
 		<-ctx.Done()
