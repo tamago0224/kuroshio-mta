@@ -45,6 +45,7 @@ export default defineConfig({
         items: [
           { text: "Tutorials Home", link: "/tutorials/" },
           { text: "Basic Mail Flow", link: "/tutorials/basic-mail-flow" },
+          { text: "OTEL Tracing", link: "/tutorials/otel-tracing" },
           { text: "Mail Authentication", link: "/tutorials/mail-auth" },
           { text: "TLS Delivery Policies", link: "/tutorials/tls-policy" },
           { text: "Rate Limit Tutorial", link: "/tutorials/rate-limit" },
