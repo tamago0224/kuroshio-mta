@@ -60,6 +60,11 @@ reputation tracker を有効にしている場合だけ値が返ります。
 - 現在 span を付与している箇所:
   - SMTP session
   - worker の message 処理
+  - queue の enqueue / due / ack / retry / fail
+  - MX lookup
+  - DANE lookup
+  - MTA-STS lookup
+  - 配送先ホストごとの SMTP 試行
 
 現状の observability を一言で言うと:
 

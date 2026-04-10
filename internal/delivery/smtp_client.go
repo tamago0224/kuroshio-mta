@@ -18,6 +18,10 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/router"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type messageSigner interface {
@@ -33,6 +37,8 @@ type spoolBackendFunc func(*model.Message, string) error
 func (f spoolBackendFunc) Store(msg *model.Message, rcpt string) error {
 	return f(msg, rcpt)
 }
+
+var deliveryTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery")
 
 type Client struct {
 	cfg                            config.Config
@@ -75,33 +81,55 @@ func NewClient(cfg config.Config) *Client {
 }
 
 func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) error {
+	rcptDomain, _ := util.DomainOf(rcpt)
 	mode := strings.ToLower(strings.TrimSpace(c.cfg.DeliveryMode))
 	if mode == "" {
 		mode = "mx"
 	}
+	ctx, span := deliveryTracer.Start(ctx, "delivery.deliver")
+	span.SetAttributes(
+		attribute.String("delivery.mode", mode),
+		attribute.String("mail.message_id", msg.ID),
+		attribute.Int("mail.attempt", msg.Attempts),
+		attribute.String("mail.rcpt_domain", rcptDomain),
+	)
+	defer span.End()
+
+	var err error
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+	}()
+
 	switch mode {
 	case "mx":
-		return c.deliverByMX(ctx, msg, rcpt)
+		err = c.deliverByMX(ctx, msg, rcpt)
 	case "local_spool":
 		if c.spoolStoreErr != nil {
-			return c.spoolStoreErr
+			err = c.spoolStoreErr
+			break
 		}
 		if c.spoolStore == nil {
-			return errors.New("spool backend is not configured")
+			err = errors.New("spool backend is not configured")
+			break
 		}
-		return c.spoolStore.Store(msg, rcpt)
+		err = c.spoolStore.Store(msg, rcpt)
 	case "relay":
 		if strings.TrimSpace(c.cfg.RelayHost) == "" {
-			return errors.New("relay mode requires MTA_RELAY_HOST")
+			err = errors.New("relay mode requires MTA_RELAY_HOST")
+			break
 		}
 		port := c.cfg.RelayPort
 		if port <= 0 {
 			port = 25
 		}
-		return c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
+		err = c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
 	default:
-		return fmt.Errorf("unknown delivery mode: %s", mode)
+		err = fmt.Errorf("unknown delivery mode: %s", mode)
 	}
+	return err
 }
 
 func (c *Client) newSpoolBackend() (spoolBackend, error) {
@@ -120,11 +148,30 @@ func (c *Client) newSpoolBackend() (spoolBackend, error) {
 }
 
 func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt string) error {
+	ctx, span := deliveryTracer.Start(ctx, "delivery.mx")
+	defer span.End()
+
 	domain, ok := util.DomainOf(rcpt)
 	if !ok {
-		return errors.New("invalid rcpt domain")
+		err := errors.New("invalid rcpt domain")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
+	span.SetAttributes(attribute.String("mail.rcpt_domain", domain))
+
+	_, lookupSpan := deliveryTracer.Start(ctx, "delivery.lookup_mx", trace.WithAttributes(
+		attribute.String("mail.rcpt_domain", domain),
+	))
 	mxHosts, err := c.resolveMXFn(domain, c.cfg.DialTimeout)
+	if err == nil {
+		lookupSpan.SetAttributes(attribute.Int("delivery.mx_count", len(mxHosts)))
+	}
+	if err != nil {
+		lookupSpan.RecordError(err)
+		lookupSpan.SetStatus(codes.Error, err.Error())
+	}
+	lookupSpan.End()
 	if err != nil {
 		return fmt.Errorf("mx lookup failed: %w", err)
 	}
@@ -182,10 +229,21 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 				daneRes = &cp
 			}
 		}
-		err := c.deliverHostFn(ctx, mx.Host, 25, msg, rcpt, requireTLS, daneRes)
+		attemptCtx, attemptSpan := deliveryTracer.Start(ctx, "delivery.attempt_host")
+		attemptSpan.SetAttributes(
+			attribute.String("delivery.mx_host", mx.Host),
+			attribute.Bool("delivery.require_tls", requireTLS),
+			attribute.Bool("delivery.dane_active", daneActive),
+		)
+		err := c.deliverHostFn(attemptCtx, mx.Host, 25, msg, rcpt, requireTLS, daneRes)
 		if daneActive {
 			err = classifyDANEFailure(err)
 		}
+		if err != nil {
+			attemptSpan.RecordError(err)
+			attemptSpan.SetStatus(codes.Error, err.Error())
+		}
+		attemptSpan.End()
 		if err == nil {
 			return nil
 		} else {
@@ -214,6 +272,23 @@ func classifyDANEFailure(err error) error {
 }
 
 func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *model.Message, rcpt string, requireTLS bool, daneRes *DANEResult) error {
+	ctx, span := deliveryTracer.Start(ctx, "delivery.smtp_attempt")
+	span.SetAttributes(
+		attribute.String("delivery.host", host),
+		attribute.Int("delivery.port", port),
+		attribute.Bool("delivery.require_tls", requireTLS),
+		attribute.Bool("delivery.dane_tlsa", daneRes != nil && len(daneRes.Records) > 0),
+	)
+	defer span.End()
+
+	var err error
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+	}()
+
 	if port <= 0 {
 		port = 25
 	}

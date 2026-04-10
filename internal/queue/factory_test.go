@@ -12,8 +12,12 @@ func TestNewBackendLocal(t *testing.T) {
 		t.Fatalf("NewBackend(local): %v", err)
 	}
 	defer b.Close()
-	if _, ok := b.(*Store); !ok {
-		t.Fatalf("expected *Store backend, got %T", b)
+	observed, ok := b.(*observedBackend)
+	if !ok {
+		t.Fatalf("expected observed backend wrapper, got %T", b)
+	}
+	if _, ok := observed.next.(*Store); !ok {
+		t.Fatalf("expected wrapped *Store backend, got %T", observed.next)
 	}
 }
 

@@ -15,9 +15,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const maxMTASTSPolicyAge = 31557600 * time.Second
+
+var mtaSTSTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery/mta_sts")
 
 type MTASTSPolicy struct {
 	Version   string
@@ -98,9 +104,16 @@ func NewMTASTSResolver(ttl, fetchTimeout time.Duration, fetchFunc func(ctx conte
 }
 
 func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolicy, error) {
+	ctx, span := mtaSTSTracer.Start(ctx, "delivery.lookup_mta_sts")
+	span.SetAttributes(attribute.String("mail.domain", domain))
+	defer span.End()
+
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	if domain == "" {
-		return MTASTSPolicy{}, errors.New("empty domain")
+		err := errors.New("empty domain")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return MTASTSPolicy{}, err
 	}
 	now := r.nowFn().UTC()
 	policyID, hasPolicyID := r.lookupPolicyID(ctx, domain)
@@ -112,6 +125,10 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	if p, ok := r.cache[domain]; ok {
 		refreshByID := hasPolicyID && p.PolicyID != "" && policyID != p.PolicyID
 		if now.Before(p.ExpiresAt) && !refreshByID {
+			span.SetAttributes(
+				attribute.Bool("delivery.mta_sts_cache_hit", true),
+				attribute.String("delivery.mta_sts_mode", p.Mode),
+			)
 			r.mu.Unlock()
 			return p, nil
 		}
@@ -131,6 +148,8 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 
 	text, err := r.fetchFunc(ctx, domain)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		if hasStale {
 			r.mu.Lock()
 			failures := r.retryFailures[domain] + 1
@@ -143,6 +162,8 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	}
 	p, err := parseMTASTSPolicy(text)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		if hasStale {
 			r.mu.Lock()
 			failures := r.retryFailures[domain] + 1
@@ -176,6 +197,11 @@ func (r *MTASTSResolver) Lookup(ctx context.Context, domain string) (MTASTSPolic
 	r.cache[domain] = p
 	delete(r.rollovers, domain)
 	r.mu.Unlock()
+	span.SetAttributes(
+		attribute.Bool("delivery.mta_sts_cache_hit", false),
+		attribute.String("delivery.mta_sts_mode", p.Mode),
+		attribute.Int("delivery.mta_sts_mx_count", len(p.MX)),
+	)
 	return p, nil
 }
 
