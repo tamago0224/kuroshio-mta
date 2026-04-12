@@ -1034,7 +1034,11 @@ func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (strin
 		if err != nil {
 			return "", false, err
 		}
-		return user, s.authBackend.Validate(user, pass), nil
+		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
+		if !ok {
+			return user, false, nil
+		}
+		return principal.Username, true, nil
 	case "LOGIN":
 		var userRaw []byte
 		if len(parts) >= 2 {
@@ -1072,7 +1076,11 @@ func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (strin
 		if user == "" || pass == "" {
 			return "", false, errors.New("empty credentials")
 		}
-		return user, s.authBackend.Validate(user, pass), nil
+		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
+		if !ok {
+			return user, false, nil
+		}
+		return principal.Username, true, nil
 	default:
 		return "", false, errors.New("unsupported auth mechanism")
 	}

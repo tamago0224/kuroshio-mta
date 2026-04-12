@@ -5,8 +5,12 @@ import (
 	"strings"
 )
 
+type Principal struct {
+	Username string
+}
+
 type Backend interface {
-	Validate(username, password string) bool
+	AuthenticatePassword(username, password string) (Principal, bool)
 }
 
 type StaticBackend struct {
@@ -28,7 +32,7 @@ func NewStatic(raw string) (*StaticBackend, error) {
 		if i <= 0 || i == len(p)-1 {
 			return nil, errors.New("invalid submission user entry")
 		}
-		u := strings.ToLower(strings.TrimSpace(p[:i]))
+		u := normalizeUsername(p[:i])
 		pw := strings.TrimSpace(p[i+1:])
 		if u == "" || pw == "" {
 			return nil, errors.New("invalid submission user entry")
@@ -38,13 +42,18 @@ func NewStatic(raw string) (*StaticBackend, error) {
 	return &StaticBackend{users: users}, nil
 }
 
-func (b *StaticBackend) Validate(username, password string) bool {
+func (b *StaticBackend) AuthenticatePassword(username, password string) (Principal, bool) {
 	if b == nil {
-		return false
+		return Principal{}, false
 	}
-	pw, ok := b.users[strings.ToLower(strings.TrimSpace(username))]
-	if !ok {
-		return false
+	u := normalizeUsername(username)
+	pw, ok := b.users[u]
+	if !ok || pw != password {
+		return Principal{}, false
 	}
-	return pw == password
+	return Principal{Username: u}, true
+}
+
+func normalizeUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
 }
