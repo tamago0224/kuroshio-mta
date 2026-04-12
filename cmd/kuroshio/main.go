@@ -82,12 +82,24 @@ func main() {
 	s := smtp.NewServer(cfg, q, metrics)
 	var submissionServer *smtp.Server
 	if cfg.SubmissionAddr != "" {
-		authBackend, aErr := userauth.NewStatic(cfg.SubmissionUsers)
-		if aErr != nil {
-			fatal("submission auth init failed", "error", aErr)
-		}
-		if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" {
-			fatal("submission auth is required but MTA_SUBMISSION_USERS is empty")
+		var (
+			authBackend userauth.Backend
+			aErr        error
+		)
+		switch cfg.SubmissionAuthBackend {
+		case "sqlite":
+			authBackend, aErr = userauth.NewSQLite(cfg.SubmissionAuthDSN)
+			if aErr != nil {
+				fatal("submission auth init failed", "error", aErr)
+			}
+		default:
+			authBackend, aErr = userauth.NewStatic(cfg.SubmissionUsers)
+			if aErr != nil {
+				fatal("submission auth init failed", "error", aErr)
+			}
+			if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" {
+				fatal("submission auth is required but MTA_SUBMISSION_USERS is empty")
+			}
 		}
 		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
 	}

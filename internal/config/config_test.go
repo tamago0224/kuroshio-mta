@@ -166,6 +166,7 @@ func TestLoadSubmissionConfig(t *testing.T) {
 	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
 	t.Setenv("MTA_SUBMISSION_AUTH_REQUIRED", "true")
 	t.Setenv("MTA_SUBMISSION_USERS", "alice@example.com:s3cr3t")
+	t.Setenv("MTA_SUBMISSION_AUTH_BACKEND", "static")
 	t.Setenv("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", "true")
 
 	cfg := mustLoadForTest(t)
@@ -178,8 +179,33 @@ func TestLoadSubmissionConfig(t *testing.T) {
 	if cfg.SubmissionUsers != "alice@example.com:s3cr3t" {
 		t.Fatalf("submission users=%q", cfg.SubmissionUsers)
 	}
+	if cfg.SubmissionAuthBackend != "static" {
+		t.Fatalf("submission auth backend=%q", cfg.SubmissionAuthBackend)
+	}
 	if !cfg.SubmissionSenderID {
 		t.Fatal("submission sender identity should be true")
+	}
+}
+
+func TestLoadSubmissionSQLiteConfig(t *testing.T) {
+	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
+	t.Setenv("MTA_SUBMISSION_AUTH_BACKEND", "sqlite")
+	t.Setenv("MTA_SUBMISSION_AUTH_DSN", "file:./var/submission-auth.db")
+
+	cfg := mustLoadForTest(t)
+	if cfg.SubmissionAuthBackend != "sqlite" {
+		t.Fatalf("submission auth backend=%q", cfg.SubmissionAuthBackend)
+	}
+	if cfg.SubmissionAuthDSN != "file:./var/submission-auth.db" {
+		t.Fatalf("submission auth dsn=%q", cfg.SubmissionAuthDSN)
+	}
+}
+
+func TestLoadSubmissionAuthBackendFallsBackOnInvalidValue(t *testing.T) {
+	t.Setenv("MTA_SUBMISSION_AUTH_BACKEND", "unsupported")
+	cfg := mustLoadForTest(t)
+	if cfg.SubmissionAuthBackend != "static" {
+		t.Fatalf("submission auth backend=%q want=%q", cfg.SubmissionAuthBackend, "static")
 	}
 }
 
