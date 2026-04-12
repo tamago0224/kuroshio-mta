@@ -2,21 +2,25 @@ package userauth
 
 import "testing"
 
-func TestNewStaticAndValidate(t *testing.T) {
+func TestNewStaticAndAuthenticatePassword(t *testing.T) {
 	b, err := NewStatic("alice@example.com:s3cr3t, bob@example.com:pass")
 	if err != nil {
 		t.Fatalf("new static: %v", err)
 	}
-	if !b.Validate("alice@example.com", "s3cr3t") {
+	principal, ok := b.AuthenticatePassword("alice@example.com", "s3cr3t")
+	if !ok {
 		t.Fatal("alice should authenticate")
 	}
-	if !b.Validate("ALICE@EXAMPLE.COM", "s3cr3t") {
+	if principal.Username != "alice@example.com" {
+		t.Fatalf("principal username=%q", principal.Username)
+	}
+	if _, ok := b.AuthenticatePassword("ALICE@EXAMPLE.COM", "s3cr3t"); !ok {
 		t.Fatal("username lookup should be case-insensitive")
 	}
-	if b.Validate("bob@example.com", "wrong") {
+	if _, ok := b.AuthenticatePassword("bob@example.com", "wrong"); ok {
 		t.Fatal("wrong password must fail")
 	}
-	if b.Validate("charlie@example.com", "pass") {
+	if _, ok := b.AuthenticatePassword("charlie@example.com", "pass"); ok {
 		t.Fatal("unknown user must fail")
 	}
 }
