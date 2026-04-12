@@ -362,6 +362,14 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				continue
 			}
 			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.auth, mailArgs.Address) {
+				scopeMode := submissionSenderScopeMode(ss.auth)
+				cmdSpan.SetAttributes(
+					attribute.String("smtp.auth.backend", ss.auth.AuthSource),
+					attribute.String("smtp.auth.sender_scope_mode", scopeMode),
+					attribute.Int("smtp.auth.allowed_sender_domain_count", len(ss.auth.AllowedSenderDomains)),
+					attribute.Int("smtp.auth.allowed_sender_address_count", len(ss.auth.AllowedSenderAddresses)),
+				)
+				slog.WarnContext(ctx, "submission sender identity rejected", "component", "smtp", "reason", "sender_scope_mismatch", "auth_backend", ss.auth.AuthSource, "auth_user", logging.MaskEmail(ss.auth.Username), "mail_from", logging.MaskEmail(mailArgs.Address), "sender_scope_mode", scopeMode)
 				cmdSpan.reject("sender_not_allowed_for_auth", 553, "sender address rejected for authenticated identity")
 				cmdSpan.end()
 				writeResp(w, 553, "sender address rejected for authenticated identity")
@@ -567,7 +575,10 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				continue
 			}
 			if !ok {
-				cmdSpan.SetAttributes(attribute.Bool("smtp.auth.success", false))
+				cmdSpan.SetAttributes(
+					attribute.Bool("smtp.auth.success", false),
+					attribute.String("smtp.auth.user", logging.MaskEmail(principal.Username)),
+				)
 				cmdSpan.reject("invalid_credentials", 535, "authentication credentials invalid")
 				cmdSpan.end()
 				writeResp(w, 535, "authentication credentials invalid")
@@ -578,7 +589,11 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.authOK = true
 			cmdSpan.SetAttributes(
 				attribute.Bool("smtp.auth.success", true),
+				attribute.String("smtp.auth.backend", principal.AuthSource),
 				attribute.String("smtp.auth.user", logging.MaskEmail(principal.Username)),
+				attribute.String("smtp.auth.sender_scope_mode", submissionSenderScopeMode(principal)),
+				attribute.Int("smtp.auth.allowed_sender_domain_count", len(principal.AllowedSenderDomains)),
+				attribute.Int("smtp.auth.allowed_sender_address_count", len(principal.AllowedSenderAddresses)),
 			)
 			cmdSpan.setResponse(235, "authentication successful")
 			cmdSpan.end()
@@ -1144,6 +1159,13 @@ func senderAllowedForAuth(principal userauth.Principal, mailFrom string) bool {
 		return false
 	}
 	return strings.EqualFold(authDomain, fromDomain)
+}
+
+func submissionSenderScopeMode(principal userauth.Principal) string {
+	if len(principal.AllowedSenderDomains) > 0 || len(principal.AllowedSenderAddresses) > 0 {
+		return "credential_scope"
+	}
+	return "username_domain_fallback"
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, extended, tlsOn bool) string {

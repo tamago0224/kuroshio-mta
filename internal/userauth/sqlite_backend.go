@@ -76,6 +76,7 @@ WHERE username = ?
 	}
 
 	return Principal{
+		AuthSource:             "sqlite_password",
 		Username:               user,
 		AllowedSenderDomains:   parseCSVAllowList(allowedDomains.String),
 		AllowedSenderAddresses: parseCSVAllowList(allowedAddresses.String),
