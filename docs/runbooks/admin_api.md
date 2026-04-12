@@ -62,7 +62,9 @@ scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 ## 監査ログ
 
 - すべての運用操作は `component=audit` で JSON ログ出力
-- `event`, `actor`, `path`, `message_id`, `dry_run` を含む
+- `event`, `actor`, `actor_header`, `auth_principal`, `auth_role`, `auth_source`, `token_fingerprint`, `path`, `message_id`, `dry_run` を含む
+- `X-Admin-Actor` は人間や runbook 上の実行主体を表し、`auth_principal` は認証 backend が返す principal を表す
+- token の平文は出力せず、`token_fingerprint` には安全な識別子だけを出す
 
 ## 制約
 

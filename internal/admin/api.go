@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -36,6 +37,8 @@ type API struct {
 	now          func() time.Time
 }
 
+type principalContextKey struct{}
+
 func NewAPI(s *bounce.SuppressionStore, q queueManager, rep *reputation.Tracker, tokenConfig string) *API {
 	return NewAPIWithBackend(s, q, rep, NewConfigTokenBackend(tokenConfig))
 }
@@ -60,19 +63,19 @@ func (a *API) Handler() http.Handler {
 	return mux
 }
 
-func (a *API) authorize(w http.ResponseWriter, r *http.Request, min role) (role, bool) {
+func (a *API) authorize(w http.ResponseWriter, r *http.Request, min role) (*http.Request, Principal, bool) {
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(header, "Bearer ") {
 		http.Error(w, "missing bearer token", http.StatusUnauthorized)
-		return "", false
+		return r, Principal{}, false
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 	principal, ok := a.authBackend.AuthenticateBearerToken(token)
 	if !ok || !roleAllowed(principal.Role, min) {
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return "", false
+		return r, Principal{}, false
 	}
-	return principal.Role, true
+	return withPrincipal(r, principal), principal, true
 }
 
 func roleAllowed(got, min role) bool {
@@ -83,8 +86,10 @@ func roleAllowed(got, min role) bool {
 func (a *API) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if _, ok := a.authorize(w, r, roleViewer); !ok {
+		if next, _, ok := a.authorize(w, r, roleViewer); !ok {
 			return
+		} else {
+			r = next
 		}
 		if a.suppressions == nil {
 			http.Error(w, "suppression admin is unavailable", http.StatusNotImplemented)
@@ -92,8 +97,10 @@ func (a *API) handleSuppressions(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": a.suppressions.List()})
 	case http.MethodPost:
-		if _, ok := a.authorize(w, r, roleOperator); !ok {
+		if next, _, ok := a.authorize(w, r, roleOperator); !ok {
 			return
+		} else {
+			r = next
 		}
 		if a.suppressions == nil {
 			http.Error(w, "suppression admin is unavailable", http.StatusNotImplemented)
@@ -130,8 +137,10 @@ func (a *API) handleSuppressionByAddress(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := a.authorize(w, r, roleOperator); !ok {
+	if next, _, ok := a.authorize(w, r, roleOperator); !ok {
 		return
+	} else {
+		r = next
 	}
 	if a.suppressions == nil {
 		http.Error(w, "suppression admin is unavailable", http.StatusNotImplemented)
@@ -164,8 +173,10 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/queue/")
 	parts := strings.Split(path, "/")
 	if len(parts) == 1 && r.Method == http.MethodGet {
-		if _, ok := a.authorize(w, r, roleViewer); !ok {
+		if next, _, ok := a.authorize(w, r, roleViewer); !ok {
 			return
+		} else {
+			r = next
 		}
 		state := strings.TrimSpace(parts[0])
 		limit := 50
@@ -183,8 +194,10 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 3 && r.Method == http.MethodPost && parts[2] == "requeue" {
-		if _, ok := a.authorize(w, r, roleOperator); !ok {
+		if next, _, ok := a.authorize(w, r, roleOperator); !ok {
 			return
+		} else {
+			r = next
 		}
 		state := strings.TrimSpace(parts[0])
 		id := strings.TrimSpace(parts[1])
@@ -217,8 +230,10 @@ func (a *API) handleComplaint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := a.authorize(w, r, roleOperator); !ok {
+	if next, _, ok := a.authorize(w, r, roleOperator); !ok {
 		return
+	} else {
+		r = next
 	}
 	if a.reputation == nil {
 		http.Error(w, "reputation admin is unavailable", http.StatusNotImplemented)
@@ -248,8 +263,10 @@ func (a *API) handleTLSReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := a.authorize(w, r, roleOperator); !ok {
+	if next, _, ok := a.authorize(w, r, roleOperator); !ok {
 		return
+	} else {
+		r = next
 	}
 	if a.reputation == nil {
 		http.Error(w, "reputation admin is unavailable", http.StatusNotImplemented)
@@ -276,7 +293,23 @@ func (a *API) handleTLSReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) audit(r *http.Request, event string, attrs map[string]any) {
-	fields := []any{"component", "audit", "event", event, "actor", actorFromRequest(r), "method", r.Method, "path", r.URL.Path}
+	fields := []any{
+		"component", "audit",
+		"event", event,
+		"actor", actorFromRequest(r),
+		"actor_header", actorHeaderFromRequest(r),
+		"method", r.Method,
+		"path", r.URL.Path,
+	}
+	if principal, ok := principalFromRequest(r); ok {
+		fields = append(
+			fields,
+			"auth_principal", principal.Subject,
+			"auth_role", principal.Role,
+			"auth_source", principal.AuthSource,
+			"token_fingerprint", principal.TokenFingerprint,
+		)
+	}
 	for k, v := range attrs {
 		fields = append(fields, k, v)
 	}
@@ -284,10 +317,30 @@ func (a *API) audit(r *http.Request, event string, attrs map[string]any) {
 }
 
 func actorFromRequest(r *http.Request) string {
-	if v := strings.TrimSpace(r.Header.Get("X-Admin-Actor")); v != "" {
+	if v := actorHeaderFromRequest(r); v != "" {
 		return v
 	}
+	if principal, ok := principalFromRequest(r); ok && strings.TrimSpace(principal.Subject) != "" {
+		return principal.Subject
+	}
 	return "unknown"
+}
+
+func actorHeaderFromRequest(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-Admin-Actor"))
+}
+
+func withPrincipal(r *http.Request, principal Principal) *http.Request {
+	ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+	return r.WithContext(ctx)
+}
+
+func principalFromRequest(r *http.Request) (Principal, bool) {
+	if r == nil {
+		return Principal{}, false
+	}
+	principal, ok := r.Context().Value(principalContextKey{}).(Principal)
+	return principal, ok
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -8,7 +8,10 @@ import (
 )
 
 type Principal struct {
-	Role role
+	Role             role
+	Subject          string
+	AuthSource       string
+	TokenFingerprint string
 }
 
 type AuthBackend interface {
@@ -46,16 +49,22 @@ func NewConfigTokenBackend(v string) AuthBackend {
 		if tokenSpec == "" {
 			continue
 		}
-		p := Principal{Role: r}
+		p := Principal{
+			Role:       r,
+			Subject:    "config:" + string(r),
+			AuthSource: "config_token",
+		}
 		if strings.HasPrefix(strings.ToLower(tokenSpec), "sha256=") {
 			raw := strings.TrimSpace(tokenSpec[len("sha256="):])
 			sum, ok := decodeSHA256Hex(raw)
 			if !ok {
 				continue
 			}
+			p.TokenFingerprint = tokenFingerprint(sum)
 			out.hashed = append(out.hashed, hashedToken{sum: sum, principal: p})
 			continue
 		}
+		p.TokenFingerprint = tokenFingerprint(sha256.Sum256([]byte(tokenSpec)))
 		out.plain[tokenSpec] = p
 	}
 	return out
@@ -85,4 +94,8 @@ func decodeSHA256Hex(v string) ([32]byte, bool) {
 	}
 	copy(out[:], b)
 	return out, true
+}
+
+func tokenFingerprint(sum [32]byte) string {
+	return "sha256:" + hex.EncodeToString(sum[:8])
 }
