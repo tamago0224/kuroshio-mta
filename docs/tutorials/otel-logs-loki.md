@@ -26,10 +26,14 @@
 docker compose -f examples/tutorials/otel-tracing/compose.yaml up --build -d
 ```
 
-この compose では Grafana datasource を provisioning 済みです。
+この compose では Grafana datasource と dashboard を provisioning 済みです。
 
 - `Tempo`: trace 用
 - `Loki`: log 用
+- `Prometheus`: metrics 用
+
+まずは `Kuroshio Observability Tutorial` dashboard を開くと、
+metrics / logs の主要 signal をまとめて確認できます。
 
 加えて、次の相関設定も入っています。
 
