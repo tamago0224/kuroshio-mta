@@ -1,0 +1,10 @@
+listen_addr: ":2525"
+submission_addr: ":587"
+submission_auth_required: true
+submission_auth_backend: sqlite
+submission_auth_dsn: "file:/var/lib/kuroshio/submission-auth.db"
+submission_enforce_sender_identity: true
+hostname: tutorial.local
+queue_dir: /var/lib/kuroshio/queue
+log_level: info
+observability_addr: ":9090"

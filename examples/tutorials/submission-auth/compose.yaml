@@ -1,0 +1,30 @@
+services:
+  init-db:
+    image: alpine:3.20
+    command:
+      - sh
+      - -lc
+      - apk add --no-cache sqlite && sqlite3 /var/lib/kuroshio/submission-auth.db < /init.sql
+    volumes:
+      - ./init.sql:/init.sql:ro
+      - ./var:/var/lib/kuroshio
+    restart: "no"
+
+  kuroshio:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    ports:
+      - "2525:2525"
+      - "587:587"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/etc/kuroshio/config.yaml:ro
+      - ./var/queue:/var/lib/kuroshio/queue
+      - ./var:/var/lib/kuroshio
+    depends_on:
+      - init-db
+
+  smtp-client:
+    image: busybox:1.37
+    command: ["sh", "-c", "tail -f /dev/null"]
