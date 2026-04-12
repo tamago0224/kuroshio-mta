@@ -38,18 +38,25 @@ Issue: #251
 
 - `credential_not_found`
   username に対応する credential がない
+- 次のアクション: username と `submission_credentials.username` の一致を確認する
 - `invalid_password`
   password hash が一致しない
+- 次のアクション: `password_hash` を再生成して更新する
 - `credential_disabled`
   credential はあるが `enabled=false`
+- 次のアクション: 意図した停止か確認し、必要なら `enabled=1` に戻す
 - `credential_expired`
   `expires_at` を過ぎている
+- 次のアクション: `expires_at` を更新するか、無期限なら `NULL` にする
 - `empty_credentials`
   backend 呼び出し時点で username または password が空
+- 次のアクション: SMTP クライアントの設定を確認する
 - `backend_unavailable`
   backend 初期化や注入に失敗している
+- 次のアクション: `submission_auth_backend` / `submission_auth_dsn` を確認する
 - `backend_error`
   SQLite lookup や expiry check の内部エラー
+- 次のアクション: SQLite のファイル権限・ロック状態・DB 破損を確認する
 
 SMTP client への応答は従来どおり一般化されており、
 失敗時は基本的に `535 authentication credentials invalid` を返す。
