@@ -115,7 +115,16 @@ func main() {
 		if localQueue, ok := q.(*queue.Store); ok {
 			queueAdmin = localQueue
 		}
-		go func() { errCh <- admin.RunServer(ctx, cfg.AdminAddr, cfg.AdminTokens, sup, queueAdmin, rep) }()
+		adminAuthBackend := admin.NewConfigTokenBackend(cfg.AdminTokens)
+		if cfg.AdminAuthBackend == "sqlite" {
+			adminAuthBackend, err = admin.NewSQLiteTokenBackend(cfg.AdminAuthDSN)
+			if err != nil {
+				fatal("admin auth init failed", "error", err)
+			}
+		}
+		go func() {
+			errCh <- admin.RunServerWithBackend(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep)
+		}()
 	}
 	go func() {
 		errCh <- retention.Run(ctx, cfg.QueueDir, retention.Policy{

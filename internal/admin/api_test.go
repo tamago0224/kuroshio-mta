@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
+	_ "modernc.org/sqlite"
 )
 
 func TestSuppressionsAPIRequiresBearerToken(t *testing.T) {
@@ -84,6 +86,74 @@ func TestConfigTokenBackendReturnsFingerprintAndPrincipalMetadata(t *testing.T) 
 	if principal.TokenFingerprint != want {
 		t.Fatalf("fingerprint=%q want=%q", principal.TokenFingerprint, want)
 	}
+}
+
+func TestSQLiteTokenBackendAuthenticatesEnabledTokenAndUpdatesLastUsedAt(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "admin-auth.db")
+	db := openAdminSQLiteForTest(t, dsn)
+	seedAdminSQLiteForTest(t, db, "operator@example.com", "operator", "operator-token", true, nil)
+
+	backend, err := NewSQLiteTokenBackend(dsn)
+	if err != nil {
+		t.Fatalf("new sqlite backend: %v", err)
+	}
+	principal, ok := backend.AuthenticateBearerToken("operator-token")
+	if !ok {
+		t.Fatal("expected token authentication to succeed")
+	}
+	if principal.Subject != "operator@example.com" {
+		t.Fatalf("subject=%q want=%q", principal.Subject, "operator@example.com")
+	}
+	if principal.Role != roleOperator {
+		t.Fatalf("role=%q want=%q", principal.Role, roleOperator)
+	}
+	if principal.AuthSource != "sqlite_token" {
+		t.Fatalf("auth source=%q want=%q", principal.AuthSource, "sqlite_token")
+	}
+	sum := sha256.Sum256([]byte("operator-token"))
+	want := "sha256:" + hex.EncodeToString(sum[:8])
+	if principal.TokenFingerprint != want {
+		t.Fatalf("fingerprint=%q want=%q", principal.TokenFingerprint, want)
+	}
+
+	var lastUsedAt sql.NullString
+	if err := db.QueryRow(`SELECT last_used_at FROM admin_tokens LIMIT 1`).Scan(&lastUsedAt); err != nil {
+		t.Fatalf("query last_used_at: %v", err)
+	}
+	if !lastUsedAt.Valid || strings.TrimSpace(lastUsedAt.String) == "" {
+		t.Fatalf("last_used_at should be updated, got=%+v", lastUsedAt)
+	}
+}
+
+func TestSQLiteTokenBackendRejectsDisabledOrExpiredToken(t *testing.T) {
+	t.Run("disabled token", func(t *testing.T) {
+		dsn := filepath.Join(t.TempDir(), "disabled.db")
+		db := openAdminSQLiteForTest(t, dsn)
+		seedAdminSQLiteForTest(t, db, "operator@example.com", "operator", "operator-token", false, nil)
+
+		backend, err := NewSQLiteTokenBackend(dsn)
+		if err != nil {
+			t.Fatalf("new sqlite backend: %v", err)
+		}
+		if _, ok := backend.AuthenticateBearerToken("operator-token"); ok {
+			t.Fatal("disabled token must be rejected")
+		}
+	})
+
+	t.Run("expired token", func(t *testing.T) {
+		dsn := filepath.Join(t.TempDir(), "expired.db")
+		db := openAdminSQLiteForTest(t, dsn)
+		expiredAt := time.Now().Add(-time.Hour).UTC()
+		seedAdminSQLiteForTest(t, db, "viewer@example.com", "viewer", "viewer-token", true, &expiredAt)
+
+		backend, err := NewSQLiteTokenBackend(dsn)
+		if err != nil {
+			t.Fatalf("new sqlite backend: %v", err)
+		}
+		if _, ok := backend.AuthenticateBearerToken("viewer-token"); ok {
+			t.Fatal("expired token must be rejected")
+		}
+	})
 }
 
 type fakeAuthBackend struct {
@@ -269,5 +339,68 @@ func TestAuditLogIncludesActorHeaderAndAuthPrincipal(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %s in audit log: %q", want, out)
 		}
+	}
+}
+
+func openAdminSQLiteForTest(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`
+CREATE TABLE admin_principals (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	role TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	description TEXT,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE admin_tokens (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	principal_id INTEGER NOT NULL,
+	token_hash TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	expires_at TEXT,
+	last_used_at TEXT,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY(principal_id) REFERENCES admin_principals(id)
+);
+`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	return db
+}
+
+func seedAdminSQLiteForTest(t *testing.T, db *sql.DB, subject, roleName, token string, enabled bool, expiresAt *time.Time) {
+	t.Helper()
+	res, err := db.Exec(`INSERT INTO admin_principals(name, role, enabled, description) VALUES (?, ?, 1, ?)`, subject, roleName, "seed")
+	if err != nil {
+		t.Fatalf("insert admin principal: %v", err)
+	}
+	principalID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("principal last insert id: %v", err)
+	}
+
+	tokenEnabled := 0
+	if enabled {
+		tokenEnabled = 1
+	}
+	sum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(sum[:])
+	var expires any
+	if expiresAt != nil {
+		expires = expiresAt.UTC().Format("2006-01-02 15:04:05")
+	}
+	if _, err := db.Exec(`
+INSERT INTO admin_tokens(principal_id, token_hash, enabled, expires_at)
+VALUES (?, ?, ?, ?)
+`, principalID, tokenHash, tokenEnabled, expires); err != nil {
+		t.Fatalf("insert admin token: %v", err)
 	}
 }
