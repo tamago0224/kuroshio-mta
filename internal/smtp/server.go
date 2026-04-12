@@ -566,7 +566,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 454, "authentication backend unavailable")
 				continue
 			}
-			principal, ok, err := s.handleAuth(r, w, arg)
+			authRes, err := s.handleAuth(r, w, arg)
 			if err != nil {
 				cmdSpan.recordError(err)
 				cmdSpan.setResponse(501, err.Error())
@@ -574,16 +574,20 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 501, err.Error())
 				continue
 			}
-			if !ok {
+			if !authRes.Success {
 				cmdSpan.SetAttributes(
 					attribute.Bool("smtp.auth.success", false),
-					attribute.String("smtp.auth.user", logging.MaskEmail(principal.Username)),
+					attribute.String("smtp.auth.backend", authRes.Principal.AuthSource),
+					attribute.String("smtp.auth.user", logging.MaskEmail(authRes.Principal.Username)),
+					attribute.String("smtp.auth.failure_reason", authRes.FailureReason),
 				)
+				slog.WarnContext(ctx, "submission auth failed", "component", "smtp", "auth_backend", authRes.Principal.AuthSource, "auth_user", logging.MaskEmail(authRes.Principal.Username), "mechanism", mech, "failure_reason", authRes.FailureReason)
 				cmdSpan.reject("invalid_credentials", 535, "authentication credentials invalid")
 				cmdSpan.end()
 				writeResp(w, 535, "authentication credentials invalid")
 				continue
 			}
+			principal := authRes.Principal
 			ss.authUser = principal.Username
 			ss.auth = principal
 			ss.authOK = true
@@ -595,6 +599,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				attribute.Int("smtp.auth.allowed_sender_domain_count", len(principal.AllowedSenderDomains)),
 				attribute.Int("smtp.auth.allowed_sender_address_count", len(principal.AllowedSenderAddresses)),
 			)
+			slog.InfoContext(ctx, "submission auth succeeded", "component", "smtp", "auth_backend", principal.AuthSource, "auth_user", logging.MaskEmail(principal.Username), "mechanism", mech, "sender_scope_mode", submissionSenderScopeMode(principal), "allowed_sender_domain_count", len(principal.AllowedSenderDomains), "allowed_sender_address_count", len(principal.AllowedSenderAddresses))
 			cmdSpan.setResponse(235, "authentication successful")
 			cmdSpan.end()
 			writeResp(w, 235, "authentication successful")
@@ -1027,9 +1032,9 @@ func isASCII(s string) bool {
 	return true
 }
 
-func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (userauth.Principal, bool, error) {
+func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (userauth.AuthResult, error) {
 	if strings.TrimSpace(arg) == "" {
-		return userauth.Principal{}, false, errors.New("AUTH requires mechanism")
+		return userauth.AuthResult{}, errors.New("AUTH requires mechanism")
 	}
 	parts := strings.Fields(arg)
 	mech := strings.ToUpper(parts[0])
@@ -1040,67 +1045,67 @@ func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (usera
 			payload = parts[1]
 		} else {
 			if err := writeLine(w, "334 "); err != nil {
-				return userauth.Principal{}, false, err
+				return userauth.AuthResult{}, err
 			}
 			line, err := r.ReadString('\n')
 			if err != nil {
-				return userauth.Principal{}, false, err
+				return userauth.AuthResult{}, err
 			}
 			payload = strings.TrimSpace(line)
 		}
 		user, pass, err := decodeAuthPlain(payload)
 		if err != nil {
-			return userauth.Principal{}, false, err
+			return userauth.AuthResult{}, err
+		}
+		if detailed, ok := s.authBackend.(userauth.DetailedBackend); ok {
+			return detailed.AuthenticatePasswordDetailed(user, pass), nil
 		}
 		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
-		if !ok {
-			return userauth.Principal{Username: user}, false, nil
-		}
-		return principal, true, nil
+		return userauth.AuthResult{Principal: principal, Success: ok}, nil
 	case "LOGIN":
 		var userRaw []byte
 		if len(parts) >= 2 {
 			var err error
 			userRaw, err = decodeBase64Line(parts[1])
 			if err != nil {
-				return userauth.Principal{}, false, errors.New("invalid base64 username")
+				return userauth.AuthResult{}, errors.New("invalid base64 username")
 			}
 		} else {
 			if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
-				return userauth.Principal{}, false, err
+				return userauth.AuthResult{}, err
 			}
 			userLine, err := r.ReadString('\n')
 			if err != nil {
-				return userauth.Principal{}, false, err
+				return userauth.AuthResult{}, err
 			}
 			userRaw, err = decodeBase64Line(userLine)
 			if err != nil {
-				return userauth.Principal{}, false, errors.New("invalid base64 username")
+				return userauth.AuthResult{}, errors.New("invalid base64 username")
 			}
 		}
 		if err := writeLine(w, "334 UGFzc3dvcmQ6"); err != nil {
-			return userauth.Principal{}, false, err
+			return userauth.AuthResult{}, err
 		}
 		passLine, err := r.ReadString('\n')
 		if err != nil {
-			return userauth.Principal{}, false, err
+			return userauth.AuthResult{}, err
 		}
 		passRaw, err := decodeBase64Line(passLine)
 		if err != nil {
-			return userauth.Principal{}, false, errors.New("invalid base64 password")
+			return userauth.AuthResult{}, errors.New("invalid base64 password")
 		}
 		user := strings.TrimSpace(string(userRaw))
 		pass := strings.TrimSpace(string(passRaw))
 		if user == "" || pass == "" {
-			return userauth.Principal{}, false, errors.New("empty credentials")
+			return userauth.AuthResult{}, errors.New("empty credentials")
+		}
+		if detailed, ok := s.authBackend.(userauth.DetailedBackend); ok {
+			return detailed.AuthenticatePasswordDetailed(user, pass), nil
 		}
 		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
-		if !ok {
-			return userauth.Principal{Username: user}, false, nil
-		}
-		return principal, true, nil
+		return userauth.AuthResult{Principal: principal, Success: ok}, nil
 	default:
-		return userauth.Principal{}, false, errors.New("unsupported auth mechanism")
+		return userauth.AuthResult{}, errors.New("unsupported auth mechanism")
 	}
 }
 

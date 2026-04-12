@@ -34,37 +34,78 @@ func NewSQLite(dsn string) (*SQLiteBackend, error) {
 }
 
 func (b *SQLiteBackend) AuthenticatePassword(username, password string) (Principal, bool) {
+	result := b.AuthenticatePasswordDetailed(username, password)
+	return result.Principal, result.Success
+}
+
+func (b *SQLiteBackend) AuthenticatePasswordDetailed(username, password string) AuthResult {
 	if b == nil || b.db == nil {
-		return Principal{}, false
+		return AuthResult{FailureReason: "backend_unavailable"}
 	}
 	user := normalizeUsername(username)
 	password = strings.TrimSpace(password)
 	if user == "" || password == "" {
-		return Principal{}, false
+		return AuthResult{
+			Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+			FailureReason: "empty_credentials",
+		}
 	}
 
 	var storedHash string
 	var allowedDomains sql.NullString
 	var allowedAddresses sql.NullString
+	var enabled bool
+	var expiresAt sql.NullString
 	err := b.db.QueryRow(`
-SELECT password_hash, allowed_sender_domains, allowed_sender_addresses
+SELECT password_hash, enabled, expires_at, allowed_sender_domains, allowed_sender_addresses
 FROM submission_credentials
 WHERE username = ?
-  AND enabled = 1
-  AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
 LIMIT 1
-`, user).Scan(&storedHash, &allowedDomains, &allowedAddresses)
+`, user).Scan(&storedHash, &enabled, &expiresAt, &allowedDomains, &allowedAddresses)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			slog.Error("submission sqlite auth lookup failed", "component", "smtp", "error", err, "username", user)
+			return AuthResult{
+				Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+				FailureReason: "backend_error",
+			}
 		}
-		return Principal{}, false
+		return AuthResult{
+			Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+			FailureReason: "credential_not_found",
+		}
+	}
+	if !enabled {
+		return AuthResult{
+			Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+			FailureReason: "credential_disabled",
+		}
+	}
+	if expiresAt.Valid {
+		var expired bool
+		err := b.db.QueryRow(`SELECT datetime(?) <= CURRENT_TIMESTAMP`, expiresAt.String).Scan(&expired)
+		if err != nil {
+			slog.Error("submission sqlite auth expiry check failed", "component", "smtp", "error", err, "username", user)
+			return AuthResult{
+				Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+				FailureReason: "backend_error",
+			}
+		}
+		if expired {
+			return AuthResult{
+				Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+				FailureReason: "credential_expired",
+			}
+		}
 	}
 
 	sum := sha256.Sum256([]byte(password))
 	gotHash := hex.EncodeToString(sum[:])
 	if subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(storedHash))), []byte(gotHash)) != 1 {
-		return Principal{}, false
+		return AuthResult{
+			Principal:     Principal{AuthSource: "sqlite_password", Username: user},
+			FailureReason: "invalid_password",
+		}
 	}
 
 	if _, err := b.db.Exec(`
@@ -75,12 +116,15 @@ WHERE username = ?
 		slog.Error("submission sqlite auth last_auth_at update failed", "component", "smtp", "error", err, "username", user)
 	}
 
-	return Principal{
-		AuthSource:             "sqlite_password",
-		Username:               user,
-		AllowedSenderDomains:   parseCSVAllowList(allowedDomains.String),
-		AllowedSenderAddresses: parseCSVAllowList(allowedAddresses.String),
-	}, true
+	return AuthResult{
+		Principal: Principal{
+			AuthSource:             "sqlite_password",
+			Username:               user,
+			AllowedSenderDomains:   parseCSVAllowList(allowedDomains.String),
+			AllowedSenderAddresses: parseCSVAllowList(allowedAddresses.String),
+		},
+		Success: true,
+	}
 }
 
 func parseCSVAllowList(v string) []string {

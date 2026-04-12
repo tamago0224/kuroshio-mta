@@ -44,6 +44,19 @@ func TestNewStaticRejectsInvalidEntry(t *testing.T) {
 	}
 }
 
+func TestStaticAuthenticatePasswordDetailedReturnsFailureReason(t *testing.T) {
+	b, err := NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("new static: %v", err)
+	}
+	if got := b.AuthenticatePasswordDetailed("alice@example.com", "wrong"); got.FailureReason != "invalid_password" {
+		t.Fatalf("failure reason=%q want=%q", got.FailureReason, "invalid_password")
+	}
+	if got := b.AuthenticatePasswordDetailed("bob@example.com", "pass"); got.FailureReason != "credential_not_found" {
+		t.Fatalf("failure reason=%q want=%q", got.FailureReason, "credential_not_found")
+	}
+}
+
 func TestNewSQLiteAndAuthenticatePassword(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "submission-auth.db")
 	db := openSubmissionSQLiteForTest(t, dsn)
@@ -83,6 +96,9 @@ func TestSQLiteRejectsDisabledExpiredOrWrongPassword(t *testing.T) {
 		if _, ok := backend.AuthenticatePassword("alice@example.com", "s3cr3t"); ok {
 			t.Fatal("disabled user must be rejected")
 		}
+		if got := backend.AuthenticatePasswordDetailed("alice@example.com", "s3cr3t"); got.FailureReason != "credential_disabled" {
+			t.Fatalf("failure reason=%q want=%q", got.FailureReason, "credential_disabled")
+		}
 	})
 
 	t.Run("expired user", func(t *testing.T) {
@@ -98,6 +114,9 @@ func TestSQLiteRejectsDisabledExpiredOrWrongPassword(t *testing.T) {
 		if _, ok := backend.AuthenticatePassword("alice@example.com", "s3cr3t"); ok {
 			t.Fatal("expired user must be rejected")
 		}
+		if got := backend.AuthenticatePasswordDetailed("alice@example.com", "s3cr3t"); got.FailureReason != "credential_expired" {
+			t.Fatalf("failure reason=%q want=%q", got.FailureReason, "credential_expired")
+		}
 	})
 
 	t.Run("wrong password", func(t *testing.T) {
@@ -111,6 +130,9 @@ func TestSQLiteRejectsDisabledExpiredOrWrongPassword(t *testing.T) {
 		}
 		if _, ok := backend.AuthenticatePassword("alice@example.com", "wrong"); ok {
 			t.Fatal("wrong password must fail")
+		}
+		if got := backend.AuthenticatePasswordDetailed("alice@example.com", "wrong"); got.FailureReason != "invalid_password" {
+			t.Fatalf("failure reason=%q want=%q", got.FailureReason, "invalid_password")
 		}
 	})
 }

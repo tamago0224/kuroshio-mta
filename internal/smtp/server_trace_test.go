@@ -224,6 +224,52 @@ func TestSMTPTracingCapturesSQLiteAuthScopeMetadata(t *testing.T) {
 	}
 }
 
+func TestSMTPTracingCapturesAuthFailureReason(t *testing.T) {
+	exp := setupSMTPTraceExporter(t)
+	authBackend, err := userauth.NewStatic("alice@example.com:s3cr3t")
+	if err != nil {
+		t.Fatalf("NewStatic: %v", err)
+	}
+	s := NewSubmissionServer(
+		config.Config{
+			Hostname:       "mx.example.test",
+			SubmissionAddr: "127.0.0.1:587",
+			SubmissionAuth: true,
+		},
+		&recordingQueue{},
+		nil,
+		authBackend,
+	)
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHdyb25n")
+	_, code := readSMTPResponse(t, r)
+	if code != 535 {
+		t.Fatalf("auth code=%d want=535", code)
+	}
+	mustWriteSMTPLine(t, w, "QUIT")
+	_, _ = readSMTPResponse(t, r)
+
+	auth := requireSpan(t, waitForSpans(t, exp, "smtp.auth"), "smtp.auth")
+	if got := attrBool(t, auth.Attributes, "smtp.auth.success"); got {
+		t.Fatal("smtp.auth.success should be false")
+	}
+	if got := attrString(t, auth.Attributes, "smtp.auth.failure_reason"); got != "invalid_password" {
+		t.Fatalf("smtp.auth.failure_reason=%q want=%q", got, "invalid_password")
+	}
+	if got := attrString(t, auth.Attributes, "smtp.auth.backend"); got != "static_password" {
+		t.Fatalf("smtp.auth.backend=%q want=%q", got, "static_password")
+	}
+}
+
 func TestSMTPTracingCapturesStartTLSSpan(t *testing.T) {
 	exp := setupSMTPTraceExporter(t)
 	cert, err := selfSignedCert()

@@ -46,6 +46,7 @@ features:
 - [TLS 配送ポリシーを試す](/tutorials/tls-policy)
 - [Rate Limit を試す](/tutorials/rate-limit)
 - [Admin API を試す](/tutorials/admin-operations)
+- [Submission Auth Runbook](/runbooks/submission_auth)
 - [設定ガイド](/configuration)
 - [Observability Stack](/observability_stack)
 - [Observability Signals](/observability_signals)

@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+type AuthResult struct {
+	Principal     Principal
+	Success       bool
+	FailureReason string
+}
+
 type Principal struct {
 	AuthSource             string
 	Username               string
@@ -14,6 +20,10 @@ type Principal struct {
 
 type Backend interface {
 	AuthenticatePassword(username, password string) (Principal, bool)
+}
+
+type DetailedBackend interface {
+	AuthenticatePasswordDetailed(username, password string) AuthResult
 }
 
 type StaticBackend struct {
@@ -46,18 +56,35 @@ func NewStatic(raw string) (*StaticBackend, error) {
 }
 
 func (b *StaticBackend) AuthenticatePassword(username, password string) (Principal, bool) {
+	result := b.AuthenticatePasswordDetailed(username, password)
+	return result.Principal, result.Success
+}
+
+func (b *StaticBackend) AuthenticatePasswordDetailed(username, password string) AuthResult {
 	if b == nil {
-		return Principal{}, false
+		return AuthResult{FailureReason: "backend_unavailable"}
 	}
 	u := normalizeUsername(username)
 	pw, ok := b.users[u]
-	if !ok || pw != password {
-		return Principal{}, false
+	if !ok {
+		return AuthResult{
+			Principal:     Principal{AuthSource: "static_password", Username: u},
+			FailureReason: "credential_not_found",
+		}
 	}
-	return Principal{
-		AuthSource: "static_password",
-		Username:   u,
-	}, true
+	if pw != password {
+		return AuthResult{
+			Principal:     Principal{AuthSource: "static_password", Username: u},
+			FailureReason: "invalid_password",
+		}
+	}
+	return AuthResult{
+		Principal: Principal{
+			AuthSource: "static_password",
+			Username:   u,
+		},
+		Success: true,
+	}
 }
 
 func normalizeUsername(username string) string {
