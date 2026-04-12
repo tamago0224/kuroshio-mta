@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,6 +64,25 @@ func TestConfigTokenBackendSkipsInvalidSHA256Spec(t *testing.T) {
 	}
 	if _, ok := backend.AuthenticateBearerToken("not-hex"); ok {
 		t.Fatal("invalid sha256 token spec must be ignored")
+	}
+}
+
+func TestConfigTokenBackendReturnsFingerprintAndPrincipalMetadata(t *testing.T) {
+	backend := NewConfigTokenBackend("viewer-token:viewer")
+	principal, ok := backend.AuthenticateBearerToken("viewer-token")
+	if !ok {
+		t.Fatal("expected token authentication to succeed")
+	}
+	if principal.Subject != "config:viewer" {
+		t.Fatalf("subject=%q want=%q", principal.Subject, "config:viewer")
+	}
+	if principal.AuthSource != "config_token" {
+		t.Fatalf("auth source=%q want=%q", principal.AuthSource, "config_token")
+	}
+	sum := sha256.Sum256([]byte("viewer-token"))
+	want := "sha256:" + hex.EncodeToString(sum[:8])
+	if principal.TokenFingerprint != want {
+		t.Fatalf("fingerprint=%q want=%q", principal.TokenFingerprint, want)
 	}
 }
 
@@ -202,5 +223,51 @@ func TestReputationAPIRecordsComplaintAndTLSReport(t *testing.T) {
 	}
 	if snap[0].Complaints != 1 || snap[0].TLSRPTFailures != 1 {
 		t.Fatalf("snapshot=%+v", snap[0])
+	}
+}
+
+func TestAuditLogIncludesActorHeaderAndAuthPrincipal(t *testing.T) {
+	s, err := bounce.NewSuppressionStore(filepath.Join(t.TempDir(), "suppression.json"))
+	if err != nil {
+		t.Fatalf("new suppression store: %v", err)
+	}
+	api := NewAPIWithBackend(s, nil, nil, fakeAuthBackend{
+		principal: Principal{
+			Role:             roleOperator,
+			Subject:          "principal:ops-team",
+			AuthSource:       "config_token",
+			TokenFingerprint: "sha256:deadbeefcafebabe",
+		},
+		ok: true,
+	})
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	slog.SetDefault(logger)
+	defer slog.SetDefault(prev)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/suppressions", strings.NewReader(`{"address":"user@example.com","reason":"manual","dry_run":true}`))
+	req.Header.Set("Authorization", "Bearer operator-token")
+	req.Header.Set("X-Admin-Actor", "operator@example.com")
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	out := buf.String()
+	for _, want := range []string{
+		`"component":"audit"`,
+		`"actor":"operator@example.com"`,
+		`"actor_header":"operator@example.com"`,
+		`"auth_principal":"principal:ops-team"`,
+		`"auth_role":"operator"`,
+		`"auth_source":"config_token"`,
+		`"token_fingerprint":"sha256:deadbeefcafebabe"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %s in audit log: %q", want, out)
+		}
 	}
 }
