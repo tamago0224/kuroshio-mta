@@ -6,6 +6,7 @@ import (
 )
 
 type Principal struct {
+	AuthSource             string
 	Username               string
 	AllowedSenderDomains   []string
 	AllowedSenderAddresses []string
@@ -53,7 +54,10 @@ func (b *StaticBackend) AuthenticatePassword(username, password string) (Princip
 	if !ok || pw != password {
 		return Principal{}, false
 	}
-	return Principal{Username: u}, true
+	return Principal{
+		AuthSource: "static_password",
+		Username:   u,
+	}, true
 }
 
 func normalizeUsername(username string) string {

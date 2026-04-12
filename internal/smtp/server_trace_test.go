@@ -3,7 +3,10 @@ package smtp
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"database/sql"
+	"encoding/hex"
 	"net"
 	"testing"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	_ "modernc.org/sqlite"
 )
 
 func TestSMTPTracingCapturesMailRcptAndDataSpans(t *testing.T) {
@@ -152,8 +156,71 @@ func TestSMTPTracingCapturesAuthSpan(t *testing.T) {
 	if got := attrBool(t, auth.Attributes, "smtp.auth.success"); !got {
 		t.Fatal("smtp.auth.success should be true")
 	}
+	if got := attrString(t, auth.Attributes, "smtp.auth.backend"); got != "static_password" {
+		t.Fatalf("smtp.auth.backend=%q want=%q", got, "static_password")
+	}
+	if got := attrString(t, auth.Attributes, "smtp.auth.sender_scope_mode"); got != "username_domain_fallback" {
+		t.Fatalf("smtp.auth.sender_scope_mode=%q want=%q", got, "username_domain_fallback")
+	}
 	if got := attrInt64(t, auth.Attributes, "smtp.response.code"); got != 235 {
 		t.Fatalf("smtp.auth response code=%d want=235", got)
+	}
+}
+
+func TestSMTPTracingCapturesSQLiteAuthScopeMetadata(t *testing.T) {
+	exp := setupSMTPTraceExporter(t)
+	dsn := t.TempDir() + "/submission-auth.db"
+	db := openSubmissionSQLiteForTraceTest(t, dsn)
+	seedSubmissionSQLiteForTraceTest(t, db, "alice@example.com", "s3cr3t", "other.example", "billing@other.example")
+
+	authBackend, err := userauth.NewSQLite(dsn)
+	if err != nil {
+		t.Fatalf("NewSQLite: %v", err)
+	}
+	s := NewSubmissionServer(
+		config.Config{
+			Hostname:           "mx.example.test",
+			SubmissionAddr:     "127.0.0.1:587",
+			SubmissionAuth:     true,
+			SubmissionSenderID: true,
+		},
+		&recordingQueue{},
+		nil,
+		authBackend,
+	)
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, code := readSMTPResponse(t, r)
+	if code != 235 {
+		t.Fatalf("auth code=%d want=235", code)
+	}
+	mustWriteSMTPLine(t, w, "QUIT")
+	_, quitCode := readSMTPResponse(t, r)
+	if quitCode != 221 {
+		t.Fatalf("quit code=%d want=221", quitCode)
+	}
+
+	auth := requireSpan(t, waitForSpans(t, exp, "smtp.auth"), "smtp.auth")
+	if got := attrString(t, auth.Attributes, "smtp.auth.backend"); got != "sqlite_password" {
+		t.Fatalf("smtp.auth.backend=%q want=%q", got, "sqlite_password")
+	}
+	if got := attrString(t, auth.Attributes, "smtp.auth.sender_scope_mode"); got != "credential_scope" {
+		t.Fatalf("smtp.auth.sender_scope_mode=%q want=%q", got, "credential_scope")
+	}
+	if got := attrInt64(t, auth.Attributes, "smtp.auth.allowed_sender_domain_count"); got != 1 {
+		t.Fatalf("smtp.auth.allowed_sender_domain_count=%d want=1", got)
+	}
+	if got := attrInt64(t, auth.Attributes, "smtp.auth.allowed_sender_address_count"); got != 1 {
+		t.Fatalf("smtp.auth.allowed_sender_address_count=%d want=1", got)
 	}
 }
 
@@ -303,4 +370,42 @@ func attrBool(t *testing.T, attrs []attribute.KeyValue, key string) bool {
 	}
 	t.Fatalf("attribute %q not found", key)
 	return false
+}
+
+func openSubmissionSQLiteForTraceTest(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`
+CREATE TABLE submission_credentials (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	username TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	expires_at TEXT,
+	allowed_sender_domains TEXT,
+	allowed_sender_addresses TEXT,
+	description TEXT,
+	last_auth_at TEXT,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	return db
+}
+
+func seedSubmissionSQLiteForTraceTest(t *testing.T, db *sql.DB, username, password, domains, addresses string) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(password))
+	if _, err := db.Exec(`
+INSERT INTO submission_credentials(username, password_hash, enabled, allowed_sender_domains, allowed_sender_addresses, description)
+VALUES (?, ?, 1, ?, ?, ?)
+`, username, hex.EncodeToString(sum[:]), domains, addresses, "trace-test"); err != nil {
+		t.Fatalf("insert submission credential: %v", err)
+	}
 }
