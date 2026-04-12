@@ -24,6 +24,9 @@ func TestNewStaticAndAuthenticatePassword(t *testing.T) {
 	if principal.Username != "alice@example.com" {
 		t.Fatalf("principal username=%q", principal.Username)
 	}
+	if len(principal.AllowedSenderDomains) != 0 || len(principal.AllowedSenderAddresses) != 0 {
+		t.Fatalf("static principal sender scopes should be empty: %+v", principal)
+	}
 	if _, ok := b.AuthenticatePassword("ALICE@EXAMPLE.COM", "s3cr3t"); !ok {
 		t.Fatal("username lookup should be case-insensitive")
 	}
@@ -140,6 +143,10 @@ CREATE TABLE submission_credentials (
 }
 
 func seedSubmissionSQLiteForTest(t *testing.T, db *sql.DB, username, password string, enabled bool, expiresAt *time.Time) {
+	seedSubmissionSQLiteForTestWithScope(t, db, username, password, enabled, expiresAt, "", "")
+}
+
+func seedSubmissionSQLiteForTestWithScope(t *testing.T, db *sql.DB, username, password string, enabled bool, expiresAt *time.Time, domains, addresses string) {
 	t.Helper()
 	enabledInt := 0
 	if enabled {
@@ -152,9 +159,30 @@ func seedSubmissionSQLiteForTest(t *testing.T, db *sql.DB, username, password st
 		expires = expiresAt.UTC().Format("2006-01-02 15:04:05")
 	}
 	if _, err := db.Exec(`
-INSERT INTO submission_credentials(username, password_hash, enabled, expires_at, description)
-VALUES (?, ?, ?, ?, ?)
-`, normalizeUsername(username), passwordHash, enabledInt, expires, "seed"); err != nil {
+INSERT INTO submission_credentials(username, password_hash, enabled, expires_at, allowed_sender_domains, allowed_sender_addresses, description)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`, normalizeUsername(username), passwordHash, enabledInt, expires, domains, addresses, "seed"); err != nil {
 		t.Fatalf("insert submission credential: %v", err)
+	}
+}
+
+func TestSQLiteReturnsSenderScopes(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "scope.db")
+	db := openSubmissionSQLiteForTest(t, dsn)
+	seedSubmissionSQLiteForTestWithScope(t, db, "alice@example.com", "s3cr3t", true, nil, "example.com,example.org", "alerts@example.net, billing@example.net ")
+
+	backend, err := NewSQLite(dsn)
+	if err != nil {
+		t.Fatalf("new sqlite: %v", err)
+	}
+	principal, ok := backend.AuthenticatePassword("alice@example.com", "s3cr3t")
+	if !ok {
+		t.Fatal("alice should authenticate")
+	}
+	if len(principal.AllowedSenderDomains) != 2 || principal.AllowedSenderDomains[0] != "example.com" || principal.AllowedSenderDomains[1] != "example.org" {
+		t.Fatalf("allowed sender domains=%v", principal.AllowedSenderDomains)
+	}
+	if len(principal.AllowedSenderAddresses) != 2 || principal.AllowedSenderAddresses[0] != "alerts@example.net" || principal.AllowedSenderAddresses[1] != "billing@example.net" {
+		t.Fatalf("allowed sender addresses=%v", principal.AllowedSenderAddresses)
 	}
 }

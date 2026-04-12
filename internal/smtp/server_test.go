@@ -1208,6 +1208,76 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 	}
 }
 
+func TestSubmissionSenderIdentityAllowsScopedAddress(t *testing.T) {
+	s := &Server{
+		cfg: config.Config{
+			Hostname:           "sub.example.test",
+			SubmissionAuth:     true,
+			SubmissionSenderID: true,
+		},
+		submission: true,
+		authBackend: fakeUserAuthBackend{
+			principal: userauth.Principal{
+				Username:               "alice@example.com",
+				AllowedSenderAddresses: []string{"billing@other.example"},
+			},
+			ok: true,
+		},
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<billing@other.example>")
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+}
+
+func TestSubmissionSenderIdentityAllowsScopedDomain(t *testing.T) {
+	s := &Server{
+		cfg: config.Config{
+			Hostname:           "sub.example.test",
+			SubmissionAuth:     true,
+			SubmissionSenderID: true,
+		},
+		submission: true,
+		authBackend: fakeUserAuthBackend{
+			principal: userauth.Principal{
+				Username:             "alice@example.com",
+				AllowedSenderDomains: []string{"other.example"},
+			},
+			ok: true,
+		},
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go s.handleConn(server)
+
+	r := bufio.NewReader(client)
+	w := bufio.NewWriter(client)
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "EHLO client.example")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "AUTH PLAIN AGFsaWNlQGV4YW1wbGUuY29tAHMzY3IzdA==")
+	_, _ = readSMTPResponse(t, r)
+	mustWriteSMTPLine(t, w, "MAIL FROM:<ops@other.example>")
+	_, code := readSMTPResponse(t, r)
+	if code != 250 {
+		t.Fatalf("code=%d want=250", code)
+	}
+}
+
 func TestSubmissionSTARTTLSResetsAuthState(t *testing.T) {
 	cert, err := selfSignedCert()
 	if err != nil {
@@ -1286,6 +1356,21 @@ func mustWriteSMTPLine(t *testing.T, w *bufio.Writer, line string) {
 
 type recordingQueue struct {
 	msgs []*model.Message
+}
+
+type fakeUserAuthBackend struct {
+	principal userauth.Principal
+	ok        bool
+}
+
+func (f fakeUserAuthBackend) AuthenticatePassword(username, password string) (userauth.Principal, bool) {
+	if !f.ok {
+		return userauth.Principal{}, false
+	}
+	if strings.TrimSpace(f.principal.Username) == "" {
+		f.principal.Username = strings.ToLower(strings.TrimSpace(username))
+	}
+	return f.principal, true
 }
 
 func (q *recordingQueue) Enqueue(msg *model.Message) error {

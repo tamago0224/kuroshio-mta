@@ -44,14 +44,16 @@ func (b *SQLiteBackend) AuthenticatePassword(username, password string) (Princip
 	}
 
 	var storedHash string
+	var allowedDomains sql.NullString
+	var allowedAddresses sql.NullString
 	err := b.db.QueryRow(`
-SELECT password_hash
+SELECT password_hash, allowed_sender_domains, allowed_sender_addresses
 FROM submission_credentials
 WHERE username = ?
   AND enabled = 1
   AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
 LIMIT 1
-`, user).Scan(&storedHash)
+`, user).Scan(&storedHash, &allowedDomains, &allowedAddresses)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			slog.Error("submission sqlite auth lookup failed", "component", "smtp", "error", err, "username", user)
@@ -73,5 +75,27 @@ WHERE username = ?
 		slog.Error("submission sqlite auth last_auth_at update failed", "component", "smtp", "error", err, "username", user)
 	}
 
-	return Principal{Username: user}, true
+	return Principal{
+		Username:               user,
+		AllowedSenderDomains:   parseCSVAllowList(allowedDomains.String),
+		AllowedSenderAddresses: parseCSVAllowList(allowedAddresses.String),
+	}, true
+}
+
+func parseCSVAllowList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	items := make([]string, 0, 4)
+	for _, part := range strings.Split(v, ",") {
+		part = normalizeUsername(part)
+		if part == "" {
+			continue
+		}
+		items = append(items, part)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
 }
