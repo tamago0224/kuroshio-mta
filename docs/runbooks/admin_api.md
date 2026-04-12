@@ -10,6 +10,8 @@ Issue: #36
 
 ## 有効化
 
+config token backend:
+
 - `MTA_ADMIN_ADDR=:9091`
 - `MTA_ADMIN_TOKENS=sha256=d036bd6d01a1cae081d39a2f8dab751dc042de814fd60df31fcb553170950f29:viewer,sha256=0850123315d21ab90f4f7236408a52ef6dbd6a02a6550e5c10dc73f4d993680e:operator`
 
@@ -22,6 +24,21 @@ Issue: #36
 printf 'viewer-token' | sha256sum
 printf 'operator-token' | sha256sum
 ```
+
+SQLite backend:
+
+- `MTA_ADMIN_ADDR=:9091`
+- `MTA_ADMIN_AUTH_BACKEND=sqlite`
+- `MTA_ADMIN_AUTH_DSN=file:./var/admin-auth.db`
+
+SQLite backend は次の 2 テーブルを参照する。
+
+- `admin_principals(id, name, role, enabled, description, created_at, updated_at)`
+- `admin_tokens(id, principal_id, token_hash, enabled, expires_at, last_used_at, created_at, updated_at)`
+
+`token_hash` には Bearer token の SHA-256 hex を保存する。
+`expires_at` は SQLite が `datetime()` で解釈できる形式で保存する。
+認証成功時は `last_used_at` を更新する。
 
 ## 権限
 
@@ -65,6 +82,7 @@ scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 - `event`, `actor`, `actor_header`, `auth_principal`, `auth_role`, `auth_source`, `token_fingerprint`, `path`, `message_id`, `dry_run` を含む
 - `X-Admin-Actor` は人間や runbook 上の実行主体を表し、`auth_principal` は認証 backend が返す principal を表す
 - token の平文は出力せず、`token_fingerprint` には安全な識別子だけを出す
+- SQLite backend では `auth_source=sqlite_token` となる
 
 ## 制約
 

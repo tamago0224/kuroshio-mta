@@ -197,6 +197,31 @@ func TestLoadSubmissionUsersFromFile(t *testing.T) {
 	}
 }
 
+func TestLoadAdminAuthSQLiteConfig(t *testing.T) {
+	t.Setenv("MTA_ADMIN_ADDR", ":9091")
+	t.Setenv("MTA_ADMIN_AUTH_BACKEND", "sqlite")
+	t.Setenv("MTA_ADMIN_AUTH_DSN", "file:./var/admin-auth.db")
+
+	cfg := mustLoadForTest(t)
+	if cfg.AdminAddr != ":9091" {
+		t.Fatalf("admin addr=%q", cfg.AdminAddr)
+	}
+	if cfg.AdminAuthBackend != "sqlite" {
+		t.Fatalf("admin auth backend=%q", cfg.AdminAuthBackend)
+	}
+	if cfg.AdminAuthDSN != "file:./var/admin-auth.db" {
+		t.Fatalf("admin auth dsn=%q", cfg.AdminAuthDSN)
+	}
+}
+
+func TestLoadAdminAuthBackendFallsBackOnInvalidValue(t *testing.T) {
+	t.Setenv("MTA_ADMIN_AUTH_BACKEND", "unsupported")
+	cfg := mustLoadForTest(t)
+	if cfg.AdminAuthBackend != "config" {
+		t.Fatalf("admin auth backend=%q want=%q", cfg.AdminAuthBackend, "config")
+	}
+}
+
 func TestLoadLogLevel(t *testing.T) {
 	t.Setenv("MTA_LOG_LEVEL", "debug")
 	cfg := mustLoadForTest(t)

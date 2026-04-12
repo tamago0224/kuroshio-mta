@@ -26,6 +26,8 @@ type Config struct {
 	OTELTraceSampleRatio         float64
 	AdminAddr                    string
 	AdminTokens                  string
+	AdminAuthBackend             string
+	AdminAuthDSN                 string
 	Hostname                     string
 	QueueDir                     string
 	QueueBackend                 string
@@ -117,6 +119,8 @@ type yamlConfig struct {
 	OTELTraceSampleRatio         *float64 `yaml:"otel_trace_sample_ratio"`
 	AdminAddr                    *string  `yaml:"admin_addr"`
 	AdminTokens                  *string  `yaml:"admin_tokens"`
+	AdminAuthBackend             *string  `yaml:"admin_auth_backend"`
+	AdminAuthDSN                 *string  `yaml:"admin_auth_dsn"`
 	Hostname                     *string  `yaml:"hostname"`
 	QueueDir                     *string  `yaml:"queue_dir"`
 	QueueBackend                 *string  `yaml:"queue_backend"`
@@ -225,6 +229,8 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.OTELTraceSampleRatio = normalizeSampleRatio(envFloat64("MTA_OTEL_TRACE_SAMPLE_RATIO", cfg.OTELTraceSampleRatio), cfg.OTELTraceSampleRatio)
 	cfg.AdminAddr = env("MTA_ADMIN_ADDR", cfg.AdminAddr)
 	cfg.AdminTokens = envOrFile("MTA_ADMIN_TOKENS", "MTA_ADMIN_TOKENS_FILE", cfg.AdminTokens)
+	cfg.AdminAuthBackend = envEnum("MTA_ADMIN_AUTH_BACKEND", cfg.AdminAuthBackend, []string{"config", "sqlite"})
+	cfg.AdminAuthDSN = env("MTA_ADMIN_AUTH_DSN", cfg.AdminAuthDSN)
 	cfg.Hostname = env("MTA_HOSTNAME", cfg.Hostname)
 	cfg.QueueDir = env("MTA_QUEUE_DIR", cfg.QueueDir)
 	cfg.QueueBackend = env("MTA_QUEUE_BACKEND", cfg.QueueBackend)
@@ -319,6 +325,8 @@ func defaultConfig() Config {
 		OTELTraceSampleRatio:         1.0,
 		AdminAddr:                    "",
 		AdminTokens:                  "",
+		AdminAuthBackend:             "config",
+		AdminAuthDSN:                 "",
 		Hostname:                     "kuroshio.local",
 		QueueDir:                     "./var/queue",
 		QueueBackend:                 "local",
@@ -466,6 +474,12 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.AdminTokens != nil {
 		cfg.AdminTokens = *raw.AdminTokens
+	}
+	if raw.AdminAuthBackend != nil {
+		cfg.AdminAuthBackend = normalizeEnum(*raw.AdminAuthBackend, cfg.AdminAuthBackend, []string{"config", "sqlite"})
+	}
+	if raw.AdminAuthDSN != nil {
+		cfg.AdminAuthDSN = *raw.AdminAuthDSN
 	}
 	if raw.Hostname != nil {
 		cfg.Hostname = *raw.Hostname
