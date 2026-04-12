@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: kuroshio
+    static_configs:
+      - targets:
+          - kuroshio:9090

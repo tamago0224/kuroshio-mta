@@ -27,3 +27,10 @@ datasources:
           matcherRegex: '"trace_id":"([a-f0-9]{32})"'
           datasourceUid: tempo
           url: "$${__value.raw}"
+
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    editable: false

@@ -41,6 +41,7 @@ services:
     depends_on:
       - tempo
       - loki
+      - prometheus
 
   tempo:
     image: grafana/tempo:2.3.1
@@ -59,6 +60,14 @@ services:
     ports:
       - "3100:3100"
 
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+
   grafana:
     image: grafana/grafana:latest
     ports:
@@ -72,3 +81,4 @@ services:
     depends_on:
       - tempo
       - loki
+      - prometheus

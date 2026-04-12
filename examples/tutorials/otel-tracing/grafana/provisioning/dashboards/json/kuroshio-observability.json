@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "SMTP Connections",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "smtp_connections_total",
+          "legendFormat": "connections",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker Delivery Success",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "worker_delivery_success_total",
+          "legendFormat": "delivery success",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Spool Store",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "delivery_spool_store_total",
+          "legendFormat": "store total",
+          "refId": "A"
+        },
+        {
+          "expr": "delivery_spool_store_bytes_total",
+          "legendFormat": "store bytes",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Domain Throttle",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "worker_domain_throttle_acquire_total",
+          "legendFormat": "acquire",
+          "refId": "A"
+        },
+        {
+          "expr": "worker_domain_throttle_wait_ms_total",
+          "legendFormat": "wait ms",
+          "refId": "B"
+        },
+        {
+          "expr": "worker_domain_throttle_backend_error_total",
+          "legendFormat": "backend error",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Kuroshio Logs",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{compose_service=\"kuroshio\"}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": true,
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false
+      }
+    },
+    {
+      "type": "text",
+      "title": "Trace and Explore",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "options": {
+        "mode": "markdown",
+        "content": "Grafana Explore で `Tempo` を開き、`Service Name = kuroshio-mta` で trace を検索します。\n\nLoki のログには `trace_id` と `span_id` が含まれているので、`TraceID` リンクから trace を開けます。"
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["kuroshio", "tutorial"],
+  "templating": { "list": [] },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Kuroshio Observability Tutorial",
+  "uid": "kuroshio-observability-tutorial",
+  "version": 1,
+  "weekStart": ""
+}
