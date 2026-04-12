@@ -16,6 +16,7 @@
 | [Rate Limit を試す](/tutorials/rate-limit) | 接続元 IP や `MAIL FROM` 単位の制限 | `kuroshio` + `smtp-client` |
 | [Domain Throttle を観測する](/tutorials/domain-throttle-observability) | Redis backend で配送側 throttle の wait と fail-open を見る | `kuroshio` + `redis` + `slow-smtp` |
 | [Admin API を試す](/tutorials/admin-operations) | queue 操作と Admin API / CLI | `kuroshio` + `smtp-client` |
+| [Submission Auth を試す](/tutorials/submission-auth) | `AUTH PLAIN` / `AUTH LOGIN` と sender scope | `kuroshio` + `smtp-client` |
 | [メール認証を試す](/tutorials/mail-auth) | SPF / DMARC 評価、DKIM / ARC 署名 | `CoreDNS` + `policy` + `tester` |
 | [TLS 配送ポリシーを試す](/tutorials/tls-policy) | STARTTLS、MTA-STS、DANE | `CoreDNS` + `policy` + `tester` |
 
@@ -28,6 +29,7 @@
 - Rate Limit: [examples/tutorials/rate-limit](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/rate-limit)
 - Domain throttle observability: [examples/tutorials/domain-throttle-observability](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/domain-throttle-observability)
 - Admin API: [examples/tutorials/admin-operations](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/admin-operations)
+- Submission Auth: [examples/tutorials/submission-auth](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/submission-auth)
 - DNS / Web: [examples/tutorials/dns-services](https://github.com/tamago0224/kuroshio-mta/tree/main/examples/tutorials/dns-services)
 
 ## 進み方のおすすめ
