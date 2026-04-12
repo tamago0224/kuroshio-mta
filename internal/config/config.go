@@ -15,6 +15,8 @@ type Config struct {
 	SubmissionAddr               string
 	SubmissionAuth               bool
 	SubmissionUsers              string
+	SubmissionAuthBackend        string
+	SubmissionAuthDSN            string
 	SubmissionSenderID           bool
 	LogLevel                     string
 	ObservabilityAddr            string
@@ -108,6 +110,8 @@ type yamlConfig struct {
 	SubmissionAddr               *string  `yaml:"submission_addr"`
 	SubmissionAuth               *bool    `yaml:"submission_auth_required"`
 	SubmissionUsers              *string  `yaml:"submission_users"`
+	SubmissionAuthBackend        *string  `yaml:"submission_auth_backend"`
+	SubmissionAuthDSN            *string  `yaml:"submission_auth_dsn"`
 	SubmissionSenderID           *bool    `yaml:"submission_enforce_sender_identity"`
 	LogLevel                     *string  `yaml:"log_level"`
 	ObservabilityAddr            *string  `yaml:"observability_addr"`
@@ -218,6 +222,8 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.SubmissionAddr = env("MTA_SUBMISSION_ADDR", cfg.SubmissionAddr)
 	cfg.SubmissionAuth = envBool("MTA_SUBMISSION_AUTH_REQUIRED", cfg.SubmissionAuth)
 	cfg.SubmissionUsers = envOrFile("MTA_SUBMISSION_USERS", "MTA_SUBMISSION_USERS_FILE", cfg.SubmissionUsers)
+	cfg.SubmissionAuthBackend = envEnum("MTA_SUBMISSION_AUTH_BACKEND", cfg.SubmissionAuthBackend, []string{"static", "sqlite"})
+	cfg.SubmissionAuthDSN = env("MTA_SUBMISSION_AUTH_DSN", cfg.SubmissionAuthDSN)
 	cfg.SubmissionSenderID = envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", cfg.SubmissionSenderID)
 	cfg.LogLevel = env("MTA_LOG_LEVEL", cfg.LogLevel)
 	cfg.ObservabilityAddr = env("MTA_OBSERVABILITY_ADDR", cfg.ObservabilityAddr)
@@ -314,6 +320,8 @@ func defaultConfig() Config {
 		SubmissionAddr:               "",
 		SubmissionAuth:               true,
 		SubmissionUsers:              "",
+		SubmissionAuthBackend:        "static",
+		SubmissionAuthDSN:            "",
 		SubmissionSenderID:           true,
 		LogLevel:                     "info",
 		ObservabilityAddr:            ":9090",
@@ -441,6 +449,12 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 	if raw.SubmissionUsers != nil {
 		cfg.SubmissionUsers = *raw.SubmissionUsers
+	}
+	if raw.SubmissionAuthBackend != nil {
+		cfg.SubmissionAuthBackend = normalizeEnum(*raw.SubmissionAuthBackend, cfg.SubmissionAuthBackend, []string{"static", "sqlite"})
+	}
+	if raw.SubmissionAuthDSN != nil {
+		cfg.SubmissionAuthDSN = *raw.SubmissionAuthDSN
 	}
 	if raw.SubmissionSenderID != nil {
 		cfg.SubmissionSenderID = *raw.SubmissionSenderID

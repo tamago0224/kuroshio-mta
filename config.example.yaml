@@ -2,6 +2,8 @@ listen_addr: ":2525"
 submission_addr: ":587"
 submission_auth_required: true
 submission_users: "alice@example.com:s3cr3t"
+submission_auth_backend: static
+submission_auth_dsn: ""
 submission_enforce_sender_identity: true
 log_level: info
 observability_addr: ":9090"
