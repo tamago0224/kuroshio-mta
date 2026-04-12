@@ -79,6 +79,20 @@ EOF"
 
 `AUTH` が `535` で返れば認証失敗です。
 
+## 4.1 AUTH LOGIN の失敗例を確認する
+
+```bash
+docker compose -f examples/tutorials/submission-auth/compose.yaml exec -T smtp-client sh -lc "cat <<'EOF' | nc kuroshio 587
+EHLO tutorial.local
+AUTH LOGIN
+YWxpY2VAZXhhbXBsZS5jb20=
+d3Jvbmc=
+QUIT
+EOF"
+```
+
+`AUTH` が `535` で返れば認証失敗です。
+
 ## 5. trace / log を確認する
 
 - trace: `smtp.auth` span
