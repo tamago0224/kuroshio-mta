@@ -6,7 +6,9 @@ import (
 )
 
 type Principal struct {
-	Username string
+	Username               string
+	AllowedSenderDomains   []string
+	AllowedSenderAddresses []string
 }
 
 type Backend interface {

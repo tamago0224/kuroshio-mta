@@ -54,6 +54,7 @@ go run ./cmd/kuroshio -config ./config.yaml
 補足:
 - `submission_auth_backend: static` では既存通り `submission_users` / `MTA_SUBMISSION_USERS(_FILE)` を使います
 - `submission_auth_backend: sqlite` では `submission_credentials` テーブルを参照し、`username`, `password_hash`, `enabled`, `expires_at`, `last_auth_at` を使います
+- `submission_auth_backend: sqlite` では `allowed_sender_domains` / `allowed_sender_addresses` を使って sender identity の許可範囲を広げられます
 - `password_hash` は平文ではなく SHA-256 hex を保存します
 
 ## ログ・監視・運用 API

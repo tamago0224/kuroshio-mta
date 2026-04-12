@@ -139,6 +139,7 @@ type session struct {
 	extended bool
 	tls      bool
 	authUser string
+	auth     userauth.Principal
 	authOK   bool
 }
 
@@ -360,7 +361,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 552, "message size exceeds fixed maximum message size")
 				continue
 			}
-			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.authUser, mailArgs.Address) {
+			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.auth, mailArgs.Address) {
 				cmdSpan.reject("sender_not_allowed_for_auth", 553, "sender address rejected for authenticated identity")
 				cmdSpan.end()
 				writeResp(w, 553, "sender address rejected for authenticated identity")
@@ -557,7 +558,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 454, "authentication backend unavailable")
 				continue
 			}
-			user, ok, err := s.handleAuth(r, w, arg)
+			principal, ok, err := s.handleAuth(r, w, arg)
 			if err != nil {
 				cmdSpan.recordError(err)
 				cmdSpan.setResponse(501, err.Error())
@@ -572,11 +573,12 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 535, "authentication credentials invalid")
 				continue
 			}
-			ss.authUser = user
+			ss.authUser = principal.Username
+			ss.auth = principal
 			ss.authOK = true
 			cmdSpan.SetAttributes(
 				attribute.Bool("smtp.auth.success", true),
-				attribute.String("smtp.auth.user", logging.MaskEmail(user)),
+				attribute.String("smtp.auth.user", logging.MaskEmail(principal.Username)),
 			)
 			cmdSpan.setResponse(235, "authentication successful")
 			cmdSpan.end()
@@ -629,6 +631,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.rcptTo = nil
 			ss.data = nil
 			ss.authUser = ""
+			ss.auth = userauth.Principal{}
 			ss.authOK = false
 			cmdSpan.SetAttributes(attribute.Bool("smtp.tls", true))
 			cmdSpan.setResponse(220, "Ready to start TLS")
@@ -1009,9 +1012,9 @@ func isASCII(s string) bool {
 	return true
 }
 
-func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (string, bool, error) {
+func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (userauth.Principal, bool, error) {
 	if strings.TrimSpace(arg) == "" {
-		return "", false, errors.New("AUTH requires mechanism")
+		return userauth.Principal{}, false, errors.New("AUTH requires mechanism")
 	}
 	parts := strings.Fields(arg)
 	mech := strings.ToUpper(parts[0])
@@ -1022,67 +1025,67 @@ func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (strin
 			payload = parts[1]
 		} else {
 			if err := writeLine(w, "334 "); err != nil {
-				return "", false, err
+				return userauth.Principal{}, false, err
 			}
 			line, err := r.ReadString('\n')
 			if err != nil {
-				return "", false, err
+				return userauth.Principal{}, false, err
 			}
 			payload = strings.TrimSpace(line)
 		}
 		user, pass, err := decodeAuthPlain(payload)
 		if err != nil {
-			return "", false, err
+			return userauth.Principal{}, false, err
 		}
 		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
 		if !ok {
-			return user, false, nil
+			return userauth.Principal{Username: user}, false, nil
 		}
-		return principal.Username, true, nil
+		return principal, true, nil
 	case "LOGIN":
 		var userRaw []byte
 		if len(parts) >= 2 {
 			var err error
 			userRaw, err = decodeBase64Line(parts[1])
 			if err != nil {
-				return "", false, errors.New("invalid base64 username")
+				return userauth.Principal{}, false, errors.New("invalid base64 username")
 			}
 		} else {
 			if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
-				return "", false, err
+				return userauth.Principal{}, false, err
 			}
 			userLine, err := r.ReadString('\n')
 			if err != nil {
-				return "", false, err
+				return userauth.Principal{}, false, err
 			}
 			userRaw, err = decodeBase64Line(userLine)
 			if err != nil {
-				return "", false, errors.New("invalid base64 username")
+				return userauth.Principal{}, false, errors.New("invalid base64 username")
 			}
 		}
 		if err := writeLine(w, "334 UGFzc3dvcmQ6"); err != nil {
-			return "", false, err
+			return userauth.Principal{}, false, err
 		}
 		passLine, err := r.ReadString('\n')
 		if err != nil {
-			return "", false, err
+			return userauth.Principal{}, false, err
 		}
 		passRaw, err := decodeBase64Line(passLine)
 		if err != nil {
-			return "", false, errors.New("invalid base64 password")
+			return userauth.Principal{}, false, errors.New("invalid base64 password")
 		}
 		user := strings.TrimSpace(string(userRaw))
 		pass := strings.TrimSpace(string(passRaw))
 		if user == "" || pass == "" {
-			return "", false, errors.New("empty credentials")
+			return userauth.Principal{}, false, errors.New("empty credentials")
 		}
 		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
 		if !ok {
-			return user, false, nil
+			return userauth.Principal{Username: user}, false, nil
 		}
-		return principal.Username, true, nil
+		return principal, true, nil
 	default:
-		return "", false, errors.New("unsupported auth mechanism")
+		return userauth.Principal{}, false, errors.New("unsupported auth mechanism")
 	}
 }
 
@@ -1115,12 +1118,28 @@ func authMechanism(arg string) (string, bool) {
 	return strings.ToUpper(parts[0]), true
 }
 
-func senderAllowedForAuth(authUser, mailFrom string) bool {
-	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(authUser)))
+func senderAllowedForAuth(principal userauth.Principal, mailFrom string) bool {
+	mailFrom = strings.ToLower(strings.TrimSpace(mailFrom))
+	if mailFrom == "" {
+		return false
+	}
+	for _, allowed := range principal.AllowedSenderAddresses {
+		if strings.EqualFold(strings.TrimSpace(allowed), mailFrom) {
+			return true
+		}
+	}
+	if fromDomain, ok := util.DomainOf(mailFrom); ok {
+		for _, allowed := range principal.AllowedSenderDomains {
+			if strings.EqualFold(strings.TrimSpace(allowed), fromDomain) {
+				return true
+			}
+		}
+	}
+	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(principal.Username)))
 	if !ok {
 		return false
 	}
-	fromDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(mailFrom)))
+	fromDomain, ok := util.DomainOf(mailFrom)
 	if !ok {
 		return false
 	}
