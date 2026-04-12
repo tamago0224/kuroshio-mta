@@ -67,6 +67,37 @@ EOF"
 
 詳しい読み方は [Submission Auth Runbook](/runbooks/submission_auth) を参照してください。
 
+## 6. static backend に切り替えて試す
+
+SQLite を使わず、`submission_users` の static backend でも同じフローが確認できます。
+
+`examples/tutorials/submission-auth/config.yaml` を以下のように書き換えて再起動します。
+
+```yaml
+submission_auth_backend: static
+submission_users: "alice@example.com:s3cr3t"
+submission_auth_dsn: ""
+```
+
+再起動:
+
+```bash
+docker compose -f examples/tutorials/submission-auth/compose.yaml restart kuroshio
+```
+
+以降は同じ手順で `AUTH PLAIN` / `AUTH LOGIN` を確認できます。
+
+## FAQ
+
+### `expires_at` の書式は?
+
+SQLite の `datetime()` で解釈できる形式を使います。
+例: `2026-04-13 12:00:00`
+
+### `last_auth_at` はいつ更新される?
+
+認証成功時に更新されます。失敗時は更新されません。
+
 ## 後片付け
 
 ```bash
