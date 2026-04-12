@@ -31,6 +31,27 @@ EOF"
 
 `AUTH` が `235`、`MAIL FROM` が `250` で返れば成功です。
 
+## 2.1 AUTH LOGIN の成功例を確認する
+
+```bash
+docker compose -f examples/tutorials/submission-auth/compose.yaml exec -T smtp-client sh -lc "cat <<'EOF' | nc kuroshio 587
+EHLO tutorial.local
+AUTH LOGIN
+YWxpY2VAZXhhbXBsZS5jb20=
+czNjcjN0
+MAIL FROM:<billing@example.net>
+RCPT TO:<receiver@example.org>
+DATA
+Subject: submission auth login tutorial
+
+hello from submission auth login
+.
+QUIT
+EOF"
+```
+
+`AUTH` が `235`、`MAIL FROM` が `250` で返れば成功です。
+
 ## 3. sender scope mismatch を確認する
 
 `allowed_sender_domains` / `allowed_sender_addresses` に含まれない送信元は reject されます。
