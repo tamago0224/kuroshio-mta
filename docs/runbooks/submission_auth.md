@@ -75,6 +75,26 @@ SMTP client への応答は従来どおり一般化されており、
 trace 側では `smtp.mail` span の reject reason が
 `sender_not_allowed_for_auth` になる。
 
+## ログ例
+
+`submission auth succeeded`:
+
+```json
+{"time":"2026-04-13T12:00:00Z","level":"INFO","msg":"submission auth succeeded","component":"smtp","auth_backend":"sqlite_password","auth_user":"a***@example.com","mechanism":"PLAIN","sender_scope_mode":"credential_scope","allowed_sender_domain_count":1,"allowed_sender_address_count":1}
+```
+
+`submission auth failed`:
+
+```json
+{"time":"2026-04-13T12:00:01Z","level":"WARN","msg":"submission auth failed","component":"smtp","auth_backend":"static_password","auth_user":"a***@example.com","mechanism":"LOGIN","failure_reason":"invalid_password"}
+```
+
+`submission sender identity rejected`:
+
+```json
+{"time":"2026-04-13T12:00:02Z","level":"WARN","msg":"submission sender identity rejected","component":"smtp","reason":"sender_scope_mismatch","auth_backend":"sqlite_password","auth_user":"a***@example.com","mail_from":"b***@other.example","sender_scope_mode":"credential_scope"}
+```
+
 ## SQLite backend の確認ポイント
 
 - `submission_credentials.last_auth_at` が更新されているか
