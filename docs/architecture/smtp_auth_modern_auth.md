@@ -2,23 +2,29 @@
 
 issue: #197
 
-`kuroshio-mta` の Submission 認証は、現時点では `AUTH PLAIN` / `AUTH LOGIN` を前提にした static backend です。
-このメモでは、そこから将来的に DB-backed 認証、さらに modern auth へ進めるときの設計方針を整理します。
+`kuroshio-mta` の Submission 認証は、現時点では `AUTH PLAIN` / `AUTH LOGIN` を前提にした static / sqlite backend を提供しています。
+このメモでは、そこから将来的に bearer token 系 backend を追加して modern auth へ進めるときの設計方針を整理します。
 
 ## 現在の位置
 
 現在の実装は次の前提です。
 
 - SMTP AUTH mechanism は `PLAIN` / `LOGIN`
-- 認証情報は `submission_users` または `MTA_SUBMISSION_USERS(_FILE)` から static に読み込む
-- 認証済み user と `MAIL FROM` ドメインの整合を `submission_enforce_sender_identity` で制御する
+- `submission_auth_backend` で `static` / `sqlite` を切り替える
+- `static` は `submission_users` または `MTA_SUBMISSION_USERS(_FILE)` から認証情報を読み込む
+- `sqlite` は `submission_auth_dsn` で指定した SQLite を使い、`submission_credentials` テーブルを参照する
+- 認証済み user と `MAIL FROM` ドメインの整合は `submission_enforce_sender_identity` と sender scope で制御する
 
-この構成は小規模導入やローカル検証には十分ですが、次の課題があります。
+設定値と運用の詳細は [Configuration](/configuration) と [Submission Auth Runbook](/runbooks/submission_auth) を参照してください。
+
+static backend は小規模導入やローカル検証には十分ですが、次の課題があります。
 
 - password のローテーションや失効が運用しづらい
 - 複数ノードで設定同期が必要になる
 - account の有効期限や一時停止を表現しづらい
 - 誰がどの credential を使ったかを監査しづらい
+
+sqlite backend で lifecycle と監査は一定改善しましたが、bearer token や外部 IdP 連携は未対応です。
 
 ## 進め方
 
@@ -30,11 +36,11 @@ issue: #197
 - static backend は後方互換のため残す
 - sender identity 制約や trace / log を整備して、今の Submission 経路を安定運用できる状態を維持する
 
-### Phase 2: SMTP AUTH credential を DB 管理へ移す
+### Phase 2: SMTP AUTH credential を DB 管理へ移す（到達済み）
 
 basic auth 自体は維持しつつ、credential の保存先だけ DB へ寄せる。
 
-最低限ほしい項目:
+現在の sqlite backend で扱う項目:
 
 - `username`
 - `password_hash`
@@ -42,10 +48,9 @@ basic auth 自体は維持しつつ、credential の保存先だけ DB へ寄せ
 - `expires_at`
 - `allowed_sender_domains`
 - `allowed_sender_addresses`
-- `description` または `owner`
 - `last_auth_at`
-- `created_at`
-- `updated_at`
+
+`description` / `created_at` / `updated_at` などは、今後の拡張余地として残しています。
 
 ここでの狙いは、SMTP protocol 上の見え方を変えずに lifecycle と auditability を改善することです。
 
