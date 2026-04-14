@@ -59,6 +59,31 @@ features:
 - [Domain Throttle Externalization](/architecture/domain_throttle_externalization)
 - [HA Reference](/architecture/ha_reference)
 
+## 読み分けガイド（現行仕様 / 設計メモ）
+
+この docs には、**いま使うための手順**と、**将来方針を含む設計メモ**が混在しています。  
+用途に応じて、次のように読むのがおすすめです。
+
+### 現行仕様・運用（まずこちら）
+
+- [Getting Started](/getting-started)
+- [Configuration](/configuration)
+- [Tutorials](/tutorials/)
+- [Runbooks](/runbooks/submission_auth)
+- [Observability](/observability)
+- [Rate Limit](/rate_limit)
+- [Kafka Queue モード](/kafka_queue_mode)
+- [S3 Spool Backend](/s3_spool_backend)
+
+### 設計メモ・将来方針（意図やロードマップ）
+
+- [Admin Auth DB Direction](/architecture/admin_auth_db_direction)
+- [SMTP AUTH Modern Auth Direction](/architecture/smtp_auth_modern_auth)
+- [Domain Throttle Externalization](/architecture/domain_throttle_externalization)
+- [正規化方針](/architecture/normalization_policy)
+- [HA Reference](/architecture/ha_reference)
+- [RFC ギャップメモ](/rfc_4954_gap)（「実装範囲外」「判断メモ」を含みます）
+
 ## RFC ギャップメモ
 
 - [RFC 1870: SMTP SIZE](/rfc_1870_gap)
