@@ -33,6 +33,9 @@ func EvalARC(headers []Header, body string) ARCResult {
 		return ARCResult{Result: "fail", Reason: "invalid arc-authentication-results instances: " + err.Error()}
 	}
 	n := len(seals)
+	if n > 50 {
+		return ARCResult{Result: "fail", Reason: "arc chain exceeds 50 sets"}
+	}
 	for i := 1; i <= n; i++ {
 		ams, okMsg := msgMap[i]
 		seal, okSeal := sealMap[i]
@@ -40,8 +43,14 @@ func EvalARC(headers []Header, body string) ARCResult {
 		if !okSeal || !okMsg || !okAAR {
 			return ARCResult{Result: "fail", Reason: fmt.Sprintf("missing instance i=%d", i)}
 		}
-		if err := verifyARCMessageSignature(headers, body, ams); err != nil {
-			return ARCResult{Result: "fail", Reason: fmt.Sprintf("arc message signature verify failed i=%d: %v", i, err)}
+		cv := strings.ToLower(strings.TrimSpace(parseTagList(seal)["cv"]))
+		if cv == "fail" {
+			return ARCResult{Result: "fail", Reason: fmt.Sprintf("chain reports cv=fail i=%d", i)}
+		}
+		if i == n {
+			if err := verifyARCMessageSignature(headers, body, ams); err != nil {
+				return ARCResult{Result: "fail", Reason: fmt.Sprintf("arc message signature verify failed i=%d: %v", i, err)}
+			}
 		}
 		if err := verifyARCSeal(headers, seal, i); err != nil {
 			return ARCResult{Result: "fail", Reason: fmt.Sprintf("arc seal verify failed i=%d: %v", i, err)}
@@ -160,7 +169,11 @@ func buildARCSealSignedData(headers []Header, maxInstance int) (string, error) {
 		return "", fmt.Errorf("invalid instance")
 	}
 	var out strings.Builder
-	for i := 1; i <= maxInstance; i++ {
+	start := 1
+	if seal, ok := headerByInstance(headers, "ARC-Seal", maxInstance); ok && parseTagList(seal)["cv"] == "fail" {
+		start = maxInstance
+	}
+	for i := start; i <= maxInstance; i++ {
 		aar, ok := headerByInstance(headers, "ARC-Authentication-Results", i)
 		if !ok {
 			return "", fmt.Errorf("missing arc-authentication-results i=%d", i)

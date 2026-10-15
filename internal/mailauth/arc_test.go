@@ -8,7 +8,11 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"fmt"
+	"strings"
 	"testing"
+
+	dkimsigner "github.com/tamago0224/kuroshio-mta/internal/dkim"
 )
 
 func TestEvalARC(t *testing.T) {
@@ -231,4 +235,102 @@ func TestEvalARCMultiHopCryptoPass(t *testing.T) {
 	if res.Result != "pass" {
 		t.Fatalf("result=%s reason=%s", res.Result, res.Reason)
 	}
+}
+
+func TestARCSignerChainRoundTrip(t *testing.T) {
+	keyPath, publicKey := writeInteropRSAKey(t)
+	oldLookup := dkimLookupTXT
+	t.Cleanup(func() { dkimLookupTXT = oldLookup })
+	dkimLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name != "s1._domainkey.example.com" {
+			return nil, fmt.Errorf("unexpected lookup %s", name)
+		}
+		return []string{"v=DKIM1; k=rsa; p=" + publicKey}, nil
+	}
+	signer, err := dkimsigner.NewARCFileSigner("example.com", "s1", keyPath, "mx.example.com", "from:to:subject:authentication-results:arc-seal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parse := func(raw []byte) ([]Header, string) {
+		t.Helper()
+		h, b, err := SplitMessage(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		headers, err := ParseHeaders(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return headers, b
+	}
+	raw := []byte("From: a@example.com\r\nTo: b@example.net\r\nSubject: original\r\nAuthentication-Results: mx.example.com; dmarc=pass; arc=pass\r\n\r\nhello\r\n")
+	for hop := 1; hop <= 3; hop++ {
+		headers, body := parse(raw)
+		result := EvalARC(headers, body)
+		if hop == 1 && result.Result != "none" {
+			t.Fatal(result)
+		}
+		if hop > 1 && result.Result != "pass" {
+			t.Fatal(result)
+		}
+		// A participating forwarder can change content after validating the input.
+		if hop == 2 {
+			raw = []byte(strings.ReplaceAll(string(raw), "Subject: original", "Subject: forwarded"))
+		}
+		previous := string(raw)
+		raw, err = signer.SignWithChainValidation(raw, result.Result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(string(raw), previous) {
+			t.Fatal("previous message modified")
+		}
+		headers, body = parse(raw)
+		got := EvalARC(headers, body)
+		if got.Result != "pass" {
+			t.Fatalf("hop %d: %+v", hop, got)
+		}
+		ams, _ := headerByInstance(headers, "ARC-Message-Signature", hop)
+		h := parseTagList(ams)["h"]
+		if strings.Contains(h, "arc-") || strings.Contains(h, "authentication-results") {
+			t.Fatalf("prohibited AMS header: %s", h)
+		}
+	}
+	t.Run("earlier seal tampering", func(t *testing.T) {
+		damaged := []byte(strings.Replace(string(raw), "i=1; mx.example.com", "i=1; forged.example.com", 1))
+		h, b := parse(damaged)
+		if result := EvalARC(h, b); result.Result != "fail" {
+			t.Fatalf("tampering passed: %+v", result)
+		}
+	})
+	t.Run("body tampering marks failure once", func(t *testing.T) {
+		damaged := []byte(strings.Replace(string(raw), "hello", "tampered", 1))
+		h, b := parse(damaged)
+		result := EvalARC(h, b)
+		if result.Result != "fail" {
+			t.Fatal(result)
+		}
+		failed, err := signer.SignWithChainValidation(damaged, result.Result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(failed), "ARC-Seal: i=4; cv=fail;") {
+			t.Fatalf("missing failure seal: %s", failed)
+		}
+		h, b = parse(failed)
+		if got := EvalARC(h, b); got.Result != "fail" {
+			t.Fatalf("failed chain recovered: %+v", got)
+		}
+		seal, _ := headerByInstance(h, "ARC-Seal", 4)
+		if err := verifyARCSeal(h, seal, 4); err != nil {
+			t.Fatalf("failure seal invalid: %v", err)
+		}
+		again, err := signer.SignWithChainValidation(failed, "pass")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(again) != string(failed) {
+			t.Fatal("cv=fail must stop further sealing")
+		}
+	})
 }

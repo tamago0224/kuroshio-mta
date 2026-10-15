@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +55,15 @@ func NewARCFileSigner(domain, selector, keyFile, authservID, headers string) (*A
 	return signer, nil
 }
 
+// Sign seals a new message. Existing chains are conservatively marked failed
+// unless the caller supplies a trusted result with SignWithChainValidation.
 func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
+	return s.SignWithChainValidation(raw, "fail")
+}
+
+// SignWithChainValidation seals raw using a cryptographically verified chain result.
+// The result must come from a validator, never from an untrusted message header.
+func (s *ARCFileSigner) SignWithChainValidation(raw []byte, validation string) ([]byte, error) {
 	if err := s.reloadIfNeeded(); err != nil {
 		return nil, err
 	}
@@ -66,18 +75,33 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	if len(headers) == 0 {
 		return nil, errors.New("missing headers")
 	}
-	if hasARCSet(headers) {
-		// Existing chain update is handled by the next issue; keep current message as-is.
+	chain := inspectARCChain(headers)
+	if chain.stop {
 		return raw, nil
 	}
+	cv := "none"
+	if chain.max > 0 {
+		cv = "fail"
+		if chain.valid && validation == "pass" {
+			cv = "pass"
+		}
+	}
+	instance := chain.max + 1
+	aarValue := s.buildAARValue(headers, instance, cv)
 
-	aarValue := s.buildAARValue(headers)
-
-	msgWithAAR := "ARC-Authentication-Results: " + aarValue + "\r\n" + headerPart + "\r\n\r\n" + bodyPart
-	aarHeaderPart, _, _ := splitMessage([]byte(msgWithAAR))
-	headersWithAAR := parseRawHeaders(aarHeaderPart)
-
-	hdrNames, signedHeaderPart := buildSignedHeaders(headersWithAAR, append(append([]string{}, s.headers...), "arc-authentication-results"))
+	// AMS must not cover Authentication-Results or any ARC header (RFC 8617 4.1.2).
+	want := make([]string, 0, len(s.headers))
+	for _, name := range s.headers {
+		if name != "authentication-results" && !isARCHeader(name) {
+			want = append(want, name)
+		}
+	}
+	for _, h := range headers {
+		if strings.EqualFold(h.name, "DKIM-Signature") {
+			want = append(want, "dkim-signature")
+		}
+	}
+	hdrNames, signedHeaderPart := buildSignedHeaders(headers, want)
 	if len(hdrNames) == 0 {
 		return nil, errors.New("no headers available for arc message signature")
 	}
@@ -85,7 +109,8 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	bh := bodyHash(bodyPart)
 	ts := time.Now().UTC().Unix()
 	amsBase := fmt.Sprintf(
-		"i=1; a=rsa-sha256; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
+		"i=%d; a=rsa-sha256; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
+		instance,
 		s.domain,
 		s.selector,
 		ts,
@@ -102,10 +127,20 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	}
 	amsValue := amsBase + amsSig
 
-	sealBase := fmt.Sprintf("i=1; cv=none; a=rsa-sha256; d=%s; s=%s; t=%d; b=", s.domain, s.selector, ts)
+	sealBase := fmt.Sprintf(
+		"i=%d; cv=%s; a=rsa-sha256; d=%s; s=%s; t=%d; b=",
+		instance,
+		cv,
+		s.domain,
+		s.selector,
+		ts,
+	)
 	sealSigningData := canonHeaderRelaxed("ARC-Authentication-Results", aarValue) +
 		canonHeaderRelaxed("ARC-Message-Signature", amsValue) +
 		canonHeaderRelaxed("ARC-Seal", sealBase)
+	if cv == "pass" {
+		sealSigningData = chain.signedData() + sealSigningData
+	}
 	sealSig, err := signPKCS1v15SHA256(key, []byte(sealSigningData))
 	if err != nil {
 		return nil, err
@@ -122,9 +157,7 @@ func (s *ARCFileSigner) Sign(raw []byte) ([]byte, error) {
 	out.WriteString("ARC-Authentication-Results: ")
 	out.WriteString(aarValue)
 	out.WriteString("\r\n")
-	out.WriteString(headerPart)
-	out.WriteString("\r\n\r\n")
-	out.WriteString(bodyPart)
+	out.Write(raw)
 	return []byte(out.String()), nil
 }
 
@@ -150,25 +183,105 @@ func (s *ARCFileSigner) reloadIfNeeded() error {
 	return nil
 }
 
-func (s *ARCFileSigner) buildAARValue(headers []rawHeader) string {
+func (s *ARCFileSigner) buildAARValue(headers []rawHeader, instance int, cv string) string {
 	for _, h := range headers {
 		if strings.EqualFold(h.name, "Authentication-Results") {
 			v := collapseWSP(strings.TrimSpace(h.value))
-			if v != "" {
-				return "i=1; " + v
+			// Only copy results from our own authserv-id. Never attest to a remote one.
+			authserv, _, _ := strings.Cut(v, ";")
+			if strings.TrimSpace(authserv) == s.authserv {
+				parts := strings.Split(v, ";")
+				kept := []string{fmt.Sprintf("i=%d", instance), s.authserv}
+				for _, part := range parts[1:] {
+					part = strings.TrimSpace(part)
+					method, _, _ := strings.Cut(part, "=")
+					if strings.TrimSpace(method) != "arc" && part != "" {
+						kept = append(kept, part)
+					}
+				}
+				return strings.Join(append(kept, "arc="+cv), "; ")
 			}
 		}
 	}
-	return fmt.Sprintf("i=1; %s; arc=none", s.authserv)
+	return fmt.Sprintf("i=%d; %s; arc=%s", instance, s.authserv, cv)
 }
 
-func hasARCSet(headers []rawHeader) bool {
-	for _, h := range headers {
-		if strings.EqualFold(h.name, "ARC-Seal") || strings.EqualFold(h.name, "ARC-Message-Signature") || strings.EqualFold(h.name, "ARC-Authentication-Results") {
-			return true
+type arcChainState struct {
+	max   int
+	valid bool
+	stop  bool
+	sets  map[int]map[string]rawHeader
+}
+
+func isARCHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "arc-seal", "arc-message-signature", "arc-authentication-results":
+		return true
+	default:
+		return false
+	}
+}
+
+func arcTag(value, name string) string {
+	for _, part := range strings.Split(value, ";") {
+		key, val, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if ok && key == name {
+			return strings.TrimSpace(val)
 		}
 	}
-	return false
+	return ""
+}
+
+func inspectARCChain(headers []rawHeader) arcChainState {
+	state := arcChainState{valid: true, sets: make(map[int]map[string]rawHeader)}
+	for _, h := range headers {
+		if !isARCHeader(h.name) {
+			continue
+		}
+		first, _, _ := strings.Cut(h.value, ";")
+		instance, err := strconv.Atoi(arcTag(first, "i"))
+		if err != nil || instance < 1 || instance >= 50 {
+			// An ambiguous instance or exhausted chain cannot be extended safely.
+			state.stop = true
+			return state
+		}
+		if instance > state.max {
+			state.max = instance
+		}
+		if state.sets[instance] == nil {
+			state.sets[instance] = make(map[string]rawHeader)
+		}
+		name := strings.ToLower(h.name)
+		if _, exists := state.sets[instance][name]; exists {
+			state.valid = false
+		}
+		state.sets[instance][name] = h
+	}
+	for i := 1; i <= state.max; i++ {
+		set := state.sets[i]
+		if len(set) != 3 {
+			state.valid = false
+		}
+		cv := arcTag(set["arc-seal"].value, "cv")
+		if i == state.max && cv == "fail" {
+			state.stop = true
+		}
+		if (i == 1 && cv != "none") || (i > 1 && cv != "pass") {
+			state.valid = false
+		}
+	}
+	return state
+}
+
+func (state arcChainState) signedData() string {
+	var out strings.Builder
+	for i := 1; i <= state.max; i++ {
+		for _, name := range []string{"arc-authentication-results", "arc-message-signature", "arc-seal"} {
+			h := state.sets[i][name]
+			out.WriteString(canonHeaderRelaxed(h.name, h.value))
+		}
+	}
+	return out.String()
 }
 
 func signPKCS1v15SHA256(key *rsa.PrivateKey, payload []byte) (string, error) {
