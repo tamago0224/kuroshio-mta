@@ -72,7 +72,7 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 			c.signer = signer
 		}
 		if arcSigner, err := dkim.NewARCFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.Hostname, cfg.DKIMSignHeaders); err == nil {
-			c.arcSigner = arcSigner
+			c.arcSigner = &validatedARCSigner{signer: arcSigner}
 		}
 	}
 	c.deliverHostFn = c.deliverHost
