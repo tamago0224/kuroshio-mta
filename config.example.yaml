@@ -71,6 +71,7 @@ dial_timeout: 8s
 send_timeout: 20s
 dkim_sign_domain: example.com
 dkim_sign_selector: default
+# RSA (PKCS#1 / PKCS#8 PEM) または Ed25519 (PKCS#8 PEM)。DKIM/ARC 共用。
 dkim_private_key_file: ./keys/dkim.pem
 dkim_sign_headers: from:to:subject:date:message-id
 arc_failure_policy: accept

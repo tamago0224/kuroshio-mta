@@ -214,12 +214,15 @@ func TestBuildSignedDataUsesHeadersFromBottom(t *testing.T) {
 	wantContains := []string{
 		"Subject:second\r\n",
 		"From:sender@example.com\r\n",
-		"DKIM-Signature:v=1; a=rsa-sha256; b=; h=subject:from\r\n",
+		"DKIM-Signature:v=1; a=rsa-sha256; b=; h=subject:from",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {
 			t.Fatalf("signed data missing %q in %q", want, got)
 		}
+	}
+	if strings.HasSuffix(got, "\r\n") {
+		t.Fatal("signature header must not contribute a trailing CRLF")
 	}
 	if strings.Contains(got, "Subject:first\r\n") {
 		t.Fatalf("signed data should use bottom-most subject, got=%q", got)

@@ -123,7 +123,7 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | `mta_sts_fetch_timeout` | `MTA_MTA_STS_FETCH_TIMEOUT` | `5s` | MTA-STS policy の取得タイムアウトです |
 | `dkim_sign_domain` | `MTA_DKIM_SIGN_DOMAIN` | unset | 送信時 DKIM/ARC 署名に使うドメインです |
 | `dkim_sign_selector` | `MTA_DKIM_SIGN_SELECTOR` | unset | 送信時 DKIM/ARC 署名に使う selector です |
-| `dkim_private_key_file` | `MTA_DKIM_PRIVATE_KEY_FILE` | unset | 送信時 DKIM/ARC 署名に使う秘密鍵ファイルです |
+| `dkim_private_key_file` | `MTA_DKIM_PRIVATE_KEY_FILE` | unset | DKIM/ARC 共用の PEM 秘密鍵です。RSA は PKCS#1 / PKCS#8、Ed25519 は PKCS#8 に対応し、鍵種別から署名アルゴリズムを自動選択します |
 | `dkim_sign_headers` | `MTA_DKIM_SIGN_HEADERS` | `from:to:subject:date:message-id` | DKIM 署名対象ヘッダです。ARC 署名も同じ鍵設定を利用します |
 | `arc_failure_policy` | `MTA_ARC_FAILURE_POLICY` | `accept` | ARC 検証失敗時の扱いです。`accept` / `quarantine` / `reject` を使います |
 | `spf_helo_policy` | `MTA_SPF_HELO_POLICY` | `advisory` | HELO に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |

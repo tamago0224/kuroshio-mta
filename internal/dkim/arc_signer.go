@@ -2,10 +2,6 @@ package dkim
 
 import (
 	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -24,7 +20,7 @@ type ARCFileSigner struct {
 
 	mu         sync.RWMutex
 	mtime      time.Time
-	privateKey *rsa.PrivateKey
+	privateKey crypto.Signer
 }
 
 func NewARCFileSigner(domain, selector, keyFile, authservID, headers string) (*ARCFileSigner, error) {
@@ -106,11 +102,15 @@ func (s *ARCFileSigner) SignWithChainValidation(raw []byte, validation string) (
 		return nil, errors.New("no headers available for arc message signature")
 	}
 
+	s.mu.RLock()
+	key := s.privateKey
+	s.mu.RUnlock()
 	bh := bodyHash(bodyPart)
 	ts := time.Now().UTC().Unix()
 	amsBase := fmt.Sprintf(
-		"i=%d; a=rsa-sha256; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
+		"i=%d; a=%s; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
 		instance,
+		signatureAlgorithm(key),
 		s.domain,
 		s.selector,
 		ts,
@@ -118,19 +118,17 @@ func (s *ARCFileSigner) SignWithChainValidation(raw []byte, validation string) (
 		bh,
 	)
 	amsSigningData := signedHeaderPart + canonHeaderRelaxed("ARC-Message-Signature", amsBase)
-	s.mu.RLock()
-	key := s.privateKey
-	s.mu.RUnlock()
-	amsSig, err := signPKCS1v15SHA256(key, []byte(amsSigningData))
+	amsSig, err := signSHA256(key, []byte(strings.TrimSuffix(amsSigningData, "\r\n")))
 	if err != nil {
 		return nil, err
 	}
 	amsValue := amsBase + amsSig
 
 	sealBase := fmt.Sprintf(
-		"i=%d; cv=%s; a=rsa-sha256; d=%s; s=%s; t=%d; b=",
+		"i=%d; cv=%s; a=%s; d=%s; s=%s; t=%d; b=",
 		instance,
 		cv,
+		signatureAlgorithm(key),
 		s.domain,
 		s.selector,
 		ts,
@@ -141,7 +139,7 @@ func (s *ARCFileSigner) SignWithChainValidation(raw []byte, validation string) (
 	if cv == "pass" {
 		sealSigningData = chain.signedData() + sealSigningData
 	}
-	sealSig, err := signPKCS1v15SHA256(key, []byte(sealSigningData))
+	sealSig, err := signSHA256(key, []byte(strings.TrimSuffix(sealSigningData, "\r\n")))
 	if err != nil {
 		return nil, err
 	}
@@ -282,13 +280,4 @@ func (state arcChainState) signedData() string {
 		}
 	}
 	return out.String()
-}
-
-func signPKCS1v15SHA256(key *rsa.PrivateKey, payload []byte) (string, error) {
-	sum := sha256.Sum256(payload)
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
-	if err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(sig), nil
 }

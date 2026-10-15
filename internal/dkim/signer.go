@@ -2,6 +2,7 @@ package dkim
 
 import (
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -24,7 +25,7 @@ type FileSigner struct {
 
 	mu      sync.RWMutex
 	mtime   time.Time
-	privKey *rsa.PrivateKey
+	privKey crypto.Signer
 }
 
 func NewFileSigner(domain, selector, keyFile, headers string) (*FileSigner, error) {
@@ -67,9 +68,13 @@ func (s *FileSigner) Sign(raw []byte) ([]byte, error) {
 		return nil, errors.New("no headers available for dkim signing")
 	}
 
+	s.mu.RLock()
+	key := s.privKey
+	s.mu.RUnlock()
 	bh := bodyHash(bodyPart)
 	base := fmt.Sprintf(
-		"v=1; a=rsa-sha256; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
+		"v=1; a=%s; c=relaxed/relaxed; d=%s; s=%s; t=%d; h=%s; bh=%s; b=",
+		signatureAlgorithm(key),
 		s.domain,
 		s.selector,
 		time.Now().UTC().Unix(),
@@ -77,16 +82,12 @@ func (s *FileSigner) Sign(raw []byte) ([]byte, error) {
 		bh,
 	)
 
-	signingData := canonHeaderPart + canonHeaderRelaxed("DKIM-Signature", base)
-	sum := sha256.Sum256([]byte(signingData))
-	s.mu.RLock()
-	key := s.privKey
-	s.mu.RUnlock()
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
+	signingData := canonHeaderPart + strings.TrimSuffix(canonHeaderRelaxed("DKIM-Signature", base), "\r\n")
+	sig, err := signSHA256(key, []byte(signingData))
 	if err != nil {
 		return nil, err
 	}
-	dkimHeader := "DKIM-Signature: " + base + base64.StdEncoding.EncodeToString(sig)
+	dkimHeader := "DKIM-Signature: " + base + sig
 	var out strings.Builder
 	out.WriteString(dkimHeader)
 	out.WriteString("\r\n")
@@ -118,7 +119,7 @@ func (s *FileSigner) reloadIfNeeded() error {
 	return nil
 }
 
-func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
+func loadPrivateKey(path string) (crypto.Signer, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -135,11 +136,14 @@ func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		key, ok := keyAny.(*rsa.PrivateKey)
-		if !ok {
-			return nil, errors.New("private key is not rsa")
+		switch key := keyAny.(type) {
+		case *rsa.PrivateKey:
+			return key, nil
+		case ed25519.PrivateKey:
+			return key, nil
+		default:
+			return nil, errors.New("private key must be RSA or Ed25519")
 		}
-		return key, nil
 	default:
 		return nil, fmt.Errorf("unsupported private key type: %s", block.Type)
 	}
@@ -259,4 +263,25 @@ func parseHeaderList(v string) []string {
 		}
 	}
 	return out
+}
+
+func signatureAlgorithm(key crypto.Signer) string {
+	if _, ok := key.(ed25519.PrivateKey); ok {
+		return "ed25519-sha256"
+	}
+	return "rsa-sha256"
+}
+
+func signSHA256(key crypto.Signer, payload []byte) (string, error) {
+	sum := sha256.Sum256(payload)
+	var opts crypto.SignerOpts = crypto.SHA256
+	if _, ok := key.(ed25519.PrivateKey); ok {
+		// RFC 8463: PureEdDSA signs the SHA-256 digest, not Ed25519ph.
+		opts = crypto.Hash(0)
+	}
+	sig, err := key.Sign(rand.Reader, sum[:], opts)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(sig), nil
 }

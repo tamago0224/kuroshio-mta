@@ -13,6 +13,7 @@
 - 最新 AMS と全 ARC-Seal を検証（過去の AMS が本文変更で無効になっても、それだけでは chain を失敗にしない）
 - AMS の署名対象から Authentication-Results と ARC ヘッダを除外し、既存 DKIM-Signature を含める
 - 鍵ローテーション時の ARC 署名キー再読込
+- RSA / Ed25519 の AMS・seal 生成と、両方が混在する chain の検証
 
 ## 継続署名と失敗時の方針
 
