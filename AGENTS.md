@@ -158,3 +158,72 @@ GitHub Flow に必要な範囲で、GitHub CLI を利用してよいものとし
 - レビューしづらい巨大コミット
 - 明示的必要性のない破壊的 Git 操作
 - 実行していないテストを「成功した」と表現すること
+
+---
+
+## プロジェクト概要と調査の入口
+
+`kuroshio-mta` は Go で実装した MTA です。SMTP / Submission の受信、永続キュー、配送・再送、メール認証、管理 API、可観測性を扱います。SMTP 処理は外部 SMTP ライブラリに依存していません。
+
+- Go の module path は `github.com/tamago0224/kuroshio-mta`。import はこのパスに合わせること
+- Go バージョンは `go.mod` と `.github/workflows/ci.yml` を参照すること。現在は `go 1.25.0`、toolchain と CI は `1.25.9`
+- Node.js は VitePress ドキュメント用。docs CI は Node.js 22 と `npm ci` を使用する
+- 最初に `README.md`、`docs/getting-started.md`、`docs/configuration.md` と変更対象の実装・テストを読むこと
+- `docs/spec.md` は目標アーキテクチャを含む。記載された構成や性能目標を、実装済み・測定済みとみなさないこと
+- プロトコル変更では `docs/rfc_*_gap.md`、設計判断では `docs/architecture/`、運用変更では `docs/runbooks/` を確認すること
+
+## コード配置
+
+| 場所 | 役割 |
+| --- | --- |
+| `cmd/kuroshio/main.go` | 設定の読み込み、依存の組み立て、各サーバー・ワーカーの起動と停止 |
+| `cmd/smtpload/` | SMTP 負荷生成 CLI |
+| `internal/config/` | YAML・環境変数からの設定読み込みと検証 |
+| `internal/smtp/` | SMTP / Submission セッション、STARTTLS、SMTP AUTH、conformance テスト |
+| `internal/ingress/` | DNSBL、レート制限、Redis を使う制限ストア |
+| `internal/mailauth/`、`internal/dkim/` | 受信時の SPF / DKIM / DMARC / ARC 評価と送信署名 |
+| `internal/model/`、`internal/queue/` | メッセージ表現、共通 Backend、ローカル・Kafka キュー |
+| `internal/worker/` | 配送の実行、再送、ドメイン単位のスロットリング |
+| `internal/delivery/`、`internal/router/` | SMTP 配送、MTA-STS / DANE、S3 spool、MX 解決 |
+| `internal/bounce/`、`internal/reputation/`、`internal/retention/` | DSN、suppression、レピュテーション、保存期限管理 |
+| `internal/admin/`、`internal/userauth/` | 管理 API と管理認証、Submission ユーザー認証 |
+| `internal/logging/`、`internal/observability/` | slog、PII マスキング、メトリクス、OpenTelemetry |
+| `integration/`、`test/integration/` | integration タグ付きテストと Docker による DNS 検証環境 |
+| `examples/tutorials/` | チュートリアルの Compose 環境と設定例 |
+| `scripts/`、`deploy/monitoring/` | 管理・負荷・復旧・セキュリティの補助スクリプトと監視ルール |
+| `docs/`、`docs/.vitepress/config.mts` | ドキュメント本文とサイト構成 |
+
+## 変更時の注意
+
+- 設定項目を変更するときは `internal/config/config.go` とそのテスト、`config.example.yaml`、`docs/configuration.md` の整合を確認すること。関連するチュートリアルの設定例も確認する
+- 設定ファイルの選択順序は `-config`、`MTA_CONFIG_FILE`、カレントディレクトリの `config.yaml` / `config.yml`。値の優先順位や既定値は読み込み実装で確認すること
+- キューの変更では `internal/queue/backend.go` の契約とローカル・Kafka 両方への影響を確認すること。メッセージの JSON 表現や状態遷移を変える際は、既存の保存データ、再送、管理 API、復旧処理との互換性を考慮する
+- SMTP の入力処理、envelope、ヘッダ、本文、DSN を変更する前に `docs/architecture/normalization_policy.md` を読むこと。CRLF、dot-stuffing、サイズ制限、null reverse-path、通知ループ防止への影響を確認する
+- TLS・認証・配送ポリシーの変更では、拒否条件や失敗時の挙動を確認すること。既存の制約を意図せず緩めない
+- ログは既存の `log/slog` と `internal/logging/` の流儀に合わせること。メールアドレス・IP のマスキングを維持し、本文、認証情報、秘密鍵、トークンをログやコミットに含めない
+- シークレットの扱いは `docs/security/secrets_and_supply_chain.md` を参照すること
+- サイトにページを追加・移動した場合は `docs/.vitepress/config.mts` のナビゲーションと関連リンクも確認すること。文書内のリンクはリポジトリ相対パスを使用する
+- `node_modules/`、`docs/.vitepress/cache/`、`docs/.vitepress/.temp/`、`docs/.vitepress/dist/` は生成物。直接編集・コミットしないこと。`var/` 内の実行データもコミットしない
+
+## 開発・確認コマンド
+
+以下はリポジトリルートで実行します。変更範囲に必要な確認を選び、未実施の確認は明記してください。
+
+| 目的 | コマンド・前提 |
+| --- | --- |
+| ローカル起動 | `cp config.example.yaml config.yaml` の後、`go run ./cmd/kuroshio -config ./config.yaml`。既存の設定ファイルを上書きしないこと |
+| Go の整形 | `gofmt -w <変更したGoファイル>` |
+| 対象パッケージの確認 | `go test ./internal/<対象パッケージ>` |
+| Go 全体の確認 | `go vet ./...`、`go test ./...`、`go test -race ./...` |
+| ビルド | `go build ./...` |
+| SMTP conformance | `go test ./internal/smtp -run '^TestSMTPConformance$' -v` |
+| DNS 結合テスト | Docker が必要。`./scripts/integration/run_dns_env_tests.sh` |
+| docs 依存の準備 | `npm ci` |
+| docs 開発サーバー | `npm run docs:dev` |
+| docs ビルド | `npm run docs:build` |
+
+- `.github/workflows/ci.yml` は vet、通常テスト、race テスト、SMTP conformance を実行する
+- DNS 結合テストは通常の `go test ./...` とは別。上記スクリプトが DNS / policy サービスを起動して `go test -tags=integration ./integration/...` を実行する。終了時に専用 Compose 環境を `down -v` するため、共有の検証データを置かないこと
+- docs の本文・サイト構成を変更した場合は docs ビルドでリンク等を確認する。AGENTS.md だけの変更では、参照パス・コマンド・差分の確認を基本とする
+- `.github/workflows/security.yml` は `govulncheck ./...` と SBOM 生成を実行する。依存変更時はこれらへの影響も確認する
+- PR 本文は `.github/pull_request_template.md` に従うこと。Validation / TDD のチェック欄は実施した項目だけをチェックし、文書変更などで該当しない場合は理由を記載する
