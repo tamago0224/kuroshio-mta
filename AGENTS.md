@@ -166,7 +166,7 @@ GitHub Flow に必要な範囲で、GitHub CLI を利用してよいものとし
 `kuroshio-mta` は Go で実装した MTA です。SMTP / Submission の受信、永続キュー、配送・再送、メール認証、管理 API、可観測性を扱います。SMTP 処理は外部 SMTP ライブラリに依存していません。
 
 - Go の module path は `github.com/tamago0224/kuroshio-mta`。import はこのパスに合わせること
-- Go バージョンは `go.mod` と `.github/workflows/ci.yml` を参照すること。現在は `go 1.25.0`、toolchain と CI は `1.25.9`
+- Go バージョンは `go.mod` と `.github/workflows/ci.yml` を参照すること。現在は `go 1.26.9`、CI と Docker のビルド環境も `1.26.9`
 - Node.js は VitePress ドキュメント用。docs CI は Node.js 22 と `npm ci` を使用する
 - 最初に `README.md`、`docs/getting-started.md`、`docs/configuration.md` と変更対象の実装・テストを読むこと
 - `docs/spec.md` は目標アーキテクチャを含む。記載された構成や性能目標を、実装済み・測定済みとみなさないこと
