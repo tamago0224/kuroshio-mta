@@ -325,34 +325,15 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			writeResp(w, 221, "bye")
 			return
 		case "STARTTLS":
-			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.starttls")
-			if ss.tls {
-				cmdSpan.setResponse(503, "already using TLS")
-				cmdSpan.end()
-				writeResp(w, 503, "already using TLS")
-				continue
-			}
-			if s.tlsConfig == nil {
-				cmdSpan.setResponse(454, "TLS not available due to temporary reason")
-				cmdSpan.end()
-				writeResp(w, 454, "TLS not available due to temporary reason")
-				continue
-			}
-			writeResp(w, 220, "Ready to start TLS")
-			tlsConn := tls.Server(conn, s.tlsConfig)
-			if err := tlsConn.Handshake(); err != nil {
-				cmdSpan.recordError(err)
-				cmdSpan.end()
+			upgraded, err := s.handleStartTLSCommand(sessionCtx, ss, conn, w)
+			if err != nil {
 				return
 			}
-			conn = tlsConn
-			_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
-			r = bufio.NewReader(conn)
-			w = bufio.NewWriter(conn)
-			ss.resetAfterTLS()
-			cmdSpan.SetAttributes(attribute.Bool("smtp.tls", true))
-			cmdSpan.setResponse(220, "Ready to start TLS")
-			cmdSpan.end()
+			if upgraded != nil {
+				conn = upgraded
+				r = bufio.NewReader(conn)
+				w = bufio.NewWriter(conn)
+			}
 		default:
 			writeResp(w, 500, "unsupported command")
 		}
@@ -469,23 +450,6 @@ func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, 
 		_ = writeLine(w, "250-STARTTLS")
 	}
 	_ = writeLine(w, "250 HELP")
-}
-
-func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
-	if cfg.TLSCertFile == "" && cfg.TLSKeyFile == "" {
-		return nil, nil
-	}
-	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
-		return nil, errors.New("both MTA_TLS_CERT_FILE and MTA_TLS_KEY_FILE must be set")
-	}
-	cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("load TLS cert/key: %w", err)
-	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-	}, nil
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, extended, tlsOn bool) string {
