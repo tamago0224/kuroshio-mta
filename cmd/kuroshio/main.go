@@ -67,13 +67,22 @@ func main() {
 		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
-	rep := reputation.New(reputation.Config{
+	rep, err := reputation.NewPersistent(reputation.Config{
 		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),
 		WarmupRules:        reputation.ParseWarmupRules(cfg.ReputationWarmupRules),
 		BounceThreshold:    cfg.ReputationBounceThreshold,
 		ComplaintThreshold: cfg.ReputationComplaintThresh,
 		MinSamples:         cfg.ReputationMinSamples,
-	})
+	}, filepath.Join(cfg.QueueDir, "reputation.json"))
+	if err != nil {
+		fatal("reputation state load failed", "error", err)
+	}
+	// Flush after all runtime workers have exited, preserving their final observations.
+	defer func() {
+		if err := rep.Flush(); err != nil {
+			slog.Error("reputation final flush failed", "error", err)
+		}
+	}()
 
 	d, err := worker.New(cfg, q, delivery.NewClientWithMetrics(cfg, metrics), sup, metrics, rep)
 	if err != nil {
@@ -104,7 +113,7 @@ func main() {
 		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
 	}
 
-	workers := 3
+	workers := 4
 	if submissionServer != nil {
 		workers++
 	}
@@ -118,6 +127,7 @@ func main() {
 		go func() { errCh <- submissionServer.Run(ctx) }()
 	}
 	go func() { errCh <- d.Run(ctx) }()
+	go func() { errCh <- rep.RunPersistence(ctx, 5*time.Second) }()
 	go func() { errCh <- observability.RunServerWithReputation(ctx, cfg.ObservabilityAddr, metrics, rep) }()
 	if cfg.AdminAddr != "" {
 		var queueAdmin interface {

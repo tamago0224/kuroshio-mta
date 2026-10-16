@@ -114,6 +114,8 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 
 ## 認証・ポリシー・配送安全性
 
+レピュテーション集計は `queue_dir/reputation.json` に復元・保存します。取り込み形式、保存周期、復旧手順は [Reputation Operations](./runbooks/reputation_ops.md) を参照してください。
+
 | YAML property | 環境変数 | default | 説明 |
 | --- | --- | --- | --- |
 | `dnsbl_zones` | `MTA_DNSBL_ZONES` | unset | 参照する DNSBL zone 一覧です |
