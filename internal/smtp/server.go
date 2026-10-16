@@ -123,21 +123,6 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-type session struct {
-	remote   string
-	helo     string
-	mailFrom string
-	bodyMode string
-	rcptTo   []string
-	data     []byte
-	seenHelo bool
-	extended bool
-	tls      bool
-	authUser string
-	auth     userauth.Principal
-	authOK   bool
-}
-
 var (
 	evaluateAuthWithPolicy = mailauth.EvaluateWithPolicy
 	smtpTracer             = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/smtp")
@@ -263,12 +248,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 					return
 				}
 			}
-			ss.seenHelo = true
-			ss.extended = true
-			ss.mailFrom = ""
-			ss.bodyMode = "7BIT"
-			ss.rcptTo = nil
-			ss.data = nil
+			ss.acceptGreeting(true)
 			methods := s.authMechanisms(ss.tls)
 			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, len(methods) > 0, methods...)
 		case "HELO":
@@ -277,12 +257,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				continue
 			}
 			ss.helo = arg
-			ss.seenHelo = true
-			ss.extended = false
-			ss.mailFrom = ""
-			ss.bodyMode = "7BIT"
-			ss.rcptTo = nil
-			ss.data = nil
+			ss.acceptGreeting(false)
 			writeResp(w, 250, s.cfg.Hostname)
 		case "MAIL":
 			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.mail")
@@ -321,10 +296,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				cmdSpan,
 			)
 		case "RSET":
-			ss.mailFrom = ""
-			ss.bodyMode = "7BIT"
-			ss.rcptTo = nil
-			ss.data = nil
+			ss.resetTransaction()
 			writeResp(w, 250, "reset state")
 		case "AUTH":
 			if err := s.handleAuthCommand(
@@ -377,16 +349,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
-			ss.tls = true
-			ss.seenHelo = false
-			ss.extended = false
-			ss.mailFrom = ""
-			ss.bodyMode = "7BIT"
-			ss.rcptTo = nil
-			ss.data = nil
-			ss.authUser = ""
-			ss.auth = userauth.Principal{}
-			ss.authOK = false
+			ss.resetAfterTLS()
 			cmdSpan.SetAttributes(attribute.Bool("smtp.tls", true))
 			cmdSpan.setResponse(220, "Ready to start TLS")
 			cmdSpan.end()

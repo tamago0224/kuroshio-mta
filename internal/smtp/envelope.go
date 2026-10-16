@@ -149,13 +149,7 @@ func (s *Server) handleMailCommand(
 			return true
 		}
 	}
-	ss.mailFrom = mailArgs.Address
-	ss.bodyMode = mailArgs.Body
-	if ss.bodyMode == "" {
-		ss.bodyMode = "7BIT"
-	}
-	ss.rcptTo = nil
-	ss.data = nil
+	ss.beginTransaction(mailArgs)
 	cmdSpan.setResponse(250, "sender ok")
 	writeResp(w, 250, "sender ok")
 	return false
