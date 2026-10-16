@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	PolicyHook                       PolicyHookConfig
 	MXShaping                        MXShapingConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
@@ -143,6 +144,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	}
 	cfg = applyEnvConfig(cfg)
 	if err := cfg.MXShaping.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.PolicyHook.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

@@ -9,11 +9,12 @@ import (
 )
 
 type yamlConfig struct {
-	MXShaping                *MXShapingConfig `yaml:"mx_shaping"`
-	QueueMaxMessages         *int64           `yaml:"queue_max_messages"`
-	QueueMaxBytes            *int64           `yaml:"queue_max_bytes"`
-	QueueLowWatermarkPercent *int64           `yaml:"queue_low_watermark_percent"`
-	QueueMinFreeBytes        *int64           `yaml:"queue_min_free_bytes"`
+	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
+	MXShaping                *MXShapingConfig  `yaml:"mx_shaping"`
+	QueueMaxMessages         *int64            `yaml:"queue_max_messages"`
+	QueueMaxBytes            *int64            `yaml:"queue_max_bytes"`
+	QueueLowWatermarkPercent *int64            `yaml:"queue_low_watermark_percent"`
+	QueueMinFreeBytes        *int64            `yaml:"queue_min_free_bytes"`
 
 	ListenAddr                       *string `yaml:"listen_addr"`
 	SubmissionAddr                   *string `yaml:"submission_addr"`
@@ -129,6 +130,9 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 
 	cfg := base
+	if raw.PolicyHook != nil {
+		cfg.PolicyHook = *raw.PolicyHook
+	}
 	if raw.MXShaping != nil {
 		cfg.MXShaping = *raw.MXShaping
 	}

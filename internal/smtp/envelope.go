@@ -156,6 +156,7 @@ func (s *Server) handleMailCommand(
 }
 
 func (s *Server) handleRcptCommand(
+	ctx context.Context,
 	ss *session,
 	w *bufio.Writer,
 	arg string,
@@ -185,6 +186,9 @@ func (s *Server) handleRcptCommand(
 		return
 	}
 	cmdSpan.SetAttributes(attribute.String("smtp.rcpt_to", logging.MaskEmail(addr)))
+	if !s.applyPolicyHook(ctx, ss, "rcpt", addr, w, cmdSpan) {
+		return
+	}
 	ss.rcptTo = append(ss.rcptTo, addr)
 	cmdSpan.setResponse(250, "recipient ok")
 	writeResp(w, 250, "recipient ok")

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kuroshio.smtp-policy.v1 request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "stage",
+    "remote_ip",
+    "helo",
+    "mail_from",
+    "recipients",
+    "tls",
+    "submission",
+    "authenticated",
+    "message_bytes"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "kuroshio.smtp-policy.v1"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "rcpt",
+        "data"
+      ]
+    },
+    "remote_ip": {
+      "type": "string"
+    },
+    "helo": {
+      "type": "string"
+    },
+    "mail_from": {
+      "type": "string"
+    },
+    "recipients": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recipient": {
+      "type": "string"
+    },
+    "tls": {
+      "type": "boolean"
+    },
+    "submission": {
+      "type": "boolean"
+    },
+    "authenticated": {
+      "type": "boolean"
+    },
+    "message_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "message_base64": {
+      "type": "string",
+      "contentEncoding": "base64"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "rcpt"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "recipient"
+        ],
+        "not": {
+          "required": [
+            "message_base64"
+          ]
+        }
+      }
+    }
+  ]
+}

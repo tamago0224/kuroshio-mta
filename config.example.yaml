@@ -145,3 +145,14 @@ mx_shaping:
   #     connections_per_minute: 30
   #     connection_burst: 2
   #     max_connections: 2
+
+# Optional independent kuroshio.smtp-policy.v1 HTTP policy API; not Stalwart MTA Hooks.
+# Empty URL disables it. Only RCPT and DATA-complete/pre-enqueue are supported.
+policy_hook:
+  url: ""
+  timeout: 5s
+  max_concurrent: 32
+  max_response_bytes: 65536
+  send_body: false # explicit opt-in to send final message bytes as base64
+  token_file: "" # Bearer token file; MTA_POLICY_HOOK_TOKEN_FILE can override
+  allow_http_loopback: false # tutorial-only exception for literal loopback IPs
