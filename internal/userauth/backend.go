@@ -12,10 +12,12 @@ type AuthResult struct {
 }
 
 type Principal struct {
-	AuthSource             string
-	Username               string
-	AllowedSenderDomains   []string
-	AllowedSenderAddresses []string
+	// RequireExplicitSenderScope disables the legacy username-domain fallback.
+	RequireExplicitSenderScope bool
+	AuthSource                 string
+	Username                   string
+	AllowedSenderDomains       []string
+	AllowedSenderAddresses     []string
 }
 
 type Backend interface {
