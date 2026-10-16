@@ -17,12 +17,18 @@ Issue: #34
   - `mail.dlq`
   - `sent`
   - `suppression.json`
+  - `reputation.json`
+
+Kafka の topic・offset、外部 spool、認証 DB はこのバックアップの対象外です。別途バックアップ・復旧手順を用意してください。
 
 ## 事前準備
 
 - バックアップ保存先を用意（例: `./var/backups`）
 - バックアップ周期を RPO 目標以下に設定（例: 1分ごと）
 - 復旧手順を本番相当環境で定期演習
+
+キューを更新する MTA の受信・配送・管理 API・保持期限処理を停止してから実行してください。
+バックアップスクリプトはファイルをそのまま tar に格納するため、稼働中の整合性は保証しません。
 
 ## バックアップ手順
 
@@ -38,6 +44,8 @@ backup_created=./var/backups/kuroshio-queue-20260316T010101Z.tar.gz host=mta-a q
 
 ## リストア手順
 
+対象キューを使用する MTA を停止し、バックアップが対象キューの外にあることを確認してください。
+
 ```bash
 scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-20260316T010101Z.tar.gz ./var/queue --force
 ```
@@ -48,15 +56,20 @@ scripts/dr/restore_queue.sh ./var/backups/kuroshio-queue-20260316T010101Z.tar.gz
 ## DRドリル手順
 
 ```bash
-scripts/chaos/run_dr_drill.sh ./var/queue ./var/backups --apply
+scripts/chaos/run_dr_drill.sh ./var/queue ./var/backups --apply --stopped
 ```
+
+事前に MTA を停止してください。`--stopped` は停止済みの明示であり、スクリプト自身は停止状態を検出しません。
+指定がない場合は復元せずエラーになります。
 
 このスクリプトは以下を実行する:
 
 1. バックアップ作成
-2. 障害注入を想定した停止フェーズ（オペレーター作業）
+2. 最新アーカイブの選択
 3. 最新アーカイブからの復旧
-4. 経過秒数の出力（`drill_elapsed_seconds`）
+4. バックアップと復元の経過秒数の出力（`drill_elapsed_seconds`）
+
+終了後に MTA を再起動し、下記を確認してください。出力時間には停止・再起動・正常性確認を含まないため、RTO は別途測定します。
 
 ## 検証項目
 

@@ -112,7 +112,10 @@ Submission では、認証済みユーザーと envelope sender の整合性を�
 
 - 認証ユーザーのドメインは小文字化して比較します
 - `MAIL FROM` のドメインも小文字化して比較します
-- `submission_enforce_sender_identity` が有効な場合は、両者が一致しない sender を reject します
+- `submission_enforce_sender_identity` が有効な場合は、認証結果の許可アドレス・ドメインとの一致を先に確認します
+- static / sqlite のパスワード認証では、許可リストに一致しなくても認証ユーザーと同じドメインの sender を許可します
+- Bearer 認証では認証ユーザー自身のアドレスだけを許可し、同一ドメインへのフォールバックは行いません
+- 上記に一致しない sender と null reverse-path は reject します
 
 これは sender rewrite ではなく、Submission 専用の受理条件として扱います。
 

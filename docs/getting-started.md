@@ -12,8 +12,19 @@ VitePress の docs サイトをローカル確認したい場合だけ、追加�
 
 ## 2. サンプル設定を用意する
 
-まずは [config.example.yaml](https://github.com/tamago0224/kuroshio-mta/blob/main/config.example.yaml) を元に
-`config.yaml` を作るのがいちばん簡単です。
+ローカル確認用の `config.local.example.yaml` をコピーします。既存の設定がある場合は別名で保存し、起動時の `-config` も変更してください。
+
+```bash
+cp config.local.example.yaml config.yaml
+```
+
+この設定は loopback で待ち受け、受信メールを `./var/spool` に保存します。
+外部 SMTP への配送、Submission、TLS、DKIM 署名は有効にしていません。
+
+全項目の設定例は [config.example.yaml](https://github.com/tamago0224/kuroshio-mta/blob/main/config.example.yaml) にあります。
+この例を使う場合は `tls_cert_file` / `tls_key_file` の証明書・鍵と、
+`dkim_private_key_file` の署名鍵を用意してください。証明書・鍵はリポジトリに含まれません。
+TLS を使わない場合は TLS の2項目を削除し、署名しない場合は `dkim_sign_domain` / `dkim_sign_selector` / `dkim_private_key_file` を削除します。
 
 最低限見ることが多い項目:
 
@@ -37,9 +48,30 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 ## 4. 起動後に見る場所
 
-- SMTP listener: `:2525`
-- Observability: `:9090`
+- SMTP listener: `127.0.0.1:2525`
+- Observability: `127.0.0.1:9090`
 - ローカルキュー: `./var/queue`
+- 配送後のメール: `./var/spool`
+
+受信から配送までを確認するには、Python 3 がある環境で次を実行します。
+テスト用アドレスには予約済みの `.test` ドメインを使います。実在ドメインを使うと、そのドメインの認証ポリシーで拒否される場合があります。
+
+```bash
+python3 - <<'PYTHON'
+import smtplib
+
+with smtplib.SMTP("127.0.0.1", 2525) as smtp:
+    smtp.sendmail(
+        "sender@sender.test",
+        ["user@recipient.test"],
+        "From: sender@sender.test\r\nTo: user@recipient.test\r\n"
+        "Subject: local test\r\n\r\nhello kuroshio\r\n",
+    )
+PYTHON
+curl --fail http://127.0.0.1:9090/healthz
+```
+
+配送ワーカーの処理後（既定のスキャン間隔は5秒）に `./var/spool` 配下へ `.eml` が保存されます。
 
 Admin API を有効化する場合は [Admin API](/runbooks/admin_api)、
 SLO を見たい場合は [SLO Delivery](/runbooks/slo_delivery) を参照してください。
