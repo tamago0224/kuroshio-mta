@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -547,77 +546,16 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.data = nil
 			writeResp(w, 250, "reset state")
 		case "AUTH":
-			mech, _ := authMechanism(arg)
-			if mech != "PLAIN" && mech != "LOGIN" && mech != "XOAUTH2" {
-				mech = "UNKNOWN"
+			if err := s.handleAuthCommand(
+				ctx,
+				sessionCtx,
+				ss,
+				r,
+				w,
+				arg,
+			); err != nil {
+				return
 			}
-			authCtx, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.auth", attribute.String("smtp.auth.mechanism", mech))
-			if !s.submission {
-				cmdSpan.setResponse(502, "AUTH is not supported")
-				cmdSpan.end()
-				writeResp(w, 502, "AUTH is not supported")
-				continue
-			}
-			if !ss.extended {
-				cmdSpan.setResponse(503, "send EHLO first")
-				cmdSpan.end()
-				writeResp(w, 503, "send EHLO first")
-				continue
-			}
-			if s.authBackend == nil {
-				cmdSpan.setResponse(454, "authentication backend unavailable")
-				cmdSpan.end()
-				writeResp(w, 454, "authentication backend unavailable")
-				continue
-			}
-			if mech == "XOAUTH2" && !ss.tls {
-				cmdSpan.setResponse(538, "encryption required for XOAUTH2")
-				cmdSpan.end()
-				writeResp(w, 538, "encryption required for XOAUTH2")
-				continue
-			}
-			authRes, err := s.handleAuth(authCtx, r, w, arg)
-			if err != nil {
-				if errors.Is(err, errSASLFraming) {
-					cmdSpan.recordError(err)
-					cmdSpan.end()
-					return
-				}
-				cmdSpan.recordError(err)
-				cmdSpan.setResponse(501, err.Error())
-				cmdSpan.end()
-				writeResp(w, 501, err.Error())
-				continue
-			}
-			if !authRes.Success {
-				cmdSpan.SetAttributes(
-					attribute.Bool("smtp.auth.success", false),
-					attribute.String("smtp.auth.backend", authRes.Principal.AuthSource),
-					attribute.String("smtp.auth.user", logging.MaskEmail(authRes.Principal.Username)),
-					attribute.String("smtp.auth.failure_reason", authRes.FailureReason),
-				)
-				slog.WarnContext(ctx, "submission auth failed", "component", "smtp", "auth_backend", authRes.Principal.AuthSource, "auth_user", logging.MaskEmail(authRes.Principal.Username), "mechanism", mech, "failure_reason", authRes.FailureReason)
-				cmdSpan.reject("invalid_credentials", 535, "authentication credentials invalid")
-				cmdSpan.end()
-				writeResp(w, 535, "authentication credentials invalid")
-				continue
-			}
-			principal := authRes.Principal
-			ss.authUser = principal.Username
-			ss.auth = principal
-			ss.authOK = true
-			cmdSpan.SetAttributes(
-				attribute.Bool("smtp.auth.success", true),
-				attribute.String("smtp.auth.backend", principal.AuthSource),
-				attribute.String("smtp.auth.user", logging.MaskEmail(principal.Username)),
-				attribute.String("smtp.auth.sender_scope_mode", submissionSenderScopeMode(principal)),
-				attribute.Int("smtp.auth.allowed_sender_domain_count", len(principal.AllowedSenderDomains)),
-				attribute.Int("smtp.auth.allowed_sender_address_count", len(principal.AllowedSenderAddresses)),
-			)
-			slog.InfoContext(ctx, "submission auth succeeded", "component", "smtp", "auth_backend", principal.AuthSource, "auth_user", logging.MaskEmail(principal.Username), "mechanism", mech, "sender_scope_mode", submissionSenderScopeMode(principal), "allowed_sender_domain_count", len(principal.AllowedSenderDomains), "allowed_sender_address_count", len(principal.AllowedSenderAddresses))
-			cmdSpan.setResponse(235, "authentication successful")
-			cmdSpan.end()
-			writeResp(w, 235, "authentication successful")
 		case "NOOP":
 			writeResp(w, 250, "ok")
 		case "HELP":
@@ -1048,161 +986,6 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
-}
-
-func (s *Server) handleAuth(ctx context.Context, r *bufio.Reader, w *bufio.Writer, arg string) (userauth.AuthResult, error) {
-	if strings.TrimSpace(arg) == "" {
-		return userauth.AuthResult{}, errors.New("AUTH requires mechanism")
-	}
-	parts := strings.Fields(arg)
-	mech := strings.ToUpper(parts[0])
-	supported := false
-	for _, method := range s.authMechanisms(true) {
-		if method == mech {
-			supported = true
-		}
-	}
-	if !supported {
-		return userauth.AuthResult{}, errors.New("unsupported auth mechanism")
-	}
-	switch mech {
-	case "XOAUTH2":
-		return s.handleXOAuth2(ctx, r, w, parts)
-	case "PLAIN":
-		var payload string
-		if len(parts) >= 2 {
-			payload = parts[1]
-		} else {
-			if err := writeLine(w, "334 "); err != nil {
-				return userauth.AuthResult{}, err
-			}
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return userauth.AuthResult{}, err
-			}
-			payload = strings.TrimSpace(line)
-		}
-		user, pass, err := decodeAuthPlain(payload)
-		if err != nil {
-			return userauth.AuthResult{}, err
-		}
-		if detailed, ok := s.authBackend.(userauth.DetailedBackend); ok {
-			return detailed.AuthenticatePasswordDetailed(user, pass), nil
-		}
-		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
-		return userauth.AuthResult{Principal: principal, Success: ok}, nil
-	case "LOGIN":
-		var userRaw []byte
-		if len(parts) >= 2 {
-			var err error
-			userRaw, err = decodeBase64Line(parts[1])
-			if err != nil {
-				return userauth.AuthResult{}, errors.New("invalid base64 username")
-			}
-		} else {
-			if err := writeLine(w, "334 VXNlcm5hbWU6"); err != nil {
-				return userauth.AuthResult{}, err
-			}
-			userLine, err := r.ReadString('\n')
-			if err != nil {
-				return userauth.AuthResult{}, err
-			}
-			userRaw, err = decodeBase64Line(userLine)
-			if err != nil {
-				return userauth.AuthResult{}, errors.New("invalid base64 username")
-			}
-		}
-		if err := writeLine(w, "334 UGFzc3dvcmQ6"); err != nil {
-			return userauth.AuthResult{}, err
-		}
-		passLine, err := r.ReadString('\n')
-		if err != nil {
-			return userauth.AuthResult{}, err
-		}
-		passRaw, err := decodeBase64Line(passLine)
-		if err != nil {
-			return userauth.AuthResult{}, errors.New("invalid base64 password")
-		}
-		user := strings.TrimSpace(string(userRaw))
-		pass := strings.TrimSpace(string(passRaw))
-		if user == "" || pass == "" {
-			return userauth.AuthResult{}, errors.New("empty credentials")
-		}
-		if detailed, ok := s.authBackend.(userauth.DetailedBackend); ok {
-			return detailed.AuthenticatePasswordDetailed(user, pass), nil
-		}
-		principal, ok := s.authBackend.AuthenticatePassword(user, pass)
-		return userauth.AuthResult{Principal: principal, Success: ok}, nil
-	default:
-		return userauth.AuthResult{}, errors.New("unsupported auth mechanism")
-	}
-}
-
-func decodeAuthPlain(payload string) (string, string, error) {
-	raw, err := decodeBase64Line(payload)
-	if err != nil {
-		return "", "", errors.New("invalid base64 credentials")
-	}
-	parts := bytes.Split(raw, []byte{0})
-	if len(parts) < 3 {
-		return "", "", errors.New("invalid plain auth payload")
-	}
-	user := strings.TrimSpace(string(parts[1]))
-	pass := strings.TrimSpace(string(parts[2]))
-	if user == "" || pass == "" {
-		return "", "", errors.New("empty credentials")
-	}
-	return user, pass, nil
-}
-
-func decodeBase64Line(v string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(strings.TrimSpace(v))
-}
-
-func authMechanism(arg string) (string, bool) {
-	parts := strings.Fields(strings.TrimSpace(arg))
-	if len(parts) == 0 {
-		return "", false
-	}
-	return strings.ToUpper(parts[0]), true
-}
-
-func senderAllowedForAuth(principal userauth.Principal, mailFrom string) bool {
-	mailFrom = strings.ToLower(strings.TrimSpace(mailFrom))
-	if mailFrom == "" {
-		return false
-	}
-	for _, allowed := range principal.AllowedSenderAddresses {
-		if strings.EqualFold(strings.TrimSpace(allowed), mailFrom) {
-			return true
-		}
-	}
-	if fromDomain, ok := util.DomainOf(mailFrom); ok {
-		for _, allowed := range principal.AllowedSenderDomains {
-			if strings.EqualFold(strings.TrimSpace(allowed), fromDomain) {
-				return true
-			}
-		}
-	}
-	if principal.RequireExplicitSenderScope {
-		return false
-	}
-	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(principal.Username)))
-	if !ok {
-		return false
-	}
-	fromDomain, ok := util.DomainOf(mailFrom)
-	if !ok {
-		return false
-	}
-	return strings.EqualFold(authDomain, fromDomain)
-}
-
-func submissionSenderScopeMode(principal userauth.Principal) string {
-	if len(principal.AllowedSenderDomains) > 0 || len(principal.AllowedSenderAddresses) > 0 {
-		return "credential_scope"
-	}
-	return "username_domain_fallback"
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, extended, tlsOn bool) string {

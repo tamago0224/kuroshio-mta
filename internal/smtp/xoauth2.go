@@ -13,23 +13,6 @@ import (
 
 const maxAuthLineBytes = 12288
 
-func (s *Server) authMechanisms(encrypted bool) []string {
-	if !s.submission || s.authBackend == nil {
-		return nil
-	}
-	methods := []string{"PLAIN", "LOGIN"}
-	if b, ok := s.authBackend.(userauth.MechanismBackend); ok {
-		methods = b.AuthMechanisms()
-	}
-	var result []string
-	for _, method := range methods {
-		if method != "XOAUTH2" || encrypted {
-			result = append(result, method)
-		}
-	}
-	return result
-}
-
 var errSASLFraming = errors.New("SASL response incomplete or too long")
 
 // readBoundedSMTPLine caps allocation before processing credentials or commands.
