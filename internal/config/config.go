@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	MXShaping                        MXShapingConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
 	SubmissionAuth                   bool
@@ -140,5 +141,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 			}
 		}
 	}
-	return applyEnvConfig(cfg), nil
+	cfg = applyEnvConfig(cfg)
+	if err := cfg.MXShaping.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

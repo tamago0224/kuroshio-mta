@@ -16,6 +16,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
+	"github.com/tamago0224/kuroshio-mta/internal/shaping"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,6 +37,9 @@ type Dispatcher struct {
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
 
 func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.SuppressionStore, metrics *observability.Metrics, rep *reputation.Tracker) (*Dispatcher, error) {
+	if err := cl.InitError(); err != nil {
+		return nil, err
+	}
 	throttle, err := newDomainThrottle(cfg)
 	if err != nil {
 		return nil, err
@@ -103,15 +107,40 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	defer span.End()
 	observability.InjectTraceContext(ctx, msg)
 
+	var deferredUntil time.Time
+	var remaining []string
 	var (
 		errs    []error
 		reasons []string
 	)
 	for _, rcpt := range msg.RcptTo {
+		if ctx.Err() != nil && d.cfg.MXShaping.Enabled {
+			remaining = append(remaining, rcpt)
+			deferredUntil = time.Now().Add(time.Second)
+			continue
+		}
 		domain, _ := util.DomainOf(rcpt)
 		release := func() {}
 		if d.throttle != nil {
-			lease := d.throttle.acquire(domain)
+			var lease domainThrottleLease
+			if d.cfg.MXShaping.Enabled {
+				var wait time.Duration
+				lease, wait = d.throttle.tryLease(ctx, domain)
+				if wait > 0 {
+					remaining = append(remaining, rcpt)
+					until := time.Now().Add(wait)
+					if until.After(deferredUntil) {
+						deferredUntil = until
+					}
+					d.metricInc("worker_shaping_domain_deferred")
+					if lease.backendError {
+						d.metricInc("worker_domain_throttle_backend_error")
+					}
+					continue
+				}
+			} else {
+				lease = d.throttle.acquire(domain)
+			}
 			release = lease.release
 			if lease.waitDuration > 0 {
 				waitMs := lease.waitDuration.Milliseconds()
@@ -146,6 +175,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 						d.metricInc("reputation_complaint_rate_block")
 					}
 					errs = append(errs, errors.New("reputation "+reason))
+					remaining = append(remaining, rcpt)
 					return
 				}
 			}
@@ -155,6 +185,16 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				return
 			}
 			if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
+				var deferred *shaping.DeferredError
+				if errors.As(err, &deferred) {
+					remaining = append(remaining, rcpt)
+					until := time.Now().Add(deferred.Delay)
+					if until.After(deferredUntil) {
+						deferredUntil = until
+					}
+					d.metricInc("worker_shaping_deferred")
+					return
+				}
 				reasons = append(reasons, rcpt+": "+err.Error())
 				var smtpErr *delivery.SMTPResponseError
 				smtpCode := 0
@@ -211,6 +251,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					}
 				}
 				errs = append(errs, err)
+				remaining = append(remaining, rcpt)
 			} else {
 				if d.rep != nil {
 					d.rep.ObserveDelivery(domain, false, false)
@@ -230,6 +271,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		}()
 	}
 
+	if len(errs) == 0 && !deferredUntil.IsZero() {
+		msg.RcptTo = remaining
+		span.SetAttributes(attribute.String("worker.result", "deferred"))
+		if err := d.queue.Defer(msg, time.Until(deferredUntil)); err != nil {
+			slog.ErrorContext(ctx, "shaping reschedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
+		}
+		return
+	}
 	if len(errs) == 0 {
 		span.SetAttributes(attribute.String("worker.result", "sent"))
 		span.AddEvent("worker.ack_sent")
@@ -240,6 +289,9 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 
+	if d.cfg.MXShaping.Enabled {
+		msg.RcptTo = remaining
+	}
 	reason := strings.Join(reasons, "; ")
 	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
 		if joined := errors.Join(errs...); joined != nil {
@@ -254,7 +306,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		d.metricInc("worker_mark_failed")
 		return
 	}
-	delay := backoff(msg.Attempts, d.cfg.RetrySchedule)
+	delay := max(backoff(msg.Attempts, d.cfg.RetrySchedule), time.Until(deferredUntil))
 	if joined := errors.Join(errs...); joined != nil {
 		span.RecordError(joined)
 	}

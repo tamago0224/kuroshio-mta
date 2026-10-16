@@ -2,13 +2,13 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -27,16 +27,21 @@ local now = tonumber(ARGV[1])
 local ttl_ms = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 local token = ARGV[4]
+local penalty_ms = tonumber(ARGV[5] or "0")
+local gate = redis.call("ZSCORE", key, "__penalty_gate")
+if penalty_ms > 0 and gate and tonumber(gate) > now then return 0 end
 
 redis.call("ZREMRANGEBYSCORE", key, "-inf", now)
 local count = redis.call("ZCARD", key)
+if redis.call("ZSCORE", key, "__penalty_gate") then count = count - 1 end
 if count >= limit then
   redis.call("PEXPIRE", key, ttl_ms)
   return 0
 end
 
 redis.call("ZADD", key, now + ttl_ms, token)
-redis.call("PEXPIRE", key, ttl_ms)
+if penalty_ms > 0 then redis.call("ZADD", key, now + penalty_ms, "__penalty_gate") end
+redis.call("PEXPIRE", key, math.max(ttl_ms, penalty_ms))
 return 1
 `)
 
@@ -100,7 +105,6 @@ type redisDomainThrottle struct {
 	adaptive   bool
 	threshold  float64
 	maxPenalty time.Duration
-	seq        atomic.Uint64
 	penalty    *localDomainThrottle
 }
 
@@ -203,14 +207,22 @@ func (d *redisDomainThrottle) observe(domain string, temporaryFailure bool) bool
 }
 
 func (d *redisDomainThrottle) tryAcquire(domain string, limit int) (string, error) {
+	return d.tryAcquireContext(context.Background(), domain, limit, 0)
+}
+
+func (d *redisDomainThrottle) tryAcquireContext(parent context.Context, domain string, limit int, penalty time.Duration) (string, error) {
 	nowMs := time.Now().UTC().UnixMilli()
 	ttlMs := d.leaseTTL.Milliseconds()
 	if ttlMs <= 0 {
 		ttlMs = 1
 	}
-	token := fmt.Sprintf("%d-%d", nowMs, d.seq.Add(1))
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	token := fmt.Sprintf("%x", random)
 
-	ctx, cancel := context.WithTimeout(context.Background(), redisDomainThrottleTimeout)
+	ctx, cancel := context.WithTimeout(parent, redisDomainThrottleTimeout)
 	defer cancel()
 	result, err := redisDomainThrottleAcquireScript.Run(
 		ctx,
@@ -220,6 +232,7 @@ func (d *redisDomainThrottle) tryAcquire(domain string, limit int) (string, erro
 		strconv.FormatInt(ttlMs, 10),
 		strconv.Itoa(limit),
 		token,
+		strconv.FormatInt(penalty.Milliseconds(), 10),
 	).Int()
 	if err != nil {
 		return "", err
@@ -305,4 +318,26 @@ func normalizeRedisAddrs(addrs []string) []string {
 func hashDomainThrottleString(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func (d *redisDomainThrottle) tryLease(ctx context.Context, domain string) (domainThrottleLease, time.Duration) {
+	if ctx.Err() != nil {
+		return domainThrottleLease{}, time.Second
+	}
+	penalty := d.currentPenalty(domain)
+	limit := d.defLimit
+	if v := d.rules[domain]; v > 0 {
+		limit = v
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	token, err := d.tryAcquireContext(ctx, domain, limit, penalty)
+	if err != nil {
+		return domainThrottleLease{backendError: true}, time.Second
+	}
+	if token == "" {
+		return domainThrottleLease{}, 100 * time.Millisecond
+	}
+	return domainThrottleLease{release: func() { _ = d.release(domain, token) }}, 0
 }

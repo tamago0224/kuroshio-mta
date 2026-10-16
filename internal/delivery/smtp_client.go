@@ -19,6 +19,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"github.com/tamago0224/kuroshio-mta/internal/router"
+	"github.com/tamago0224/kuroshio-mta/internal/shaping"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -43,6 +44,8 @@ func (f spoolBackendFunc) Store(ctx context.Context, msg *model.Message, rcpt st
 var deliveryTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery")
 
 type Client struct {
+	shaper                         *shaping.Shaper
+	shapingErr                     error
 	cfg                            config.Config
 	dane                           *DANEResolver
 	mtaSTS                         *MTASTSResolver
@@ -76,6 +79,7 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 			c.arcSigner = &validatedARCSigner{signer: arcSigner}
 		}
 	}
+	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
 	c.deliverHostFn = c.deliverHost
 	c.spoolStore, c.spoolStoreErr = c.newSpoolBackend()
 	c.reportMTASTSTestingViolationFn = func(ctx context.Context, domain, host, reason string) {
@@ -88,7 +92,23 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 	return c
 }
 
+func (c *Client) InitError() error { return c.shapingErr }
+func (c *Client) Close() error     { return c.shaper.Close() }
+
+type shapingContextKey struct{}
+type shapingAttempt struct {
+	key             string
+	limits          config.ShapingLimits
+	messageReserved bool
+}
+
 func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) error {
+	if c.shapingErr != nil {
+		return c.shapingErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	rcptDomain, _ := util.DomainOf(rcpt)
 	mode := strings.ToLower(strings.TrimSpace(c.cfg.DeliveryMode))
 	if mode == "" {
@@ -132,6 +152,10 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		port := c.cfg.RelayPort
 		if port <= 0 {
 			port = 25
+		}
+		if c.shaper != nil {
+			key, limits := c.shaper.Group(rcptDomain, []router.MXHost{{Host: c.cfg.RelayHost}})
+			ctx = context.WithValue(ctx, shapingContextKey{}, &shapingAttempt{key: key, limits: limits})
 		}
 		err = c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
 	default:
@@ -202,7 +226,13 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	_, lookupSpan := deliveryTracer.Start(ctx, "delivery.lookup_mx", trace.WithAttributes(
 		attribute.String("mail.rcpt_domain", domain),
 	))
-	mxHosts, err := c.resolveMXFn(domain, c.cfg.DialTimeout)
+	var mxHosts []router.MXHost
+	var err error
+	if c.shaper != nil {
+		mxHosts, err = c.shaper.Lookup(ctx, domain, c.resolveMXFn, c.cfg.DialTimeout)
+	} else {
+		mxHosts, err = c.resolveMXFn(domain, c.cfg.DialTimeout)
+	}
 	if err == nil {
 		lookupSpan.SetAttributes(attribute.Int("delivery.mx_count", len(mxHosts)))
 	}
@@ -213,6 +243,10 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	lookupSpan.End()
 	if err != nil {
 		return fmt.Errorf("mx lookup failed: %w", atStage(StageDNS, err))
+	}
+	if c.shaper != nil {
+		key, limits := c.shaper.Group(domain, mxHosts)
+		ctx = context.WithValue(ctx, shapingContextKey{}, &shapingAttempt{key: key, limits: limits})
 	}
 	requireTLS := false
 	daneActive := false
@@ -286,6 +320,15 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		if err == nil {
 			return nil
 		} else {
+			var deferred *shaping.DeferredError
+			if errors.As(err, &deferred) {
+				// A real earlier host failure still consumes an attempt; a pure
+				// shaping wait does not. Preserve that failure instead of hiding it.
+				if lastErr != nil {
+					return lastErr
+				}
+				return err
+			}
 			lastErr = err
 		}
 	}
@@ -330,6 +373,18 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 
 	if port <= 0 {
 		port = 25
+	}
+	if c.shaper != nil {
+		attempt, ok := ctx.Value(shapingContextKey{}).(*shapingAttempt)
+		if !ok {
+			return errors.New("MX shaping context missing")
+		}
+		release, err := c.shaper.Acquire(ctx, attempt.key, attempt.limits, !attempt.messageReserved)
+		if err != nil {
+			return err
+		}
+		attempt.messageReserved = true
+		defer release()
 	}
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))

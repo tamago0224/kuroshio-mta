@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 type domainThrottle interface {
 	acquire(domain string) domainThrottleLease
 	observe(domain string, temporaryFailure bool) bool
+	tryLease(context.Context, string) (domainThrottleLease, time.Duration)
 }
 
 type domainThrottleLease struct {
@@ -28,10 +30,11 @@ type localDomainThrottle struct {
 }
 
 type domainState struct {
-	sem      chan struct{}
-	penalty  time.Duration
-	samples  int
-	tempFail int
+	nextAllowed time.Time
+	sem         chan struct{}
+	penalty     time.Duration
+	samples     int
+	tempFail    int
 }
 
 func newLocalDomainThrottle(defLimit int, rules map[string]int, adaptive bool, threshold float64, maxPenalty time.Duration) *localDomainThrottle {
@@ -151,4 +154,25 @@ func parseDomainRules(raw string) map[string]int {
 		}
 	}
 	return out
+}
+
+// tryLease preserves domain limits without blocking shaping-enabled workers.
+func (d *localDomainThrottle) tryLease(ctx context.Context, domain string) (domainThrottleLease, time.Duration) {
+	if ctx.Err() != nil {
+		return domainThrottleLease{}, time.Second
+	}
+	st := d.get(strings.ToLower(strings.TrimSpace(domain)))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := time.Now()
+	if st.nextAllowed.After(now) {
+		return domainThrottleLease{}, time.Until(st.nextAllowed)
+	}
+	select {
+	case st.sem <- struct{}{}:
+		st.nextAllowed = now.Add(st.penalty)
+		return domainThrottleLease{release: func() { <-st.sem }}, 0
+	default:
+		return domainThrottleLease{}, 100 * time.Millisecond
+	}
 }

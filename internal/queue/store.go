@@ -219,6 +219,28 @@ func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) er
 	return s.removePendingExcept(msg.ID, s.retry)
 }
 
+func (s *Store) Defer(msg *model.Message, delay time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
+	st, err := s.messageState(msg.ID)
+	if err != nil {
+		return err
+	}
+	switch st {
+	case "sent", "dlq":
+		return ErrInvalidStateTransition
+	case "none":
+		return ErrMessageNotFound
+	}
+	msg.UpdatedAt = time.Now().UTC()
+	msg.NextAttempt = msg.UpdatedAt.Add(delay)
+	if err := s.write(filepath.Join(s.retry, msg.ID+".json"), msg); err != nil {
+		return err
+	}
+	return s.removePendingExcept(msg.ID, s.retry)
+}
+
 func (s *Store) Fail(msg *model.Message, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
