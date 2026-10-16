@@ -9,6 +9,11 @@ import (
 )
 
 type yamlConfig struct {
+	QueueMaxMessages         *int64 `yaml:"queue_max_messages"`
+	QueueMaxBytes            *int64 `yaml:"queue_max_bytes"`
+	QueueLowWatermarkPercent *int64 `yaml:"queue_low_watermark_percent"`
+	QueueMinFreeBytes        *int64 `yaml:"queue_min_free_bytes"`
+
 	ListenAddr                       *string `yaml:"listen_addr"`
 	SubmissionAddr                   *string `yaml:"submission_addr"`
 	SubmissionAuth                   *bool   `yaml:"submission_auth_required"`
@@ -123,6 +128,19 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 
 	cfg := base
+	if raw.QueueMaxMessages != nil {
+		cfg.QueueMaxMessages = *raw.QueueMaxMessages
+	}
+	if raw.QueueMaxBytes != nil {
+		cfg.QueueMaxBytes = *raw.QueueMaxBytes
+	}
+	if raw.QueueLowWatermarkPercent != nil {
+		cfg.QueueLowWatermarkPercent = *raw.QueueLowWatermarkPercent
+	}
+	if raw.QueueMinFreeBytes != nil {
+		cfg.QueueMinFreeBytes = *raw.QueueMinFreeBytes
+	}
+
 	if raw.ListenAddr != nil {
 		cfg.ListenAddr = *raw.ListenAddr
 	}

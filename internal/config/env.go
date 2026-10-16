@@ -9,6 +9,11 @@ import (
 
 // applyEnvConfig overlays environment values on the defaults and YAML configuration.
 func applyEnvConfig(cfg Config) Config {
+	cfg.QueueMaxMessages = envInt64("MTA_QUEUE_MAX_MESSAGES", cfg.QueueMaxMessages)
+	cfg.QueueMaxBytes = envInt64("MTA_QUEUE_MAX_BYTES", cfg.QueueMaxBytes)
+	cfg.QueueLowWatermarkPercent = envInt64("MTA_QUEUE_LOW_WATERMARK_PERCENT", cfg.QueueLowWatermarkPercent)
+	cfg.QueueMinFreeBytes = envInt64("MTA_QUEUE_MIN_FREE_BYTES", cfg.QueueMinFreeBytes)
+
 	cfg.ListenAddr = env("MTA_LISTEN_ADDR", cfg.ListenAddr)
 	cfg.SubmissionAddr = env("MTA_SUBMISSION_ADDR", cfg.SubmissionAddr)
 	cfg.SubmissionAuth = envBool("MTA_SUBMISSION_AUTH_REQUIRED", cfg.SubmissionAuth)

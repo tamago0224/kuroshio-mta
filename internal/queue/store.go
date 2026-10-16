@@ -8,12 +8,21 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
 )
 
 type Store struct {
+	ownerLock *os.File
+	mu        sync.Mutex
+	limits    CapacityLimits
+	paused    bool
+	metrics   *observability.Metrics
+	freeBytes func(string) (uint64, error)
+
 	root          string
 	inbound       string
 	retry         string
@@ -47,6 +56,9 @@ func New(root string) (*Store, error) {
 }
 
 func (s *Store) Enqueue(msg *model.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	if strings.TrimSpace(msg.ID) == "" {
 		return errors.New("message id is required")
 	}
@@ -62,10 +74,16 @@ func (s *Store) Enqueue(msg *model.Message) error {
 	msg.CreatedAt = now
 	msg.UpdatedAt = now
 	msg.NextAttempt = now
+	if err := s.admit(msg); err != nil {
+		return err
+	}
 	return s.write(filepath.Join(s.inbound, msg.ID+".json"), msg)
 }
 
 func (s *Store) Due(limit int) ([]*model.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	var out []*model.Message
 	for _, dir := range []string{s.inbound, s.retry, s.legacyPending} {
 		msgs, err := s.dueFromDir(dir)
@@ -84,6 +102,9 @@ func (s *Store) Due(limit int) ([]*model.Message, error) {
 }
 
 func (s *Store) ListState(state string, limit int) ([]*model.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	dir, err := s.dirForState(state)
 	if err != nil {
 		return nil, err
@@ -116,6 +137,9 @@ func (s *Store) ListState(state string, limit int) ([]*model.Message, error) {
 }
 
 func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	dir, err := s.dirForState(state)
 	if err != nil {
 		return nil, err
@@ -128,18 +152,30 @@ func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Messag
 		}
 		return nil, err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
 	msg.UpdatedAt = now.UTC()
 	msg.NextAttempt = now.UTC()
-	if err := s.write(filepath.Join(s.inbound, id+".json"), msg); err != nil {
+	if dir == s.sent || dir == s.dlq {
+		if err := s.admit(msg); err != nil {
+			return nil, err
+		}
+	}
+	target := filepath.Join(s.inbound, id+".json")
+	if err := s.write(target, msg); err != nil {
 		return nil, err
 	}
+	if path != target {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+
 	return msg, nil
 }
 
 func (s *Store) AckSent(id string, msg *model.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	st, err := s.messageState(id)
 	if err != nil {
 		return err
@@ -152,14 +188,17 @@ func (s *Store) AckSent(id string, msg *model.Message) error {
 	case "none":
 		return ErrMessageNotFound
 	}
-	if err := s.removeByID(id); err != nil {
+	msg.UpdatedAt = time.Now().UTC()
+	if err := s.write(filepath.Join(s.sent, id+".json"), msg); err != nil {
 		return err
 	}
-	msg.UpdatedAt = time.Now().UTC()
-	return s.write(filepath.Join(s.sent, id+".json"), msg)
+	return s.removePendingExcept(id, s.sent)
 }
 
 func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	st, err := s.messageState(msg.ID)
 	if err != nil {
 		return err
@@ -170,17 +209,20 @@ func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) er
 	case "none":
 		return ErrMessageNotFound
 	}
-	if err := s.removeByID(msg.ID); err != nil {
-		return err
-	}
 	msg.Attempts++
 	msg.LastError = reason
 	msg.UpdatedAt = time.Now().UTC()
 	msg.NextAttempt = msg.UpdatedAt.Add(delay)
-	return s.write(filepath.Join(s.retry, msg.ID+".json"), msg)
+	if err := s.write(filepath.Join(s.retry, msg.ID+".json"), msg); err != nil {
+		return err
+	}
+	return s.removePendingExcept(msg.ID, s.retry)
 }
 
 func (s *Store) Fail(msg *model.Message, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.refreshCapacityMetrics()
 	st, err := s.messageState(msg.ID)
 	if err != nil {
 		return err
@@ -193,13 +235,13 @@ func (s *Store) Fail(msg *model.Message, reason string) error {
 	case "none":
 		return ErrMessageNotFound
 	}
-	if err := s.removeByID(msg.ID); err != nil {
-		return err
-	}
 	msg.Attempts++
 	msg.LastError = reason
 	msg.UpdatedAt = time.Now().UTC()
-	return s.write(filepath.Join(s.dlq, msg.ID+".json"), msg)
+	if err := s.write(filepath.Join(s.dlq, msg.ID+".json"), msg); err != nil {
+		return err
+	}
+	return s.removePendingExcept(msg.ID, s.dlq)
 }
 
 func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
@@ -230,8 +272,11 @@ func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
 	return out, nil
 }
 
-func (s *Store) removeByID(id string) error {
+func (s *Store) removePendingExcept(id, except string) error {
 	for _, dir := range []string{s.inbound, s.retry, s.legacyPending} {
+		if dir == except {
+			continue
+		}
 		if err := os.Remove(filepath.Join(dir, id+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -240,11 +285,19 @@ func (s *Store) removeByID(id string) error {
 }
 
 func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ownerLock != nil {
+		err := s.ownerLock.Close()
+		s.ownerLock = nil
+		return err
+	}
 	return nil
 }
 
 func (s *Store) write(path string, msg *model.Message) error {
 	tmp := path + ".tmp"
+	defer os.Remove(tmp)
 	b, err := json.MarshalIndent(msg, "", "  ")
 	if err != nil {
 		return err

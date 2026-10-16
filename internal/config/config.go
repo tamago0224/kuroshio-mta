@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -36,6 +38,10 @@ type Config struct {
 	Hostname                     string
 	QueueDir                     string
 	QueueBackend                 string
+	QueueMaxMessages             int64
+	QueueMaxBytes                int64
+	QueueLowWatermarkPercent     int64
+	QueueMinFreeBytes            int64
 	KafkaBrokers                 []string
 	KafkaConsumerGroup           string
 	KafkaTopicInbound            string
@@ -126,5 +132,13 @@ func LoadWithPath(explicitPath string) (Config, error) {
 		return Config{}, fmt.Errorf("config file %q not found", requestedPath)
 	}
 
+	// A malformed admission limit must not silently disable capacity protection.
+	for _, key := range []string{"MTA_QUEUE_MAX_MESSAGES", "MTA_QUEUE_MAX_BYTES", "MTA_QUEUE_LOW_WATERMARK_PERCENT", "MTA_QUEUE_MIN_FREE_BYTES"} {
+		if value := os.Getenv(key); value != "" {
+			if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+				return Config{}, fmt.Errorf("invalid integer for %s", key)
+			}
+		}
+	}
 	return applyEnvConfig(cfg), nil
 }

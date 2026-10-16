@@ -107,3 +107,12 @@ submission_bearer_issuer: ""
 submission_bearer_audience: ""
 submission_bearer_username_claim: sub
 submission_bearer_required_scope: smtp.send
+
+# Local queue admission quotas (0 disables each limit; Kafka rejects enabled quotas).
+queue_max_messages: 0
+# Pending message Data bytes, including injected headers; excludes JSON overhead.
+queue_max_bytes: 0
+# Resume below this percentage of each enabled quota (0 uses 80%).
+queue_low_watermark_percent: 80
+# Keep this many filesystem bytes available after the incoming JSON write.
+queue_min_free_bytes: 0

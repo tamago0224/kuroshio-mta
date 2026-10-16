@@ -211,3 +211,20 @@ XOAUTH2 は TLS 後の EHLO でのみ広告され、TLS 前の AUTH は 538 で�
 static / sqlite の既存の送信者ポリシーは維持します。
 
 詳細は [Submission Auth Runbook](runbooks/submission_auth.md) を参照してください。
+
+## キュー容量とバックプレッシャー
+
+| YAML property | 環境変数 | default | 説明 |
+| --- | --- | --- | --- |
+| `queue_max_messages` | `MTA_QUEUE_MAX_MESSAGES` | `0` | 未配送件数の上限。0 は無効 |
+| `queue_max_bytes` | `MTA_QUEUE_MAX_BYTES` | `0` | 未配送メッセージの `Data` バイト数の合計上限。0 は無効 |
+| `queue_low_watermark_percent` | `MTA_QUEUE_LOW_WATERMARK_PERCENT` | `0` | 拒否後に再開する使用率。0 は80%、設定範囲は1〜99 |
+| `queue_min_free_bytes` | `MTA_QUEUE_MIN_FREE_BYTES` | `0` | 受信 JSON の保存後にも残す空き容量。0 は無効 |
+
+容量制限は `local` backend 専用です。有効化するとディレクトリの排他ロックを取得し、
+保存直前の計測から保存完了までを直列化します。超過時は DATA の最終応答を `451` とし、
+250 を返したメールを容量都合で削除しません。低水位以下に戻った後の次の投入で再開します。
+`Data` は追加済みヘッダを含み、JSON の base64・メタデータ・一時ファイルはバイト上限に含みません。
+ディスク保護には `queue_min_free_bytes` を併用してください。
+
+保証範囲、Kafka での制約、監視・復旧方法は [Queue Backlog runbook](./runbooks/slo_backlog.md) を参照してください。
