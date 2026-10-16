@@ -12,7 +12,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,19 +141,9 @@ type session struct {
 	authOK   bool
 }
 
-type mailFromArgs struct {
-	Address string
-	Size    int64
-	HasSize bool
-	Body    string
-}
-
 var (
-	errMailParamUnsupported = errors.New("unsupported MAIL parameter")
-	errSMTPUTF8Param        = errors.New("unsupported SMTPUTF8 parameter")
-	errSMTPUTF8Address      = errors.New("smtputf8 address is not supported")
-	errDataLineTooLong      = errors.New("data line too long")
-	errMessageTooLarge      = errors.New("message too large")
+	errDataLineTooLong = errors.New("data line too long")
+	errMessageTooLarge = errors.New("message too large")
 
 	evaluateAuthWithPolicy = mailauth.EvaluateWithPolicy
 	smtpTracer             = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/smtp")
@@ -303,135 +292,24 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			writeResp(w, 250, s.cfg.Hostname)
 		case "MAIL":
 			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.mail")
-			if !ss.seenHelo {
-				cmdSpan.setResponse(503, "send EHLO/HELO first")
-				cmdSpan.end()
-				writeResp(w, 503, "send EHLO/HELO first")
-				continue
+			if s.handleMailCommand(
+				ctx,
+				ss,
+				remoteIP,
+				w,
+				arg,
+				cmdSpan,
+			) {
+				return
 			}
-			if s.submission && s.cfg.SubmissionAuth && !ss.authOK {
-				cmdSpan.reject("auth_required", 530, "authentication required")
-				cmdSpan.end()
-				writeResp(w, 530, "authentication required")
-				continue
-			}
-			mailArgs, err := parseMailFrom(arg)
-			if err != nil {
-				cmdSpan.recordError(err)
-				if errors.Is(err, errSMTPUTF8Address) {
-					cmdSpan.reject("smtputf8_address", 553, err.Error())
-					cmdSpan.end()
-					writeResp(w, 553, err.Error())
-					continue
-				}
-				if errors.Is(err, errSMTPUTF8Param) {
-					cmdSpan.reject("smtputf8_parameter", 555, err.Error())
-					cmdSpan.end()
-					writeResp(w, 555, err.Error())
-					continue
-				}
-				if errors.Is(err, errMailParamUnsupported) {
-					cmdSpan.reject("unsupported_parameter", 555, err.Error())
-					cmdSpan.end()
-					writeResp(w, 555, err.Error())
-					continue
-				}
-				cmdSpan.setResponse(501, err.Error())
-				cmdSpan.end()
-				writeResp(w, 501, err.Error())
-				continue
-			}
-			cmdSpan.SetAttributes(
-				attribute.String("smtp.mail_from", logging.MaskEmail(mailArgs.Address)),
-				attribute.Bool("smtp.mail.has_size", mailArgs.HasSize),
-				attribute.String("smtp.mail.body_mode", mailArgs.Body),
-			)
-			if mailArgs.HasSize {
-				cmdSpan.SetAttributes(attribute.Int64("smtp.mail.size", mailArgs.Size))
-			}
-			if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "") {
-				cmdSpan.reject("mail_params_require_ehlo", 555, "MAIL parameters require EHLO")
-				cmdSpan.end()
-				writeResp(w, 555, "MAIL parameters require EHLO")
-				continue
-			}
-			if mailArgs.HasSize && mailArgs.Size > s.cfg.MaxMessageBytes {
-				cmdSpan.reject("message_too_large", 552, "message size exceeds fixed maximum message size")
-				cmdSpan.end()
-				writeResp(w, 552, "message size exceeds fixed maximum message size")
-				continue
-			}
-			if s.submission && s.cfg.SubmissionSenderID && ss.authOK && !senderAllowedForAuth(ss.auth, mailArgs.Address) {
-				scopeMode := submissionSenderScopeMode(ss.auth)
-				cmdSpan.SetAttributes(
-					attribute.String("smtp.auth.backend", ss.auth.AuthSource),
-					attribute.String("smtp.auth.sender_scope_mode", scopeMode),
-					attribute.Int("smtp.auth.allowed_sender_domain_count", len(ss.auth.AllowedSenderDomains)),
-					attribute.Int("smtp.auth.allowed_sender_address_count", len(ss.auth.AllowedSenderAddresses)),
-				)
-				slog.WarnContext(ctx, "submission sender identity rejected", "component", "smtp", "reason", "sender_scope_mismatch", "auth_backend", ss.auth.AuthSource, "auth_user", logging.MaskEmail(ss.auth.Username), "mail_from", logging.MaskEmail(mailArgs.Address), "sender_scope_mode", scopeMode)
-				cmdSpan.reject("sender_not_allowed_for_auth", 553, "sender address rejected for authenticated identity")
-				cmdSpan.end()
-				writeResp(w, 553, "sender address rejected for authenticated identity")
-				continue
-			}
-			if remoteIP != nil && s.flexLimiter != nil {
-				allowed, err := s.flexLimiter.Allow("mailfrom", remoteIP.String(), ss.helo, mailArgs.Address, time.Now().UTC())
-				if err != nil {
-					cmdSpan.recordError(err)
-					slog.WarnContext(ctx, "rate limit store error", "component", "smtp", "error", err, "remote_ip", remoteIP.String(), "event", "mailfrom", "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
-				} else if !allowed {
-					cmdSpan.reject("rate_rule_mailfrom", 421, "rate limit exceeded, try again later")
-					cmdSpan.end()
-					s.metricInc("smtp_reject_rate_limit")
-					slog.WarnContext(ctx, "ingress rejected", "component", "smtp", "reason", "rate_rule_mailfrom", "remote_ip", remoteIP.String(), "helo", ss.helo, "mail_from", logging.MaskEmail(mailArgs.Address))
-					writeResp(w, 421, "rate limit exceeded, try again later")
-					return
-				}
-			}
-			ss.mailFrom = mailArgs.Address
-			ss.bodyMode = mailArgs.Body
-			if ss.bodyMode == "" {
-				ss.bodyMode = "7BIT"
-			}
-			ss.rcptTo = nil
-			ss.data = nil
-			cmdSpan.setResponse(250, "sender ok")
-			cmdSpan.end()
-			writeResp(w, 250, "sender ok")
 		case "RCPT":
 			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.rcpt")
-			if ss.mailFrom == "" {
-				cmdSpan.setResponse(503, "send MAIL FROM first")
-				cmdSpan.end()
-				writeResp(w, 503, "send MAIL FROM first")
-				continue
-			}
-			addr, err := parseRcptTo(arg, s.cfg.Hostname)
-			if err != nil {
-				cmdSpan.recordError(err)
-				if errors.Is(err, errSMTPUTF8Address) {
-					cmdSpan.reject("smtputf8_address", 553, err.Error())
-					cmdSpan.end()
-					writeResp(w, 553, err.Error())
-					continue
-				}
-				if strings.Contains(strings.ToLower(err.Error()), "parameters") {
-					cmdSpan.reject("unsupported_parameters", 555, err.Error())
-					cmdSpan.end()
-					writeResp(w, 555, err.Error())
-				} else {
-					cmdSpan.setResponse(501, err.Error())
-					cmdSpan.end()
-					writeResp(w, 501, err.Error())
-				}
-				continue
-			}
-			cmdSpan.SetAttributes(attribute.String("smtp.rcpt_to", logging.MaskEmail(addr)))
-			ss.rcptTo = append(ss.rcptTo, addr)
-			cmdSpan.setResponse(250, "recipient ok")
-			cmdSpan.end()
-			writeResp(w, 250, "recipient ok")
+			s.handleRcptCommand(
+				ss,
+				w,
+				arg,
+				cmdSpan,
+			)
 		case "DATA":
 			_, cmdSpan := startSMTPCommandSpan(
 				sessionCtx,
@@ -756,83 +634,6 @@ func splitVerb(line string) (string, string) {
 	return verb, strings.TrimSpace(parts[1])
 }
 
-func parseMailFrom(arg string) (mailFromArgs, error) {
-	if !strings.HasPrefix(strings.ToUpper(arg), "FROM:") {
-		return mailFromArgs{}, errors.New("MAIL must be MAIL FROM:<addr>")
-	}
-	path, params, err := splitPathAndParams(strings.TrimSpace(arg[5:]))
-	if err != nil {
-		return mailFromArgs{}, err
-	}
-	addr, err := util.NormalizePath(path)
-	if err != nil {
-		return mailFromArgs{}, err
-	}
-	if addr != "" && !isASCII(addr) {
-		return mailFromArgs{}, errSMTPUTF8Address
-	}
-	out := mailFromArgs{Address: addr}
-	for _, p := range params {
-		if strings.EqualFold(strings.TrimSpace(p), "SMTPUTF8") {
-			return mailFromArgs{}, fmt.Errorf("%w: SMTPUTF8", errSMTPUTF8Param)
-		}
-		key, val, ok := splitParamKV(p)
-		if !ok {
-			return mailFromArgs{}, fmt.Errorf("invalid MAIL parameter: %s", p)
-		}
-		switch key {
-		case "SIZE":
-			n, pErr := strconv.ParseInt(val, 10, 64)
-			if pErr != nil || n < 0 {
-				return mailFromArgs{}, errors.New("invalid SIZE parameter")
-			}
-			out.HasSize = true
-			out.Size = n
-		case "BODY":
-			v := strings.ToUpper(val)
-			if v != "7BIT" && v != "8BITMIME" {
-				return mailFromArgs{}, errors.New("invalid BODY parameter")
-			}
-			out.Body = v
-		default:
-			return mailFromArgs{}, fmt.Errorf("%w: %s", errMailParamUnsupported, key)
-		}
-	}
-	return out, nil
-}
-
-func parseRcptTo(arg string, hostname string) (string, error) {
-	if !strings.HasPrefix(strings.ToUpper(arg), "TO:") {
-		return "", errors.New("RCPT must be RCPT TO:<addr>")
-	}
-	path, params, err := splitPathAndParams(strings.TrimSpace(arg[3:]))
-	if err != nil {
-		return "", err
-	}
-	if len(params) > 0 {
-		return "", errors.New("RCPT parameters are not supported")
-	}
-	unwrapped := unwrapPath(path)
-	if strings.EqualFold(unwrapped, "postmaster") {
-		host := strings.ToLower(strings.TrimSpace(hostname))
-		if host == "" {
-			host = "localhost"
-		}
-		return "postmaster@" + host, nil
-	}
-	addr, err := util.NormalizePath(path)
-	if err != nil {
-		return "", err
-	}
-	if addr == "" {
-		return "", errors.New("recipient is empty")
-	}
-	if !isASCII(addr) {
-		return "", errSMTPUTF8Address
-	}
-	return addr, nil
-}
-
 func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 	var out []byte
 	for {
@@ -910,49 +711,6 @@ func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, 
 	_ = writeLine(w, "250 HELP")
 }
 
-func splitPathAndParams(raw string) (string, []string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil, errors.New("missing path")
-	}
-	if raw[0] == '<' {
-		end := strings.IndexByte(raw, '>')
-		if end < 0 {
-			return "", nil, errors.New("path must be enclosed with <>")
-		}
-		path := strings.TrimSpace(raw[:end+1])
-		rest := strings.TrimSpace(raw[end+1:])
-		if rest == "" {
-			return path, nil, nil
-		}
-		return path, strings.Fields(rest), nil
-	}
-	parts := strings.Fields(raw)
-	if len(parts) == 0 {
-		return "", nil, errors.New("missing path")
-	}
-	if len(parts) == 1 {
-		return parts[0], nil, nil
-	}
-	return parts[0], parts[1:], nil
-}
-
-func splitParamKV(v string) (key, value string, ok bool) {
-	idx := strings.IndexByte(v, '=')
-	if idx <= 0 || idx == len(v)-1 {
-		return "", "", false
-	}
-	return strings.ToUpper(strings.TrimSpace(v[:idx])), strings.TrimSpace(v[idx+1:]), true
-}
-
-func unwrapPath(path string) string {
-	s := strings.TrimSpace(path)
-	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") && len(s) >= 2 {
-		return strings.TrimSpace(s[1 : len(s)-1])
-	}
-	return s
-}
-
 func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
 	if cfg.TLSCertFile == "" && cfg.TLSKeyFile == "" {
 		return nil, nil
@@ -977,15 +735,6 @@ func contains8Bit(data []byte) bool {
 		}
 	}
 	return false
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] > 0x7f {
-			return false
-		}
-	}
-	return true
 }
 
 func buildReceivedHeader(hostname, helo, remote, id string, now time.Time, extended, tlsOn bool) string {
