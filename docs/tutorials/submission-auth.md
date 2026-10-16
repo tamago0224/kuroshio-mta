@@ -145,3 +145,10 @@ rm -rf examples/tutorials/submission-auth/var
 - [Tutorials Home](/tutorials/)
 - [RFC 4954: SMTP AUTH](/rfc_4954_gap)
 - [Submission Auth Runbook](/runbooks/submission_auth)
+
+## XOAUTH2 を試す場合
+
+外部 IdP の access token で認証する場合は、[XOAUTH2 の運用手順](../runbooks/submission_auth.md#xoauth2-と外部-idp) の設定を使います。
+TLS 後の EHLO に `AUTH XOAUTH2` が現れることを確認し、SASL user と IdP のメールボックス claim を一致させます。
+ローカルの static users が空なら XOAUTH2 のみ、users があれば PLAIN / LOGIN も併用できます。
+IdP の発行・同意・refresh token 取得はこのチュートリアルの対象外です。

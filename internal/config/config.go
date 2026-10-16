@@ -11,12 +11,20 @@ import (
 )
 
 type Config struct {
-	ListenAddr                   string
-	SubmissionAddr               string
-	SubmissionAuth               bool
-	SubmissionUsers              string
-	SubmissionAuthBackend        string
-	SubmissionAuthDSN            string
+	ListenAddr                       string
+	SubmissionAddr                   string
+	SubmissionAuth                   bool
+	SubmissionUsers                  string
+	SubmissionAuthBackend            string
+	SubmissionAuthDSN                string
+	SubmissionBearerIntrospectionURL string
+	SubmissionBearerClientID         string
+	SubmissionBearerClientSecret     string
+	SubmissionBearerIssuer           string
+	SubmissionBearerAudience         string
+	SubmissionBearerUsernameClaim    string
+	SubmissionBearerRequiredScope    string
+
 	SubmissionSenderID           bool
 	LogLevel                     string
 	ObservabilityAddr            string
@@ -106,12 +114,20 @@ type Config struct {
 }
 
 type yamlConfig struct {
-	ListenAddr                   *string  `yaml:"listen_addr"`
-	SubmissionAddr               *string  `yaml:"submission_addr"`
-	SubmissionAuth               *bool    `yaml:"submission_auth_required"`
-	SubmissionUsers              *string  `yaml:"submission_users"`
-	SubmissionAuthBackend        *string  `yaml:"submission_auth_backend"`
-	SubmissionAuthDSN            *string  `yaml:"submission_auth_dsn"`
+	ListenAddr                       *string `yaml:"listen_addr"`
+	SubmissionAddr                   *string `yaml:"submission_addr"`
+	SubmissionAuth                   *bool   `yaml:"submission_auth_required"`
+	SubmissionUsers                  *string `yaml:"submission_users"`
+	SubmissionAuthBackend            *string `yaml:"submission_auth_backend"`
+	SubmissionAuthDSN                *string `yaml:"submission_auth_dsn"`
+	SubmissionBearerIntrospectionURL *string `yaml:"submission_bearer_introspection_url"`
+	SubmissionBearerClientID         *string `yaml:"submission_bearer_client_id"`
+	SubmissionBearerClientSecret     *string `yaml:"submission_bearer_client_secret"`
+	SubmissionBearerIssuer           *string `yaml:"submission_bearer_issuer"`
+	SubmissionBearerAudience         *string `yaml:"submission_bearer_audience"`
+	SubmissionBearerUsernameClaim    *string `yaml:"submission_bearer_username_claim"`
+	SubmissionBearerRequiredScope    *string `yaml:"submission_bearer_required_scope"`
+
 	SubmissionSenderID           *bool    `yaml:"submission_enforce_sender_identity"`
 	LogLevel                     *string  `yaml:"log_level"`
 	ObservabilityAddr            *string  `yaml:"observability_addr"`
@@ -224,6 +240,14 @@ func LoadWithPath(explicitPath string) (Config, error) {
 	cfg.SubmissionUsers = envOrFile("MTA_SUBMISSION_USERS", "MTA_SUBMISSION_USERS_FILE", cfg.SubmissionUsers)
 	cfg.SubmissionAuthBackend = envEnum("MTA_SUBMISSION_AUTH_BACKEND", cfg.SubmissionAuthBackend, []string{"static", "sqlite"})
 	cfg.SubmissionAuthDSN = env("MTA_SUBMISSION_AUTH_DSN", cfg.SubmissionAuthDSN)
+	cfg.SubmissionBearerIntrospectionURL = env("MTA_SUBMISSION_BEARER_INTROSPECTION_URL", cfg.SubmissionBearerIntrospectionURL)
+	cfg.SubmissionBearerClientID = env("MTA_SUBMISSION_BEARER_CLIENT_ID", cfg.SubmissionBearerClientID)
+	cfg.SubmissionBearerClientSecret = envOrFile("MTA_SUBMISSION_BEARER_CLIENT_SECRET", "MTA_SUBMISSION_BEARER_CLIENT_SECRET_FILE", cfg.SubmissionBearerClientSecret)
+	cfg.SubmissionBearerIssuer = env("MTA_SUBMISSION_BEARER_ISSUER", cfg.SubmissionBearerIssuer)
+	cfg.SubmissionBearerAudience = env("MTA_SUBMISSION_BEARER_AUDIENCE", cfg.SubmissionBearerAudience)
+	cfg.SubmissionBearerUsernameClaim = env("MTA_SUBMISSION_BEARER_USERNAME_CLAIM", cfg.SubmissionBearerUsernameClaim)
+	cfg.SubmissionBearerRequiredScope = env("MTA_SUBMISSION_BEARER_REQUIRED_SCOPE", cfg.SubmissionBearerRequiredScope)
+
 	cfg.SubmissionSenderID = envBool("MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY", cfg.SubmissionSenderID)
 	cfg.LogLevel = env("MTA_LOG_LEVEL", cfg.LogLevel)
 	cfg.ObservabilityAddr = env("MTA_OBSERVABILITY_ADDR", cfg.ObservabilityAddr)
@@ -316,92 +340,94 @@ func LoadWithPath(explicitPath string) (Config, error) {
 
 func defaultConfig() Config {
 	return Config{
-		ListenAddr:                   ":2525",
-		SubmissionAddr:               "",
-		SubmissionAuth:               true,
-		SubmissionUsers:              "",
-		SubmissionAuthBackend:        "static",
-		SubmissionAuthDSN:            "",
-		SubmissionSenderID:           true,
-		LogLevel:                     "info",
-		ObservabilityAddr:            ":9090",
-		OTELEnabled:                  false,
-		OTELServiceName:              "kuroshio-mta",
-		OTELServiceVersion:           "",
-		OTELExporterOTLPEndpoint:     "",
-		OTELExporterOTLPInsecure:     false,
-		OTELTraceSampleRatio:         1.0,
-		AdminAddr:                    "",
-		AdminTokens:                  "",
-		AdminAuthBackend:             "config",
-		AdminAuthDSN:                 "",
-		Hostname:                     "kuroshio.local",
-		QueueDir:                     "./var/queue",
-		QueueBackend:                 "local",
-		KafkaBrokers:                 []string{"localhost:9092"},
-		KafkaConsumerGroup:           "kuroshio-mta",
-		KafkaTopicInbound:            "mail.inbound",
-		KafkaTopicRetry:              "mail.retry",
-		KafkaTopicDLQ:                "mail.dlq",
-		KafkaTopicSent:               "mail.sent",
-		TLSCertFile:                  "",
-		TLSKeyFile:                   "",
-		IngressRateLimit:             100,
-		RateLimitRules:               "",
-		RateLimitBackend:             "memory",
-		RateLimitRedisAddrs:          []string{"localhost:6379"},
-		RateLimitRedisUsername:       "",
-		RateLimitRedisPassword:       "",
-		RateLimitRedisDB:             0,
-		RateLimitRedisKeyPrefix:      "kuroshio:ratelimit",
-		DNSBLZones:                   []string{},
-		DNSBLCacheTTL:                5 * time.Minute,
-		DANEDNSSECTrustModel:         "ad_required",
-		MTASTSCacheTTL:               time.Hour,
-		MTASTSFetchTimeout:           5 * time.Second,
-		DeliveryMode:                 "mx",
-		SpoolBackend:                 "local",
-		LocalSpoolDir:                "./var/spool",
-		SpoolS3Region:                "us-east-1",
-		SpoolS3UseTLS:                true,
-		RelayHost:                    "",
-		RelayPort:                    25,
-		RelayRequireTLS:              false,
-		MaxMessageBytes:              10 * 1024 * 1024,
-		WorkerCount:                  4,
-		MaxAttempts:                  12,
-		MaxRetryAge:                  5 * 24 * time.Hour,
-		RetrySchedule:                []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
-		ScanInterval:                 5 * time.Second,
-		DialTimeout:                  8 * time.Second,
-		SendTimeout:                  20 * time.Second,
-		DKIMSignDomain:               "",
-		DKIMSignSelector:             "",
-		DKIMPrivateKeyFile:           "",
-		DKIMSignHeaders:              "from:to:subject:date:message-id",
-		ARCFailurePolicy:             "accept",
-		SPFHeloPolicy:                "advisory",
-		SPFMailFromPolicy:            "advisory",
-		DomainMaxConcurrentDefault:   8,
-		DomainMaxConcurrentRules:     "",
-		DomainThrottleBackend:        "memory",
-		DomainThrottleRedisAddrs:     []string{"localhost:6379"},
-		DomainThrottleRedisUsername:  "",
-		DomainThrottleRedisPassword:  "",
-		DomainThrottleRedisDB:        0,
-		DomainThrottleRedisKeyPrefix: "kuroshio:domainthrottle",
-		DomainAdaptiveThrottle:       true,
-		DomainTempFailThreshold:      0.3,
-		DomainPenaltyMax:             5 * time.Second,
-		DataRetentionSent:            30 * 24 * time.Hour,
-		DataRetentionDLQ:             90 * 24 * time.Hour,
-		DataRetentionPoison:          180 * 24 * time.Hour,
-		RetentionSweepInterval:       time.Hour,
-		ReputationStartDate:          "",
-		ReputationWarmupRules:        "0:100,7:1000,14:5000",
-		ReputationBounceThreshold:    0.05,
-		ReputationComplaintThresh:    0.001,
-		ReputationMinSamples:         100,
+		ListenAddr:                    ":2525",
+		SubmissionAddr:                "",
+		SubmissionAuth:                true,
+		SubmissionUsers:               "",
+		SubmissionAuthBackend:         "static",
+		SubmissionAuthDSN:             "",
+		SubmissionBearerUsernameClaim: "sub",
+		SubmissionBearerRequiredScope: "smtp.send",
+		SubmissionSenderID:            true,
+		LogLevel:                      "info",
+		ObservabilityAddr:             ":9090",
+		OTELEnabled:                   false,
+		OTELServiceName:               "kuroshio-mta",
+		OTELServiceVersion:            "",
+		OTELExporterOTLPEndpoint:      "",
+		OTELExporterOTLPInsecure:      false,
+		OTELTraceSampleRatio:          1.0,
+		AdminAddr:                     "",
+		AdminTokens:                   "",
+		AdminAuthBackend:              "config",
+		AdminAuthDSN:                  "",
+		Hostname:                      "kuroshio.local",
+		QueueDir:                      "./var/queue",
+		QueueBackend:                  "local",
+		KafkaBrokers:                  []string{"localhost:9092"},
+		KafkaConsumerGroup:            "kuroshio-mta",
+		KafkaTopicInbound:             "mail.inbound",
+		KafkaTopicRetry:               "mail.retry",
+		KafkaTopicDLQ:                 "mail.dlq",
+		KafkaTopicSent:                "mail.sent",
+		TLSCertFile:                   "",
+		TLSKeyFile:                    "",
+		IngressRateLimit:              100,
+		RateLimitRules:                "",
+		RateLimitBackend:              "memory",
+		RateLimitRedisAddrs:           []string{"localhost:6379"},
+		RateLimitRedisUsername:        "",
+		RateLimitRedisPassword:        "",
+		RateLimitRedisDB:              0,
+		RateLimitRedisKeyPrefix:       "kuroshio:ratelimit",
+		DNSBLZones:                    []string{},
+		DNSBLCacheTTL:                 5 * time.Minute,
+		DANEDNSSECTrustModel:          "ad_required",
+		MTASTSCacheTTL:                time.Hour,
+		MTASTSFetchTimeout:            5 * time.Second,
+		DeliveryMode:                  "mx",
+		SpoolBackend:                  "local",
+		LocalSpoolDir:                 "./var/spool",
+		SpoolS3Region:                 "us-east-1",
+		SpoolS3UseTLS:                 true,
+		RelayHost:                     "",
+		RelayPort:                     25,
+		RelayRequireTLS:               false,
+		MaxMessageBytes:               10 * 1024 * 1024,
+		WorkerCount:                   4,
+		MaxAttempts:                   12,
+		MaxRetryAge:                   5 * 24 * time.Hour,
+		RetrySchedule:                 []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 24 * time.Hour},
+		ScanInterval:                  5 * time.Second,
+		DialTimeout:                   8 * time.Second,
+		SendTimeout:                   20 * time.Second,
+		DKIMSignDomain:                "",
+		DKIMSignSelector:              "",
+		DKIMPrivateKeyFile:            "",
+		DKIMSignHeaders:               "from:to:subject:date:message-id",
+		ARCFailurePolicy:              "accept",
+		SPFHeloPolicy:                 "advisory",
+		SPFMailFromPolicy:             "advisory",
+		DomainMaxConcurrentDefault:    8,
+		DomainMaxConcurrentRules:      "",
+		DomainThrottleBackend:         "memory",
+		DomainThrottleRedisAddrs:      []string{"localhost:6379"},
+		DomainThrottleRedisUsername:   "",
+		DomainThrottleRedisPassword:   "",
+		DomainThrottleRedisDB:         0,
+		DomainThrottleRedisKeyPrefix:  "kuroshio:domainthrottle",
+		DomainAdaptiveThrottle:        true,
+		DomainTempFailThreshold:       0.3,
+		DomainPenaltyMax:              5 * time.Second,
+		DataRetentionSent:             30 * 24 * time.Hour,
+		DataRetentionDLQ:              90 * 24 * time.Hour,
+		DataRetentionPoison:           180 * 24 * time.Hour,
+		RetentionSweepInterval:        time.Hour,
+		ReputationStartDate:           "",
+		ReputationWarmupRules:         "0:100,7:1000,14:5000",
+		ReputationBounceThreshold:     0.05,
+		ReputationComplaintThresh:     0.001,
+		ReputationMinSamples:          100,
 	}
 }
 
@@ -456,6 +482,28 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	if raw.SubmissionAuthDSN != nil {
 		cfg.SubmissionAuthDSN = *raw.SubmissionAuthDSN
 	}
+	if raw.SubmissionBearerIntrospectionURL != nil {
+		cfg.SubmissionBearerIntrospectionURL = *raw.SubmissionBearerIntrospectionURL
+	}
+	if raw.SubmissionBearerClientID != nil {
+		cfg.SubmissionBearerClientID = *raw.SubmissionBearerClientID
+	}
+	if raw.SubmissionBearerClientSecret != nil {
+		cfg.SubmissionBearerClientSecret = *raw.SubmissionBearerClientSecret
+	}
+	if raw.SubmissionBearerIssuer != nil {
+		cfg.SubmissionBearerIssuer = *raw.SubmissionBearerIssuer
+	}
+	if raw.SubmissionBearerAudience != nil {
+		cfg.SubmissionBearerAudience = *raw.SubmissionBearerAudience
+	}
+	if raw.SubmissionBearerUsernameClaim != nil {
+		cfg.SubmissionBearerUsernameClaim = *raw.SubmissionBearerUsernameClaim
+	}
+	if raw.SubmissionBearerRequiredScope != nil {
+		cfg.SubmissionBearerRequiredScope = *raw.SubmissionBearerRequiredScope
+	}
+
 	if raw.SubmissionSenderID != nil {
 		cfg.SubmissionSenderID = *raw.SubmissionSenderID
 	}

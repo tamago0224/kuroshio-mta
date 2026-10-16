@@ -45,6 +45,13 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `submission_addr` | `MTA_SUBMISSION_ADDR` | unset | Submission リスナーの待受アドレスです。設定すると有効になります |
 | `submission_auth_required` | `MTA_SUBMISSION_AUTH_REQUIRED` | `true` | Submission で認証を必須にするかを制御します |
 | `submission_auth_backend` | `MTA_SUBMISSION_AUTH_BACKEND` | `static` | Submission の認証 backend を切り替えます。`static` / `sqlite` を使います |
+| `submission_bearer_introspection_url` | `MTA_SUBMISSION_BEARER_INTROSPECTION_URL` | unset | 設定すると HTTPS の RFC 7662 introspection を使う XOAUTH2 を有効化 |
+| `submission_bearer_client_id` | `MTA_SUBMISSION_BEARER_CLIENT_ID` | unset | introspection 用 client ID（有効時は必須） |
+| `submission_bearer_client_secret` | `MTA_SUBMISSION_BEARER_CLIENT_SECRET` | unset | introspection 用 client secret（有効時は必須）。`MTA_SUBMISSION_BEARER_CLIENT_SECRET_FILE` も利用可能（両方設定時は FILE を優先） |
+| `submission_bearer_issuer` | `MTA_SUBMISSION_BEARER_ISSUER` | unset | 応答の `iss` と一致させる値（有効時は必須） |
+| `submission_bearer_audience` | `MTA_SUBMISSION_BEARER_AUDIENCE` | unset | 応答の `aud` に要求する値（有効時は必須） |
+| `submission_bearer_username_claim` | `MTA_SUBMISSION_BEARER_USERNAME_CLAIM` | `sub` | SASL の user と一致させるメールボックス claim。opaque sub の IdP は `email` 等を指定 |
+| `submission_bearer_required_scope` | `MTA_SUBMISSION_BEARER_REQUIRED_SCOPE` | `smtp.send` | 要求する単一 scope。空指定では既定値を使用 |
 | `submission_enforce_sender_identity` | `MTA_SUBMISSION_ENFORCE_SENDER_IDENTITY` | `true` | 認証ユーザーのドメインと `MAIL FROM` の整合を要求します |
 | `hostname` | `MTA_HOSTNAME` | `kuroshio.local` | SMTP 応答や配送で使うホスト名です |
 | `tls_cert_file` | `MTA_TLS_CERT_FILE` | unset | 受信側 TLS に使う証明書ファイルです |
@@ -185,3 +192,20 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 - 運用 API: [admin_api.md](./runbooks/admin_api.md)
 - SLO runbook: [slo_backlog.md](./runbooks/slo_backlog.md), [slo_delivery.md](./runbooks/slo_delivery.md), [slo_retry.md](./runbooks/slo_retry.md)
 - シークレット運用: [secrets_and_supply_chain.md](./security/secrets_and_supply_chain.md)
+
+### XOAUTH2 の運用条件
+
+`submission_bearer_introspection_url` は管理者が信頼する IdP の HTTPS endpoint に限定します。
+client credentials は HTTP Basic、応答上限は 64 KiB、timeout は 5 秒、redirect は拒否します。
+TLS 証明書はシステム trust store で検証します。private CA は OS trust store で設定してください。
+応答は `active: true`、未来の `exp`、期待する `iss` / `aud` / scope、空でない `sub` と
+認証 user に一致するメールボックス claim を必要とします。`nbf` が未来の場合や、
+`token_type` が存在して Bearer 以外の場合も拒否します。これらは RFC の必須項目より厳しいローカルポリシーです。
+IdP は access token のみをこの endpoint で有効と判定するよう設定してください。
+
+XOAUTH2 は TLS 後の EHLO でのみ広告され、TLS 前の AUTH は 538 で拒否します。
+`submission_auth_backend` のパスワード認証と併用でき、static users が空なら XOAUTH2 のみになります。
+`submission_enforce_sender_identity: true` では Bearer user と同じアドレスだけを MAIL FROM に許可します。
+static / sqlite の既存の送信者ポリシーは維持します。
+
+詳細は [Submission Auth Runbook](runbooks/submission_auth.md) を参照してください。

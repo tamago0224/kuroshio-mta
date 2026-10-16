@@ -248,12 +248,12 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readBoundedSMTPLine(r)
 		if err != nil {
 			sessionErr = err
 			return
 		}
-		if len(line) > 512 {
+		if len(line) > 512 && !(s.submission && strings.HasPrefix(strings.ToUpper(line), "AUTH XOAUTH2 ") && len(line) <= maxAuthLineBytes) {
 			writeResp(w, 500, "command line too long")
 			continue
 		}
@@ -287,7 +287,8 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			ss.bodyMode = "7BIT"
 			ss.rcptTo = nil
 			ss.data = nil
-			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, s.submission)
+			methods := s.authMechanisms(ss.tls)
+			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, len(methods) > 0, methods...)
 		case "HELO":
 			if arg == "" {
 				writeResp(w, 501, "HELO requires domain")
@@ -547,7 +548,10 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			writeResp(w, 250, "reset state")
 		case "AUTH":
 			mech, _ := authMechanism(arg)
-			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.auth", attribute.String("smtp.auth.mechanism", mech))
+			if mech != "PLAIN" && mech != "LOGIN" && mech != "XOAUTH2" {
+				mech = "UNKNOWN"
+			}
+			authCtx, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.auth", attribute.String("smtp.auth.mechanism", mech))
 			if !s.submission {
 				cmdSpan.setResponse(502, "AUTH is not supported")
 				cmdSpan.end()
@@ -566,8 +570,19 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				writeResp(w, 454, "authentication backend unavailable")
 				continue
 			}
-			authRes, err := s.handleAuth(r, w, arg)
+			if mech == "XOAUTH2" && !ss.tls {
+				cmdSpan.setResponse(538, "encryption required for XOAUTH2")
+				cmdSpan.end()
+				writeResp(w, 538, "encryption required for XOAUTH2")
+				continue
+			}
+			authRes, err := s.handleAuth(authCtx, r, w, arg)
 			if err != nil {
+				if errors.Is(err, errSASLFraming) {
+					cmdSpan.recordError(err)
+					cmdSpan.end()
+					return
+				}
 				cmdSpan.recordError(err)
 				cmdSpan.setResponse(501, err.Error())
 				cmdSpan.end()
@@ -940,13 +955,16 @@ func ipString(ip net.IP) string {
 	return ip.String()
 }
 
-func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool) {
+func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool, mechanisms ...string) {
 	_ = writeLine(w, "250-"+hostname)
 	_ = writeLine(w, "250-PIPELINING")
 	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
 	_ = writeLine(w, "250-8BITMIME")
 	if advertiseAuth {
-		_ = writeLine(w, "250-AUTH PLAIN LOGIN")
+		if len(mechanisms) == 0 {
+			mechanisms = []string{"PLAIN", "LOGIN"}
+		}
+		_ = writeLine(w, "250-AUTH "+strings.Join(mechanisms, " "))
 	}
 	if advertiseStartTLS {
 		_ = writeLine(w, "250-STARTTLS")
@@ -1032,13 +1050,24 @@ func isASCII(s string) bool {
 	return true
 }
 
-func (s *Server) handleAuth(r *bufio.Reader, w *bufio.Writer, arg string) (userauth.AuthResult, error) {
+func (s *Server) handleAuth(ctx context.Context, r *bufio.Reader, w *bufio.Writer, arg string) (userauth.AuthResult, error) {
 	if strings.TrimSpace(arg) == "" {
 		return userauth.AuthResult{}, errors.New("AUTH requires mechanism")
 	}
 	parts := strings.Fields(arg)
 	mech := strings.ToUpper(parts[0])
+	supported := false
+	for _, method := range s.authMechanisms(true) {
+		if method == mech {
+			supported = true
+		}
+	}
+	if !supported {
+		return userauth.AuthResult{}, errors.New("unsupported auth mechanism")
+	}
 	switch mech {
+	case "XOAUTH2":
+		return s.handleXOAuth2(ctx, r, w, parts)
 	case "PLAIN":
 		var payload string
 		if len(parts) >= 2 {
@@ -1154,6 +1183,9 @@ func senderAllowedForAuth(principal userauth.Principal, mailFrom string) bool {
 				return true
 			}
 		}
+	}
+	if principal.RequireExplicitSenderScope {
+		return false
 	}
 	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(principal.Username)))
 	if !ok {

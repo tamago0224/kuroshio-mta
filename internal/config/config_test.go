@@ -629,3 +629,42 @@ func TestLoadWithPathMissingFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSubmissionBearerConfig(t *testing.T) {
+	path := t.TempDir() + "/config.yaml"
+	content := `submission_bearer_introspection_url: https://idp.example/introspect
+submission_bearer_client_id: client
+submission_bearer_client_secret: yaml-secret
+submission_bearer_issuer: issuer
+submission_bearer_audience: smtp
+submission_bearer_username_claim: email
+submission_bearer_required_scope: mail.send
+`
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := mustLoadWithPathForTest(t, path)
+	if cfg.SubmissionBearerIntrospectionURL != "https://idp.example/introspect" || cfg.SubmissionBearerClientID != "client" || cfg.SubmissionBearerClientSecret != "yaml-secret" || cfg.SubmissionBearerIssuer != "issuer" || cfg.SubmissionBearerAudience != "smtp" || cfg.SubmissionBearerUsernameClaim != "email" || cfg.SubmissionBearerRequiredScope != "mail.send" {
+		t.Fatal("YAML fields not loaded")
+	}
+	secretPath := t.TempDir() + "/secret"
+	if err := os.WriteFile(secretPath, []byte("file-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MTA_SUBMISSION_BEARER_CLIENT_SECRET_FILE", secretPath)
+	t.Setenv("MTA_SUBMISSION_BEARER_AUDIENCE", "smtp-env")
+	cfg = mustLoadWithPathForTest(t, path)
+	if cfg.SubmissionBearerClientSecret != "file-secret" || cfg.SubmissionBearerAudience != "smtp-env" {
+		t.Fatal("environment override not loaded")
+	}
+	t.Setenv("MTA_SUBMISSION_BEARER_CLIENT_SECRET", "env-secret")
+	cfg = mustLoadWithPathForTest(t, path)
+	if cfg.SubmissionBearerClientSecret != "file-secret" {
+		t.Fatal("secret file precedence")
+	}
+	t.Setenv("MTA_SUBMISSION_BEARER_CLIENT_SECRET_FILE", "")
+	cfg = mustLoadWithPathForTest(t, path)
+	if cfg.SubmissionBearerClientSecret != "env-secret" {
+		t.Fatal("environment secret fallback")
+	}
+}

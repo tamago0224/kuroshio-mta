@@ -96,3 +96,14 @@ reputation_warmup_rules: "0:100,7:1000,14:5000"
 reputation_bounce_threshold: 0.05
 reputation_complaint_threshold: 0.001
 reputation_min_samples: 100
+
+# Optional RFC 7662 access-token validation (enables XOAUTH2 after STARTTLS).
+# Configure TLS certificate/key and a trusted IdP before enabling this URL.
+submission_bearer_introspection_url: ""
+submission_bearer_client_id: ""
+# Prefer MTA_SUBMISSION_BEARER_CLIENT_SECRET_FILE for production secrets.
+submission_bearer_client_secret: ""
+submission_bearer_issuer: ""
+submission_bearer_audience: ""
+submission_bearer_username_claim: sub
+submission_bearer_required_scope: smtp.send

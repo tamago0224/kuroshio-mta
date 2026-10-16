@@ -2,14 +2,14 @@
 
 issue: #197
 
-`kuroshio-mta` の Submission 認証は、現時点では `AUTH PLAIN` / `AUTH LOGIN` を前提にした static / sqlite backend を提供しています。
+`kuroshio-mta` の Submission 認証は static / sqlite の `AUTH PLAIN` / `AUTH LOGIN` と、外部 IdP の introspection を使う `AUTH XOAUTH2` を提供しています。
 このメモでは、そこから将来的に bearer token 系 backend を追加して modern auth へ進めるときの設計方針を整理します。
 
 ## 現在の位置
 
 現在の実装は次の前提です。
 
-- SMTP AUTH mechanism は `PLAIN` / `LOGIN`
+- SMTP AUTH mechanism は `PLAIN` / `LOGIN` / `XOAUTH2`（XOAUTH2 は TLS 後のみ）
 - `submission_auth_backend` で `static` / `sqlite` を切り替える
 - `static` は `submission_users` または `MTA_SUBMISSION_USERS(_FILE)` から認証情報を読み込む
 - `sqlite` は `submission_auth_dsn` で指定した SQLite を使い、`submission_credentials` テーブルを参照する
@@ -24,7 +24,7 @@ static backend は小規模導入やローカル検証には十分ですが、�
 - account の有効期限や一時停止を表現しづらい
 - 誰がどの credential を使ったかを監査しづらい
 
-sqlite backend で lifecycle と監査は一定改善しましたが、bearer token や外部 IdP 連携は未対応です。
+Bearer backend は RFC 7662 HTTPS introspection を利用し、issuer・audience・期限・scope・mailbox を検証します。JWT / JWKS のローカル検証と provider 固有 adapter は未実装です。
 
 ## 進め方
 
@@ -54,9 +54,9 @@ basic auth 自体は維持しつつ、credential の保存先だけ DB へ寄せ
 
 ここでの狙いは、SMTP protocol 上の見え方を変えずに lifecycle と auditability を改善することです。
 
-### Phase 3: bearer token 系 backend を追加する
+### Phase 3: bearer token 系 backend を追加する（introspection 方式で到達済み）
 
-長期目標として `AUTH XOAUTH2` を検討する。
+`AUTH XOAUTH2` と optional な `BearerBackend` / capability interface を追加しました。パスワード backend との合成で既存認証を維持します。
 
 ただし実装は provider 固有の処理から始めず、
 まず「Bearer token を検証できる認証 backend」として設計する。
@@ -145,16 +145,9 @@ DB 化や modern auth を進める前提として、少なくとも次の記録�
 trace と audit log の両方で actor を追えるようにしておくと、
 将来の運用負荷がかなり下がります。
 
-## 結論
+## 到達点と残る範囲
 
-`kuroshio-mta` の SMTP AUTH は、
-
-- 短期: `PLAIN` / `LOGIN` 維持
-- 中期: DB-backed password auth
-- 長期: bearer token backend と `XOAUTH2`
-
-の順で進めるのが自然です。
-
-特に長期では「`XOAUTH2` を実装する」より、
-「provider 非依存の bearer token auth backend を持ち、その一つの mechanism として `XOAUTH2` を扱う」
-という設計にしておくのが重要です。
+static / sqlite のパスワード認証と、backend capability による mechanism 広告、
+RFC 7662 introspection を利用する XOAUTH2 に対応しました。
+JWT / JWKS、OAUTHBEARER、provider ごとの adapter と consent / refresh flow は今後の範囲です。
+運用条件と制約は [Submission Auth Runbook](../runbooks/submission_auth.md) を参照してください。

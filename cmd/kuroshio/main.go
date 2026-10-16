@@ -106,9 +106,24 @@ func main() {
 			if aErr != nil {
 				fatal("submission auth init failed", "error", aErr)
 			}
-			if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" {
+			if cfg.SubmissionAuth && strings.TrimSpace(cfg.SubmissionUsers) == "" && cfg.SubmissionBearerIntrospectionURL == "" {
 				fatal("submission auth is required but MTA_SUBMISSION_USERS is empty")
 			}
+		}
+		if cfg.SubmissionBearerIntrospectionURL != "" {
+			bearer, err := userauth.NewIntrospection(userauth.IntrospectionConfig{
+				URL: cfg.SubmissionBearerIntrospectionURL, ClientID: cfg.SubmissionBearerClientID,
+				ClientSecret: cfg.SubmissionBearerClientSecret, Issuer: cfg.SubmissionBearerIssuer,
+				Audience: cfg.SubmissionBearerAudience, UsernameClaim: cfg.SubmissionBearerUsernameClaim,
+				RequiredScope: cfg.SubmissionBearerRequiredScope,
+			})
+			if err != nil {
+				fatal("submission bearer init failed", "error", err)
+			}
+			if cfg.SubmissionAuthBackend == "static" && strings.TrimSpace(cfg.SubmissionUsers) == "" {
+				authBackend = nil
+			}
+			authBackend = &userauth.CombinedBackend{Password: authBackend, Bearer: bearer}
 		}
 		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
 	}
