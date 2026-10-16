@@ -29,31 +29,40 @@
 
 リポジトリ内の Markdown を直接参照したい場合は、以下を入口にしてください。
 
-- [docs/index.md](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/index.md)
-- [Getting Started](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/getting-started.md)
-- [Configuration](/home/tamago/ghq/github.com/tamago/kuroshio-mta/docs/configuration.md)
+- [docs/index.md](./docs/index.md)
+- [Getting Started](./docs/getting-started.md)
+- [Configuration](./docs/configuration.md)
 
 ## クイックスタート
 
+既存の `config.yaml` がある場合はコピー先を変え、`-config` にそのパスを指定してください。
+
 ```bash
-cp config.example.yaml config.yaml
+cp config.local.example.yaml config.yaml
 go run ./cmd/kuroshio -config ./config.yaml
 ```
 
 `-config` を省略した場合は、`MTA_CONFIG_FILE` またはカレントディレクトリの `config.yaml` / `config.yml` を順に参照します。
 
+この最小設定は loopback のみで待ち受け、受信メールを `./var/spool` に保存します。
+TLS・Submission などを設定する場合は [Getting Started](./docs/getting-started.md) を参照してください。
+
 ## Docker
 
-本体用の [Dockerfile](/home/tamago/ghq/github.com/tamago/kuroshio-mta/Dockerfile) を用意しています。
+本体用の [Dockerfile](./Dockerfile) を用意しています。
+コンテナ用には設定内の `listen_addr` を `:2525`、`observability_addr` を `:9090` に変更してください。
 
 ```bash
 docker build -t kuroshio-mta:latest .
 docker run --rm \
-  -p 2525:2525 \
-  -p 9090:9090 \
+  -p 127.0.0.1:2525:2525 \
+  -p 127.0.0.1:9090:9090 \
+  --tmpfs /app/var:uid=65532,gid=65532,mode=0700 \
   -v "$(pwd)/config.yaml:/etc/kuroshio/config.yaml:ro" \
   kuroshio-mta:latest
 ```
+
+上記は非 root ユーザーが書き込める一時領域を使います。保存データは終了時に失われるため、保持する場合は UID/GID `65532` が書き込める volume を `/app/var` に mount してください。
 
 補足:
 - デフォルトでは `-config /etc/kuroshio/config.yaml` を使います
@@ -74,6 +83,6 @@ docker run --rm \
 
 ## リポジトリ内の補助ファイル
 
-- 設定サンプル: [config.example.yaml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/config.example.yaml)
-- Prometheus alert rule ひな形: [kuroshio_slo_rules.yml](/home/tamago/ghq/github.com/tamago/kuroshio-mta/deploy/monitoring/prometheus/kuroshio_slo_rules.yml)
-- Docker 設定: [Dockerfile](/home/tamago/ghq/github.com/tamago/kuroshio-mta/Dockerfile), [.dockerignore](/home/tamago/ghq/github.com/tamago/kuroshio-mta/.dockerignore)
+- 設定サンプル: [config.example.yaml](./config.example.yaml)
+- Prometheus alert rule ひな形: [kuroshio_slo_rules.yml](./deploy/monitoring/prometheus/kuroshio_slo_rules.yml)
+- Docker 設定: [Dockerfile](./Dockerfile), [.dockerignore](./.dockerignore)

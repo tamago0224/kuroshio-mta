@@ -5,6 +5,7 @@
 ## 現在カバーしている内容
 
 - `AUTH PLAIN` と `AUTH LOGIN`
+- TLS 後の `AUTH XOAUTH2` と外部 IdP の RFC 7662 introspection による access token 検証
 - `AUTH LOGIN` の challenge-response 形式と initial response 形式
 - 認証必須 Submission での未認証 `MAIL FROM` 拒否
 - 認証失敗後の再試行
@@ -12,10 +13,10 @@
 
 ## 実装範囲外として扱う内容
 
-- CRAM-MD5, SCRAM, OAuth Bearer など追加 SASL mechanism
+- CRAM-MD5, SCRAM, OAUTHBEARER など追加 SASL mechanism
 - `MAIL FROM AUTH=` パラメータ
 - SASL security layer negotiation
-- 外部 identity provider や多要素認証との統合
+- JWT / JWKS のローカル検証、provider 固有 adapter、MTA 自身による多要素認証
 
 ## 判断メモ
 
