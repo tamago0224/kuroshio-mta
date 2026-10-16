@@ -29,6 +29,9 @@ func RunServerWithReputation(ctx context.Context, addr string, m *Metrics, rep *
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = w.Write([]byte(m.RenderPrometheus()))
+		if rep != nil {
+			_, _ = w.Write([]byte(rep.RenderReportMetrics()))
+		}
 	})
 	mux.HandleFunc("/slo", func(w http.ResponseWriter, r *http.Request) {
 		targets := LoadSLOTargetsFromEnv()

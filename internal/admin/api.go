@@ -60,6 +60,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/queue/", a.handleQueue)
 	mux.HandleFunc("/api/v1/reputation/complaints", a.handleComplaint)
 	mux.HandleFunc("/api/v1/reputation/tlsrpt", a.handleTLSReport)
+	mux.HandleFunc("/api/v1/reputation/reports/complaints", a.handleReport)
+	mux.HandleFunc("/api/v1/reputation/reports/tlsrpt", a.handleReport)
 	return mux
 }
 
@@ -252,7 +254,14 @@ func (a *API) handleComplaint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !req.DryRun {
-		a.reputation.RecordComplaint(req.Domain)
+		if err := a.reputation.RecordComplaint(req.Domain); err != nil {
+			if errors.Is(err, reputation.ErrInvalidDomain) {
+				http.Error(w, "invalid domain", http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "reputation storage unavailable", http.StatusInternalServerError)
+			return
+		}
 	}
 	a.audit(r, "reputation_complaint_record", map[string]any{"domain": req.Domain, "dry_run": req.DryRun})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "dry_run": req.DryRun})
@@ -286,7 +295,14 @@ func (a *API) handleTLSReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !req.DryRun {
-		a.reputation.RecordTLSReport(req.Domain, req.Success)
+		if err := a.reputation.RecordTLSReport(req.Domain, req.Success); err != nil {
+			if errors.Is(err, reputation.ErrInvalidDomain) {
+				http.Error(w, "invalid domain", http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "reputation storage unavailable", http.StatusInternalServerError)
+			return
+		}
 	}
 	a.audit(r, "reputation_tlsrpt_record", map[string]any{"domain": req.Domain, "success": req.Success, "dry_run": req.DryRun})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "dry_run": req.DryRun})

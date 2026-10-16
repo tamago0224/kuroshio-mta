@@ -2,6 +2,8 @@ package reputation
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,20 +41,24 @@ type DomainSnapshot struct {
 }
 
 type domainStats struct {
-	day            string
-	todayAttempts  int
-	successes      uint64
-	temporaryFails uint64
-	permanentFails uint64
-	complaints     uint64
-	tlsrptSuccess  uint64
-	tlsrptFailure  uint64
+	Day            string
+	TodayAttempts  int
+	Successes      uint64
+	TemporaryFails uint64
+	PermanentFails uint64
+	Complaints     uint64
+	TLSRPTSuccess  uint64
+	TLSRPTFailure  uint64
 }
 
 type Tracker struct {
-	cfg     Config
-	mu      sync.Mutex
-	domains map[string]*domainStats
+	cfg       Config
+	mu        sync.Mutex
+	domains   map[string]*domainStats
+	statePath string
+	seen      map[string]time.Time
+	dirty     bool
+	ingestion map[string]uint64
 }
 
 func New(cfg Config) *Tracker {
@@ -75,7 +81,7 @@ func New(cfg Config) *Tracker {
 	sort.Slice(cfg.WarmupRules, func(i, j int) bool {
 		return cfg.WarmupRules[i].AfterDays < cfg.WarmupRules[j].AfterDays
 	})
-	return &Tracker{cfg: cfg, domains: map[string]*domainStats{}}
+	return &Tracker{cfg: cfg, domains: map[string]*domainStats{}, seen: map[string]time.Time{}, ingestion: map[string]uint64{}}
 }
 
 func ParseWarmupRules(raw string) []WarmupStep {
@@ -114,71 +120,99 @@ func ParseStartDate(raw string) time.Time {
 
 func (t *Tracker) Admit(domain string, now time.Time) (bool, string) {
 	domain = normalizeDomain(domain)
-	if domain == "" {
+	if !validReportDomain(domain) {
 		return true, ""
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	st := t.getLocked(domain, now)
 	limit := t.warmupLimit(now)
-	if limit > 0 && st.todayAttempts >= limit {
+	if limit > 0 && st.TodayAttempts >= limit {
 		return false, "warmup_limit"
 	}
-	attempts := st.successes + st.temporaryFails + st.permanentFails
+	attempts := st.Successes + st.TemporaryFails + st.PermanentFails
 	if attempts >= uint64(t.cfg.MinSamples) {
-		if float64(st.permanentFails)/float64(attempts) >= t.cfg.BounceThreshold {
+		if float64(st.PermanentFails)/float64(attempts) >= t.cfg.BounceThreshold {
 			return false, "bounce_rate"
 		}
-		if float64(st.complaints)/float64(attempts) >= t.cfg.ComplaintThreshold {
+		if float64(st.Complaints)/float64(attempts) >= t.cfg.ComplaintThreshold {
 			return false, "complaint_rate"
 		}
 	}
-	st.todayAttempts++
+	st.TodayAttempts++
+	t.dirty = true
 	return true, ""
 }
 
 func (t *Tracker) ObserveDelivery(domain string, temporary, permanent bool) {
 	domain = normalizeDomain(domain)
-	if domain == "" {
+	if !validReportDomain(domain) {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	st := t.getLocked(domain, time.Now().UTC())
+	t.dirty = true
 	switch {
 	case permanent:
-		st.permanentFails++
+		st.PermanentFails++
 	case temporary:
-		st.temporaryFails++
+		st.TemporaryFails++
 	default:
-		st.successes++
+		st.Successes++
 	}
 }
 
-func (t *Tracker) RecordComplaint(domain string) {
-	domain = normalizeDomain(domain)
-	if domain == "" {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	st := t.getLocked(domain, time.Now().UTC())
-	st.complaints++
+func (t *Tracker) RecordComplaint(domain string) error {
+	return t.record(domain, func(stats *domainStats) error {
+		if stats.Complaints == ^uint64(0) {
+			return errors.New("complaint count overflow")
+		}
+		stats.Complaints++
+		return nil
+	})
 }
 
-func (t *Tracker) RecordTLSReport(domain string, success bool) {
+func (t *Tracker) RecordTLSReport(domain string, success bool) error {
+	return t.record(domain, func(stats *domainStats) error {
+		count := &stats.TLSRPTFailure
+		if success {
+			count = &stats.TLSRPTSuccess
+		}
+		if *count == ^uint64(0) {
+			return errors.New("TLS report count overflow")
+		}
+		*count = *count + 1
+		return nil
+	})
+}
+
+func (t *Tracker) record(domain string, update func(*domainStats) error) error {
 	domain = normalizeDomain(domain)
-	if domain == "" {
-		return
+	if !validReportDomain(domain) {
+		return ErrInvalidDomain
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	st := t.getLocked(domain, time.Now().UTC())
-	if success {
-		st.tlsrptSuccess++
-	} else {
-		st.tlsrptFailure++
+	previous, exists := t.domains[domain]
+	var saved domainStats
+	if exists {
+		saved = *previous
 	}
+	stats := t.getLocked(domain, time.Now().UTC())
+	err := update(stats)
+	if err == nil {
+		t.dirty = true
+		err = t.flushLocked()
+	}
+	if err != nil {
+		if exists {
+			t.domains[domain] = &saved
+		} else {
+			delete(t.domains, domain)
+		}
+	}
+	return err
 }
 
 func (t *Tracker) Snapshot(now time.Time) []DomainSnapshot {
@@ -201,21 +235,21 @@ func (t *Tracker) JSON(now time.Time) []byte {
 
 func (t *Tracker) snapshotLocked(domain string, now time.Time) DomainSnapshot {
 	st := t.getLocked(domain, now)
-	attempts := st.successes + st.temporaryFails + st.permanentFails
+	attempts := st.Successes + st.TemporaryFails + st.PermanentFails
 	s := DomainSnapshot{
 		Domain:          domain,
-		TodayAttempts:   st.todayAttempts,
+		TodayAttempts:   st.TodayAttempts,
 		WarmupLimit:     t.warmupLimit(now),
-		Successes:       st.successes,
-		TemporaryFails:  st.temporaryFails,
-		PermanentFails:  st.permanentFails,
-		Complaints:      st.complaints,
-		TLSRPTSuccesses: st.tlsrptSuccess,
-		TLSRPTFailures:  st.tlsrptFailure,
+		Successes:       st.Successes,
+		TemporaryFails:  st.TemporaryFails,
+		PermanentFails:  st.PermanentFails,
+		Complaints:      st.Complaints,
+		TLSRPTSuccesses: st.TLSRPTSuccess,
+		TLSRPTFailures:  st.TLSRPTFailure,
 	}
 	if attempts > 0 {
-		s.BounceRate = round4(float64(st.permanentFails) / float64(attempts))
-		s.ComplaintRate = round4(float64(st.complaints) / float64(attempts))
+		s.BounceRate = round4(float64(st.PermanentFails) / float64(attempts))
+		s.ComplaintRate = round4(float64(st.Complaints) / float64(attempts))
 	}
 	if blocked, reason := t.evaluateBlocked(st, now); blocked {
 		s.Blocked = true
@@ -226,15 +260,15 @@ func (t *Tracker) snapshotLocked(domain string, now time.Time) DomainSnapshot {
 
 func (t *Tracker) evaluateBlocked(st *domainStats, now time.Time) (bool, string) {
 	limit := t.warmupLimit(now)
-	if limit > 0 && st.todayAttempts >= limit {
+	if limit > 0 && st.TodayAttempts >= limit {
 		return true, "warmup_limit"
 	}
-	attempts := st.successes + st.temporaryFails + st.permanentFails
+	attempts := st.Successes + st.TemporaryFails + st.PermanentFails
 	if attempts >= uint64(t.cfg.MinSamples) {
-		if float64(st.permanentFails)/float64(attempts) >= t.cfg.BounceThreshold {
+		if float64(st.PermanentFails)/float64(attempts) >= t.cfg.BounceThreshold {
 			return true, "bounce_rate"
 		}
-		if float64(st.complaints)/float64(attempts) >= t.cfg.ComplaintThreshold {
+		if float64(st.Complaints)/float64(attempts) >= t.cfg.ComplaintThreshold {
 			return true, "complaint_rate"
 		}
 	}
@@ -258,21 +292,23 @@ func (t *Tracker) warmupLimit(now time.Time) int {
 func (t *Tracker) getLocked(domain string, now time.Time) *domainStats {
 	st, ok := t.domains[domain]
 	if !ok {
+		t.dirty = true
 		st = &domainStats{}
 		t.domains[domain] = st
 	}
 	day := now.UTC().Format("2006-01-02")
-	if st.day != day {
-		st.day = day
-		st.todayAttempts = 0
+	if st.Day != day {
+		t.dirty = true
+		st.Day = day
+		st.TodayAttempts = 0
 	}
 	return st
 }
 
 func normalizeDomain(in string) string {
-	return strings.ToLower(strings.TrimSpace(in))
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(in)), ".")
 }
 
 func round4(v float64) float64 {
-	return float64(int(v*10000+0.5)) / 10000
+	return math.Round(v*10000) / 10000
 }
