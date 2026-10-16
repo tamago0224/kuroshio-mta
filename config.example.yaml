@@ -116,3 +116,8 @@ queue_max_bytes: 0
 queue_low_watermark_percent: 80
 # Keep this many filesystem bytes available after the incoming JSON write.
 queue_min_free_bytes: 0
+
+# SMTP delivery failure classification is always enabled (no extra setting).
+# Automatic suppression: permanent RCPT 5.1.1 only. DATA policy rejections,
+# auth/TLS failures, mailbox-full and unknown 5xx do not suppress recipients.
+# Existing suppression entries remain unchanged; see docs/runbooks/admin_api.md.

@@ -3,8 +3,10 @@ package delivery
 import "fmt"
 
 type SMTPResponseError struct {
-	Code int
-	Line string
+	Stage          SMTPStage
+	EnhancedStatus string
+	Code           int
+	Line           string
 }
 
 func (e *SMTPResponseError) Error() string {
