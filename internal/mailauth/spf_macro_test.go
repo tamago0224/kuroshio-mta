@@ -185,8 +185,12 @@ func TestEvalSPF_ExpModifierForFail(t *testing.T) {
 
 func TestExpandSPFMacros_BasicTokens(t *testing.T) {
 	ip := net.ParseIP("203.0.113.7")
-	got := expandSPFMacros("%{s}/%{l}/%{o}/%{d}/%{h}/%{i}/%{v}/%%/%_/%-", "Alice@Example.com", "example.com", "Mail.EXAMPLE.com", ip)
-	want := "alice@example.com/alice/example.com/example.com/mail.example.com/203.0.113.7/in-addr/%/ /%20"
+	ctx := spfMacroContext{sender: "Alice@Example.com", domain: "example.com", helo: "Mail.EXAMPLE.com", remoteIP: ip}
+	got, err := ctx.expand("%{s}/%{l}/%{o}/%{d}/%{h}/%{i}/%{v}/%%/%_/%-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Alice@Example.com/Alice/example.com/example.com/mail.example.com/203.0.113.7/in-addr/%/ /%20"
 	if got != want {
 		t.Fatalf("got=%q want=%q", got, want)
 	}

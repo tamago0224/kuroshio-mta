@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strconv"
 	"strings"
 	"time"
 
@@ -110,21 +109,20 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 	if len(terms) == 0 || strings.ToLower(terms[0]) != "v=spf1" {
 		return "permerror", "invalid spf header"
 	}
-	redirectDomain := ""
-	explanationDomain := ""
+	redirectSpec := ""
+	explanationSpec := ""
+	macros := spfMacroContext{sender: sender, domain: domain, helo: helo, remoteIP: remoteIP}
 	for _, t := range terms[1:] {
-		if t == "" || !strings.Contains(t, "=") {
+		separator := spfModifierSeparator(t)
+		if separator < 0 {
 			continue
 		}
-		k, v, ok := strings.Cut(t, "=")
-		if !ok {
-			continue
-		}
+		k, v := t[:separator], t[separator+1:]
 		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "redirect":
-			redirectDomain = expandSPFMacros(strings.TrimSpace(v), sender, domain, helo, remoteIP)
+			redirectSpec = strings.TrimSpace(v)
 		case "exp":
-			explanationDomain = expandSPFMacros(strings.TrimSpace(v), sender, domain, helo, remoteIP)
+			explanationSpec = strings.TrimSpace(v)
 		}
 	}
 
@@ -132,7 +130,7 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 		if t == "" {
 			continue
 		}
-		if strings.Contains(t, "=") {
+		if spfModifierSeparator(t) >= 0 {
 			continue
 		}
 		qualifier := '+'
@@ -141,7 +139,15 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 			t = t[1:]
 		}
 		name, arg, prefix := parseMechanism(t)
-		arg = expandSPFMacros(arg, sender, domain, helo, remoteIP)
+		if arg != "" {
+			switch name {
+			case "a", "mx", "include", "exists", "ptr":
+				arg, err = macros.domainSpec(arg)
+				if err != nil {
+					return "permerror", err.Error()
+				}
+			}
+		}
 		match, ok, err := matchMechanism(ctx, remoteIP, domain, sender, helo, name, arg, prefix, depth, st)
 		if err != nil {
 			var rerr *spfResultError
@@ -158,15 +164,19 @@ func evalSPFDomain(ctx context.Context, remoteIP net.IP, domain, sender, helo st
 		}
 		if match {
 			result := qualifierResult(qualifier)
-			if result == "fail" && explanationDomain != "" {
-				if exp, ok := lookupSPFExplanation(ctx, explanationDomain); ok {
-					return result, exp
+			if result == "fail" && explanationSpec != "" {
+				if explanation, ok := macros.explain(ctx, explanationSpec); ok {
+					return result, explanation
 				}
 			}
 			return result, fmt.Sprintf("matched %s", name)
 		}
 	}
-	if redirectDomain != "" {
+	if redirectSpec != "" {
+		redirectDomain, err := macros.domainSpec(redirectSpec)
+		if err != nil {
+			return "permerror", err.Error()
+		}
 		res, reason := evalSPFDomain(ctx, remoteIP, redirectDomain, sender, helo, depth+1, st)
 		if res == "none" {
 			return "permerror", "redirect target has no spf record"
@@ -202,16 +212,21 @@ func lookupSPFRecord(ctx context.Context, domain string, st *spfEvalState) (stri
 func parseMechanism(term string) (name, arg string, prefix int) {
 	prefix = -1
 	name = term
-	if i := strings.Index(term, ":"); i >= 0 {
-		name = term[:i]
-		arg = term[i+1:]
-	}
-	if i := strings.Index(arg, "/"); i >= 0 {
-		p := arg[i+1:]
-		arg = arg[:i]
-		fmt.Sscanf(p, "%d", &prefix)
+	if i := strings.IndexByte(term, ':'); i >= 0 {
+		name, arg = term[:i], term[i+1:]
 	}
 	name = strings.ToLower(name)
+	if name == "ip4" || name == "ip6" {
+		return
+	}
+	if i := spfDelimiterOutsideMacro(arg, '/'); i >= 0 {
+		fmt.Sscanf(arg[i+1:], "%d", &prefix)
+		arg = arg[:i]
+	}
+	if i := strings.IndexByte(name, '/'); i >= 0 {
+		fmt.Sscanf(name[i+1:], "%d", &prefix)
+		name = name[:i]
+	}
 	return
 }
 
@@ -390,97 +405,6 @@ func domainMatches(host, domain string) bool {
 	return strings.HasSuffix(host, "."+domain)
 }
 
-func expandSPFMacros(spec, sender, domain, helo string, remoteIP net.IP) string {
-	if spec == "" {
-		return ""
-	}
-	var b strings.Builder
-	for i := 0; i < len(spec); i++ {
-		ch := spec[i]
-		if ch != '%' {
-			b.WriteByte(ch)
-			continue
-		}
-		if i+1 >= len(spec) {
-			break
-		}
-		next := spec[i+1]
-		i++
-		switch next {
-		case '%':
-			b.WriteByte('%')
-		case '_':
-			b.WriteByte(' ')
-		case '-':
-			b.WriteString("%20")
-		case '{':
-			end := strings.IndexByte(spec[i+1:], '}')
-			if end < 0 {
-				continue
-			}
-			token := spec[i+1 : i+1+end]
-			i += end + 1
-			b.WriteString(spfMacroValue(token, sender, domain, helo, remoteIP))
-		default:
-			b.WriteByte(next)
-		}
-	}
-	return b.String()
-}
-
-func spfMacroValue(token, sender, domain, helo string, remoteIP net.IP) string {
-	if token == "" {
-		return ""
-	}
-	letter := token[0]
-	switch letter {
-	case 's', 'S':
-		return strings.ToLower(strings.TrimSpace(sender))
-	case 'l', 'L':
-		local, _, ok := strings.Cut(strings.TrimSpace(sender), "@")
-		if !ok {
-			return ""
-		}
-		return strings.ToLower(local)
-	case 'o', 'O':
-		_, d, ok := strings.Cut(strings.TrimSpace(sender), "@")
-		if !ok {
-			return ""
-		}
-		return strings.ToLower(d)
-	case 'd', 'D':
-		return strings.ToLower(strings.TrimSpace(domain))
-	case 'h', 'H':
-		return strings.ToLower(strings.TrimSpace(helo))
-	case 'i', 'I':
-		if remoteIP == nil {
-			return ""
-		}
-		return strings.ToLower(strings.TrimSpace(remoteIP.String()))
-	case 'v', 'V':
-		if remoteIP == nil {
-			return ""
-		}
-		if remoteIP.To4() != nil {
-			return "in-addr"
-		}
-		return "ip6"
-	case 'p', 'P':
-		return "unknown"
-	case 'c', 'C':
-		if remoteIP == nil {
-			return ""
-		}
-		return strings.ToLower(strings.TrimSpace(remoteIP.String()))
-	case 'r', 'R':
-		return "unknown"
-	case 't', 'T':
-		return strconv.FormatInt(time.Now().UTC().Unix(), 10)
-	default:
-		return ""
-	}
-}
-
 func matchPrefix(a, b net.IP, p int) bool {
 	aa, ok1 := netip.AddrFromSlice(a)
 	bb, ok2 := netip.AddrFromSlice(b)
@@ -498,7 +422,7 @@ func lookupSPFExplanation(ctx context.Context, domain string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	txt, err := spfLookupTXT(ctx, domain)
-	if err != nil || len(txt) == 0 {
+	if err != nil || len(txt) != 1 {
 		return "", false
 	}
 	for _, v := range txt {
