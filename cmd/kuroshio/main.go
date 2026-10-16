@@ -85,7 +85,9 @@ func main() {
 		}
 	}()
 
-	d, err := worker.New(cfg, q, delivery.NewClientWithMetrics(cfg, metrics), sup, metrics, rep)
+	deliveryClient := delivery.NewClientWithMetrics(cfg, metrics)
+	defer deliveryClient.Close()
+	d, err := worker.New(cfg, q, deliveryClient, sup, metrics, rep)
 	if err != nil {
 		fatal("worker init failed", "error", err)
 	}

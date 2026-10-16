@@ -235,3 +235,43 @@ static / sqlite の既存の送信者ポリシーは維持します。
 DATA のポリシー拒否や認証・TLSエラー、容量不足、未知の550では登録しません。
 `delivery_mode: mx` / `relay` の SMTP 配送に適用し、既存の再送設定や suppression の保存形式は維持します。
 分類・監視・既存抑止の確認手順は [Admin API runbook](./runbooks/admin_api.md#配送失敗分類と自動-suppression) を参照してください。
+
+## MX / provider グループの配送制御
+
+`mx_shaping` は YAML のネストした設定です（対応する環境変数はありません）。
+`enabled: false` が既定で、`mx` / `relay` 配送時に有効化できます。
+
+| property (`mx_shaping` 内) | default | 説明 |
+| --- | --- | --- |
+| `enabled` | `false` | MX/provider グループ制御を有効化 |
+| `backend` | `memory` | `memory` / `redis` |
+| `cache_ttl` | `0s` | 成功した MX 結果のアプリケーションキャッシュ期間（0〜1h）。0 はキャッシュなし |
+| `retry_delay` | `1s` | 制限・backend 障害時の最小延期時間（0 は1s、最大1h） |
+| `default` | すべて無制限 | 自動 MX グループに適用する制限 |
+| `providers` | 空配列 | 管理者定義グループの順序付きリスト |
+
+`default` / `providers[].limits` の項目:
+
+| property | default | 説明 |
+| --- | --- | --- |
+| `messages_per_minute` | `0` | recipient ごとの配送試行数/分。0 は無制限 |
+| `message_burst` | `1`（rate 有効時） | 通数 token bucket の容量。0 指定も1として扱う |
+| `connections_per_minute` | `0` | TCP 接続開始試行数/分。0 は無制限 |
+| `connection_burst` | `1`（rate 有効時） | 接続 token bucket の容量。0 指定も1として扱う |
+| `max_connections` | `0` | 接続開始から終了までの同時実行数。0 は無制限 |
+
+各数値は0〜1,000,000です。rate は時間に比例して連続補充し、burst は初期状態で満杯です。
+接続に失敗した dial も接続数に含み、同一 recipient の代替 MX 試行は通数を追加消費せず接続枠のみ消費します。
+受信・配送成功通数とは異なる保護用の試行数です。
+
+`providers[]` は `name`、完全一致する `domains`、境界を考慮する `mx_suffixes`、`limits` を持ちます。
+優先順位は **明示ドメイン一致 → MX suffix 一致 → 自動 MX 集合** です。
+suffix が複数グループに一致する場合はリスト先頭を優先します。グループの `limits` は `default` を全体として置換し、
+省略したフィールドは無制限です。既存の `domain_max_concurrent_*` と adaptive penalty は別の追加制約として維持します。
+
+Redis は `domain_throttle_redis_addrs` / username / password / db / key_prefix を共用し、
+キーはその prefix の `:mx_shaping` 名前空間に分離します。backend の選択は `mx_shaping.backend` が独立して行います。
+全ノードでグループ定義・制限値・prefix・送信元 scope（初期実装は `default` の1つ）を揃えてください。
+
+例と保証範囲、延期・監視・Redis 結合テストは
+[Domain Throttle 設計・運用](./architecture/domain_throttle_externalization.md#mx-provider-グループ制御) を参照してください。

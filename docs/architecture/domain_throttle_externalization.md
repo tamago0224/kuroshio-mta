@@ -228,3 +228,97 @@ domain_throttle_fail_mode: open
 3. fail mode と observability の仕上げ
 
 の順で進める方が安全です。
+
+## MX / provider グループ制御
+
+`mx_shaping.enabled: true` は SMTP 配送時の MX 集合または管理者定義 provider ごとに、
+通数・TCP接続開始数の token bucket と同時接続 lease を適用します。
+
+```yaml
+mx_shaping:
+  enabled: true
+  backend: memory
+  cache_ttl: 0s
+  retry_delay: 1s
+  default:
+    messages_per_minute: 120
+    message_burst: 10
+    connections_per_minute: 60
+    connection_burst: 5
+    max_connections: 4
+  providers:
+    - name: shared-provider
+      domains: [customer-a.example, customer-b.example]
+      mx_suffixes: [mx.provider.example]
+      limits:
+        messages_per_minute: 60
+        message_burst: 5
+        connections_per_minute: 30
+        connection_burst: 2
+        max_connections: 2
+```
+
+制限と優先順位の詳細は [Configuration](../configuration.md#mx-provider-グループの配送制御) を参照してください。
+
+### グループ判定と DNS
+
+MX ホスト名を小文字化し、末尾のドットを除去し、重複・順序・優先度を無視した集合のハッシュを識別子にします。
+同じ集合なら複数の宛先ドメインが合計上限を共有します。暗黙 MX はドメイン自身を含む集合になり、
+別の暗黙 MX ドメインと自動で集約しません。共通 MX の一部だけが一致する場合も集合全体が異なれば別グループです。
+プロバイダーとしてまとめたい場合は明示グループを設定してください。これは認可・組織判定には使用しません。
+relay は中継ホストを集合として使います。
+
+Go の標準 resolver は DNS RR の TTL を公開しないため、**既定はアプリケーションキャッシュなし**です。
+`cache_ttl` は管理者が指定する MX スナップショットの保持時間で、DNS TTL を取得・遵守する機能ではありません。
+有効期限後は再解決し、変更された集合には新しい識別子と枠を適用します。解決失敗時は期限切れ結果を再利用せず、
+通常の DNS 配送失敗として再送します。失敗・空の MX 結果はキャッシュしません。
+キャッシュはプロセス内・最大10,000ドメインで、満杯なら新規結果をキャッシュせず解決します。
+
+### 実行・延期・公平性
+
+接続直前に全上限を一括判定し、拒否した予約ではいずれの bucket も消費しません。
+通数は recipient の配送試行、接続数は代替 MX を含む dial 試行を数えます。
+接続枠は dial 前に取得し、接続終了後に解放します。lease の期限は dial timeout + send timeout + 30秒（最低1分）です。
+全ノードのタイムアウトを揃え、接続が lease 期限を超えて継続する設定・環境では厳密な同時数保証はできません。
+Redis の解放エラー時は lease 期限まで保守的に枠が残ります。
+
+枠不足は sleep せず `NextAttempt` の更新でキューへ戻し、試行回数・既存エラー理由・DSN を変更しません。
+複数 recipient のうち成功・恒久失敗・既存抑止で完了した宛先は、延期メッセージの再送対象から除きます。
+実配送失敗が混在する場合は既存のメッセージ単位の再送回数・最大期間を使います。
+MX 制御有効時はドメイン側の同時数・penalty も待機せず延期し、Redis エラーは fail-closed で延期します。
+無効時の従来の domain throttle 動作は維持します。
+
+別グループの due メッセージは利用可能な worker で配送できます。古いメッセージが大量にある場合でも、
+延期したメッセージは未来時刻に移るため、後続スキャンで別グループへ進みます。
+グループ間の厳密な帯域公平配分やテナント別公平性は提供しません。
+worker のキャンセル時は新たな枠を取得せず延期します。実配送中のキャンセルは通常の配送エラー処理に従います。
+
+ローカル・Kafka 両キューに `Defer` 契約を追加しています。永続 JSON の形式は変えず、Kafka は retry topic への
+保存成功後に元の receipt を commit します。Kafka の結合検証は別途必要です。
+
+### memory / Redis の保証範囲と障害時
+
+- memory は1つの配送 Client 内の全 worker で共有します。プロセス再起動で枠は初期化され、複数ノード間では共有しません。
+  最大10,000グループの状態を保持し、容量超過時は fail-closed で延期します。空になった bucket が完全補充される期間より前には状態を掃除しません。
+- Redis は同じ namespace / グループを使うノード間で枠を共有します。サーバー時刻と Lua の一括判定、
+  cluster hash slot を揃えたキー、ランダムな一意 lease を使います。ノード停止後は lease 期限で枠が復旧します。
+  起動時に Redis へ接続できなければ起動を失敗させ、実行中に障害があれば上限を迂回せず延期します。
+  コマンドのタイムアウトは予約が成立したか不明な場合があるため、枠を保守的に消費する可能性があります。
+  Redis の evict / データ消失 / 設定不一致は保証範囲外です。専用容量と適切な persistence / noeviction を設定してください。
+
+### 監視と確認
+
+`mx_shaping_message_admitted_total`、`mx_shaping_connection_admitted_total`、`mx_shaping_deferred_total`、
+`mx_shaping_backend_error_total`、`mx_shaping_mx_cache_hit_total`、`mx_shaping_mx_lookup_error_total` と
+worker 側の `worker_shaping_deferred_total` / `worker_shaping_domain_deferred_total` を確認します。
+グループ・宛先をメトリクス名に含めず、カーディナリティの増加を避けます。
+延期が増えた場合は rate/burst・接続上限・Redis 到達性・MX の変化と provider マッピングを確認してください。
+
+実 Redis を使う結合テストは、ローカルの `redis-server` を一時ポート・永続化なしで起動します。
+
+```bash
+MTA_TEST_REDIS_SERVER=/path/to/redis-server go test -race -tags=integration ./internal/shaping ./internal/worker -run '^TestRedis' -v
+```
+
+独立した2クライアント（ノード相当）で合計同時数・rate/burst・別グループの進行・期限切れ lease・障害時の延期を確認します。
+通常テストでは時計を制御し、TTL後の MX変更・暗黙MX・DNS失敗、worker の非待機・キャンセル・延期時の試行回数維持を確認します。

@@ -121,3 +121,27 @@ queue_min_free_bytes: 0
 # Automatic suppression: permanent RCPT 5.1.1 only. DATA policy rejections,
 # auth/TLS failures, mailbox-full and unknown 5xx do not suppress recipients.
 # Existing suppression entries remain unchanged; see docs/runbooks/admin_api.md.
+
+# Optional MX/provider-group shaping for SMTP delivery (mx or relay).
+# Existing domain limits remain additional constraints. Nested options use YAML.
+mx_shaping:
+  enabled: false
+  backend: memory # memory or redis; redis uses domain_throttle_redis_* credentials
+  cache_ttl: 0s # operator MX snapshot TTL; 0 disables application caching
+  retry_delay: 1s # minimum reschedule delay, not a worker sleep
+  default:
+    messages_per_minute: 0 # recipient delivery attempts; 0 = unlimited
+    message_burst: 1
+    connections_per_minute: 0 # TCP dial attempts including alternate MX hosts
+    connection_burst: 1
+    max_connections: 0 # in-flight TCP attempts/sessions; 0 = unlimited
+  providers: []
+  # - name: shared-provider
+  #   domains: [customer-a.example, customer-b.example]
+  #   mx_suffixes: [mx.provider.example]
+  #   limits: # full replacement for default; omitted limit fields are unlimited
+  #     messages_per_minute: 60
+  #     message_burst: 5
+  #     connections_per_minute: 30
+  #     connection_burst: 2
+  #     max_connections: 2
