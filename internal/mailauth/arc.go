@@ -1,8 +1,6 @@
 package mailauth
 
 import (
-	"crypto"
-	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
@@ -85,7 +83,8 @@ func verifyARCMessageSignature(headers []Header, body, sig string) error {
 	domain := strings.ToLower(tags["d"])
 	selector := tags["s"]
 	algo := strings.ToLower(tags["a"])
-	if tags["i"] == "" || domain == "" || selector == "" || algo != "rsa-sha256" {
+	validKeyParameters := domain != "" && selector != "" && supportedSignatureAlgorithm(algo)
+	if tags["i"] == "" || !validKeyParameters {
 		return fmt.Errorf("unsupported signature parameters")
 	}
 	if strings.TrimSpace(tags["h"]) == "" || strings.TrimSpace(tags["bh"]) == "" {
@@ -116,7 +115,7 @@ func verifyARCMessageSignature(headers []Header, body, sig string) error {
 		return fmt.Errorf("invalid b tag")
 	}
 	hash := sha256.Sum256([]byte(signedData))
-	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, hash[:], sigBytes); err != nil {
+	if err := verifySHA256Signature(pub, algo, hash[:], sigBytes); err != nil {
 		return fmt.Errorf("signature verify failed")
 	}
 	return nil
@@ -131,7 +130,8 @@ func verifyARCSeal(headers []Header, seal string, instance int) error {
 	domain := strings.ToLower(tags["d"])
 	selector := tags["s"]
 	algo := strings.ToLower(tags["a"])
-	if tags["i"] == "" || domain == "" || selector == "" || algo != "rsa-sha256" {
+	validKeyParameters := domain != "" && selector != "" && supportedSignatureAlgorithm(algo)
+	if tags["i"] == "" || !validKeyParameters {
 		return fmt.Errorf("unsupported seal parameters")
 	}
 	cv := strings.ToLower(strings.TrimSpace(tags["cv"]))
@@ -151,7 +151,7 @@ func verifyARCSeal(headers []Header, seal string, instance int) error {
 		return fmt.Errorf("invalid b tag")
 	}
 	hash := sha256.Sum256([]byte(chainData))
-	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, hash[:], sigBytes); err != nil {
+	if err := verifySHA256Signature(pub, algo, hash[:], sigBytes); err != nil {
 		return fmt.Errorf("seal verify failed")
 	}
 	return nil
@@ -193,7 +193,7 @@ func buildARCSealSignedData(headers []Header, maxInstance int) (string, error) {
 		out.WriteString(canonHeader("ARC-Message-Signature", ams, "relaxed"))
 		out.WriteString(canonHeader("ARC-Seal", as, "relaxed"))
 	}
-	return out.String(), nil
+	return strings.TrimSuffix(out.String(), "\r\n"), nil
 }
 
 func headerByInstance(headers []Header, name string, want int) (string, bool) {

@@ -3,6 +3,7 @@ package mailauth
 import (
 	"context"
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -67,7 +68,8 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 	domain := strings.ToLower(tags["d"])
 	selector := tags["s"]
 	algo := strings.ToLower(tags["a"])
-	if tags["v"] != "1" || domain == "" || selector == "" || algo != "rsa-sha256" {
+	validKeyParameters := domain != "" && selector != "" && supportedSignatureAlgorithm(algo)
+	if tags["v"] != "1" || !validKeyParameters {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "unsupported signature parameters"}
 	}
 	if strings.TrimSpace(tags["h"]) == "" {
@@ -110,7 +112,10 @@ func verifyDKIMSig(headers []Header, body, sig string) DKIMSigResult {
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "permerror", Reason: "invalid b tag"}
 	}
 	hash := sha256.Sum256([]byte(signedData))
-	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, hash[:], sigBytes); err != nil {
+	if err := verifySHA256Signature(pub, algo, hash[:], sigBytes); err != nil {
+		if keyErr, ok := err.(*dkimLookupError); ok {
+			return DKIMSigResult{Domain: domain, Selector: selector, Result: keyErr.Result, Reason: keyErr.Reason}
+		}
 		return DKIMSigResult{Domain: domain, Selector: selector, Result: "fail", Reason: "signature verify failed"}
 	}
 	return DKIMSigResult{Domain: domain, Selector: selector, Result: "pass"}
@@ -199,7 +204,7 @@ func buildSignedData(headers []Header, hTag, sigValue, canon, sigHeaderName stri
 		out.WriteString(canonHeader(headers[idx].Name, headers[idx].Value, canon))
 	}
 	stripped := stripBTag(sigValue)
-	out.WriteString(canonHeader(sigHeaderName, stripped, canon))
+	out.WriteString(strings.TrimSuffix(canonHeader(sigHeaderName, stripped, canon), "\r\n"))
 	return out.String(), nil
 }
 
@@ -241,7 +246,7 @@ func compactBTag(v string) string {
 	return strings.Join(strings.Fields(v), "")
 }
 
-func lookupDKIMKey(domain, selector string) (*rsa.PublicKey, error) {
+func lookupDKIMKey(domain, selector string) (crypto.PublicKey, error) {
 	q := selector + "._domainkey." + domain
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -259,15 +264,25 @@ func lookupDKIMKey(domain, selector string) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, &dkimLookupError{Result: "permerror", Reason: "invalid p tag"}
 	}
-	pubAny, err := x509.ParsePKIXPublicKey(der)
-	if err != nil {
-		return nil, &dkimLookupError{Result: "permerror", Reason: "invalid public key"}
+	switch strings.ToLower(tags["k"]) {
+	case "ed25519":
+		if len(der) != ed25519.PublicKeySize {
+			return nil, &dkimLookupError{Result: "permerror", Reason: "invalid Ed25519 public key length"}
+		}
+		return ed25519.PublicKey(der), nil
+	case "", "rsa":
+		pubAny, err := x509.ParsePKIXPublicKey(der)
+		if err != nil {
+			return nil, &dkimLookupError{Result: "permerror", Reason: "invalid public key"}
+		}
+		pub, ok := pubAny.(*rsa.PublicKey)
+		if !ok {
+			return nil, &dkimLookupError{Result: "permerror", Reason: "non-rsa dkim key"}
+		}
+		return pub, nil
+	default:
+		return nil, &dkimLookupError{Result: "permerror", Reason: "unsupported key type"}
 	}
-	pub, ok := pubAny.(*rsa.PublicKey)
-	if !ok {
-		return nil, &dkimLookupError{Result: "permerror", Reason: "non-rsa dkim key"}
-	}
-	return pub, nil
 }
 
 func equalBytes(a, b []byte) bool {
@@ -320,4 +335,25 @@ func validateDKIMTimeTags(tags map[string]string, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func verifySHA256Signature(pub crypto.PublicKey, algorithm string, hash, sig []byte) error {
+	switch key := pub.(type) {
+	case *rsa.PublicKey:
+		if algorithm == "rsa-sha256" {
+			return rsa.VerifyPKCS1v15(key, crypto.SHA256, hash, sig)
+		}
+	case ed25519.PublicKey:
+		if algorithm == "ed25519-sha256" {
+			if ed25519.Verify(key, hash, sig) {
+				return nil
+			}
+			return fmt.Errorf("signature verify failed")
+		}
+	}
+	return &dkimLookupError{Result: "permerror", Reason: "key type does not match signature algorithm"}
+}
+
+func supportedSignatureAlgorithm(algorithm string) bool {
+	return algorithm == "rsa-sha256" || algorithm == "ed25519-sha256"
 }

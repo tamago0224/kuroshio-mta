@@ -82,6 +82,35 @@ go test ./internal/dkim -run TestARCFileSignerSignInjectsARCSet -v
 
 `DKIM-Signature:` や `ARC-Seal:` が先頭に付くことを確認できます。
 
+### Ed25519 の鍵を使う
+
+OpenSSL が使える環境では、新しい selector 用に鍵を準備します。秘密鍵をリポジトリへコミットしないでください。
+
+```bash
+umask 077
+mkdir -p keys
+openssl genpkey -algorithm ED25519 -out keys/dkim-ed25519.pem
+openssl pkey -in keys/dkim-ed25519.pem -pubout -outform DER \
+  | tail -c 32 | openssl base64 -A
+```
+
+最後のコマンドは Ed25519 の公開鍵 DER の末尾32 byte を Base64 にします。表示された公開鍵を DNS の `ed2026._domainkey.example.com` に `v=DKIM1; k=ed25519; p=<公開鍵>` として公開します。`p=` に DER 全体や秘密鍵を設定しないでください。
+
+```yaml
+dkim_sign_domain: example.com
+dkim_sign_selector: ed2026
+dkim_private_key_file: ./keys/dkim-ed25519.pem
+```
+
+鍵の種類から `ed25519-sha256` が選択され、DKIM と ARC の両方に使われます。RSA の鍵ファイルでは従来どおり `rsa-sha256` を使います。
+
+RSA から移行するときは selector も変更し、以前の DNS 公開鍵をメール検証に必要な期間保持します。同じ selector・鍵種別で鍵を更新する場合は、ファイルの更新時刻が進むように配置すると次回署名時に再読込します。
+
+```bash
+go test ./internal/mailauth -run 'TestDKIMEd25519|TestDKIMMixedRSAAndEd25519|TestARCMixedRSAAndEd25519' -v
+go test ./internal/dkim -run TestFileSignerReloadsEd25519KeyAndAlgorithm -v
+```
+
 ## 6. 受信評価の関連テストを広めに回す
 
 SPF / DKIM / DMARC の受信評価は `mailauth` パッケージのテストから追えます。
