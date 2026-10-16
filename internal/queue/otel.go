@@ -129,3 +129,11 @@ func recordSpanError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
 }
+
+func (b *observedBackend) Defer(msg *model.Message, delay time.Duration) error {
+	_, span := b.startSpan(context.Background(), "queue.defer", msg)
+	defer span.End()
+	err := b.next.Defer(msg, delay)
+	recordSpanError(span, err)
+	return err
+}

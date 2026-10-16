@@ -1377,3 +1377,5 @@ func selfSignedCert() (tls.Certificate, error) {
 		Leaf:        tmpl,
 	}, nil
 }
+
+func (q *recordingQueue) Defer(*model.Message, time.Duration) error { return nil }

@@ -121,3 +121,5 @@ func queueAttrString(t *testing.T, attrs []attribute.KeyValue, key string) strin
 	t.Fatalf("attribute %q not found", key)
 	return ""
 }
+
+func (recordingBackend) Defer(*model.Message, time.Duration) error { return nil }

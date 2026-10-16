@@ -220,6 +220,15 @@ func (k *KafkaStore) Retry(msg *model.Message, delay time.Duration, reason strin
 	return k.commitByID(msg.ID)
 }
 
+func (k *KafkaStore) Defer(msg *model.Message, delay time.Duration) error {
+	msg.UpdatedAt = time.Now().UTC()
+	msg.NextAttempt = msg.UpdatedAt.Add(delay)
+	if err := k.publish(k.topics.retry, msg); err != nil {
+		return err
+	}
+	return k.commitByID(msg.ID)
+}
+
 func (k *KafkaStore) Fail(msg *model.Message, reason string) error {
 	msg.Attempts++
 	msg.LastError = reason

@@ -14,6 +14,8 @@ type Backend interface {
 	Due(limit int) ([]*model.Message, error)
 	AckSent(id string, msg *model.Message) error
 	Retry(msg *model.Message, delay time.Duration, reason string) error
+	// Defer updates NextAttempt without incrementing Attempts or emitting a DSN.
+	Defer(msg *model.Message, delay time.Duration) error
 	Fail(msg *model.Message, reason string) error
 	Close() error
 }
