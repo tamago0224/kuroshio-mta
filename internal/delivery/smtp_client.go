@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,7 +212,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	}
 	lookupSpan.End()
 	if err != nil {
-		return fmt.Errorf("mx lookup failed: %w", err)
+		return fmt.Errorf("mx lookup failed: %w", atStage(StageDNS, err))
 	}
 	requireTLS := false
 	daneActive := false
@@ -246,7 +247,7 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 					}
 				}
 				if len(filtered) == 0 {
-					return &SMTPResponseError{Code: 454, Line: "mta-sts policy mismatch: no allowed mx"}
+					return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts policy mismatch: no allowed mx"}
 				}
 				mxHosts = filtered
 			} else if p.Mode == "testing" {
@@ -304,7 +305,7 @@ func classifyDANEFailure(err error) error {
 	}
 	line := strings.ToLower(strings.TrimSpace(smtpErr.Line))
 	if smtpErr.Temporary() && (line == "starttls handshake failed" || line == "mta-sts enforce requires starttls") {
-		return &SMTPResponseError{Code: 550, Line: "dane authentication failed"}
+		return &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "dane authentication failed"}
 	}
 	return err
 }
@@ -333,23 +334,23 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err != nil {
-		return err
+		return atStage(StageConnect, err)
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(c.cfg.SendTimeout))
 
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
-	if _, _, err := readCode(r); err != nil {
-		return err
+	if err := expectCode(r, 220); err != nil {
+		return atStage(StageGreeting, err)
 	}
 
 	if err := writeLine(w, "EHLO "+c.cfg.Hostname); err != nil {
-		return err
+		return atStage(StageEHLO, err)
 	}
 	ehloLines, err := readLines(r)
 	if err != nil {
-		return err
+		return atStage(StageEHLO, err)
 	}
 	startTLS := false
 	for _, l := range ehloLines {
@@ -361,59 +362,62 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 
 	if startTLS {
 		if err := writeLine(w, "STARTTLS"); err != nil {
-			return err
+			return atStage(StageTLS, err)
 		}
-		code, _, err := readCode(r)
+		code, line, err := readCode(r)
 		if err != nil {
-			return err
+			return atStage(StageTLS, err)
+		}
+		if code != 220 && requireTLS {
+			return atStage(StageTLS, &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)})
 		}
 		if code == 220 {
 			tlsConn := tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				if requireTLS {
-					return &SMTPResponseError{Code: 454, Line: "starttls handshake failed"}
+					return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "starttls handshake failed"}
 				}
-				return err
+				return atStage(StageTLS, err)
 			}
 			if daneRes != nil {
 				state := tlsConn.ConnectionState()
 				if err := verifyPeerCertificatesWithTLSA(host, state.PeerCertificates, daneRes.Records); err != nil {
-					return &SMTPResponseError{Code: 550, Line: "dane authentication failed"}
+					return &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "dane authentication failed"}
 				}
 			}
 			conn = tlsConn
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
 			if err := writeLine(w, "EHLO "+c.cfg.Hostname); err != nil {
-				return err
+				return atStage(StageEHLO, err)
 			}
 			if _, err := readLines(r); err != nil {
-				return err
+				return atStage(StageEHLO, err)
 			}
 		}
 	} else if requireTLS {
-		return &SMTPResponseError{Code: 454, Line: "mta-sts enforce requires starttls"}
+		return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts enforce requires starttls"}
 	}
 
 	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
-		return err
+		return atStage(StageMAIL, err)
 	}
 	if err := expect2xx(r); err != nil {
-		return fmt.Errorf("mail from rejected: %w", err)
+		return fmt.Errorf("mail from rejected: %w", atStage(StageMAIL, err))
 	}
 
 	if err := writeLine(w, fmt.Sprintf("RCPT TO:<%s>", rcpt)); err != nil {
-		return err
+		return atStage(StageRCPT, err)
 	}
 	if err := expect2xx3xx(r); err != nil {
-		return fmt.Errorf("rcpt rejected: %w", err)
+		return fmt.Errorf("rcpt rejected: %w", atStage(StageRCPT, err))
 	}
 
 	if err := writeLine(w, "DATA"); err != nil {
-		return err
+		return atStage(StageDATA, err)
 	}
 	if err := expectCode(r, 354); err != nil {
-		return fmt.Errorf("data not accepted: %w", err)
+		return fmt.Errorf("data not accepted: %w", atStage(StageDATA, err))
 	}
 
 	payload, err := c.prepareOutboundData(msg.Data)
@@ -422,16 +426,16 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	}
 	data := dotStuff(payload)
 	if _, err := w.Write(data); err != nil {
-		return err
+		return atStage(StageDATA, err)
 	}
 	if _, err := w.WriteString("\r\n.\r\n"); err != nil {
-		return err
+		return atStage(StageDATA, err)
 	}
 	if err := w.Flush(); err != nil {
-		return err
+		return atStage(StageDATA, err)
 	}
 	if err := expect2xx(r); err != nil {
-		return fmt.Errorf("final delivery reject: %w", err)
+		return fmt.Errorf("final delivery reject: %w", atStage(StageDATA, err))
 	}
 	_ = writeLine(w, "QUIT")
 	_, _, _ = readCode(r)
@@ -501,37 +505,30 @@ func writeLine(w *bufio.Writer, line string) error {
 }
 
 func readCode(r *bufio.Reader) (int, string, error) {
-	line, err := r.ReadString('\n')
+	code, message, err := textproto.NewReader(r).ReadResponse(0)
 	if err != nil {
 		return 0, "", err
 	}
-	line = strings.TrimRight(line, "\r\n")
-	if len(line) < 3 {
-		return 0, line, errors.New("short smtp response")
+	parts := strings.Split(message, "\n")
+	for i, part := range parts {
+		sep := "-"
+		if i == len(parts)-1 {
+			sep = " "
+		}
+		parts[i] = fmt.Sprintf("%03d%s%s", code, sep, part)
 	}
-	var code int
-	_, err = fmt.Sscanf(line[:3], "%d", &code)
-	if err != nil {
-		return 0, line, err
-	}
-	return code, line, nil
+	return code, strings.Join(parts, "\n"), nil
 }
 
 func readLines(r *bufio.Reader) ([]string, error) {
-	var out []string
-	for {
-		code, line, err := readCode(r)
-		if err != nil {
-			return nil, err
-		}
-		if code < 200 || code > 399 {
-			return nil, &SMTPResponseError{Code: code, Line: line}
-		}
-		out = append(out, line)
-		if len(line) >= 4 && line[3] == ' ' {
-			return out, nil
-		}
+	code, line, err := readCode(r)
+	if err != nil {
+		return nil, err
 	}
+	if code < 200 || code > 399 {
+		return nil, &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
+	}
+	return strings.Split(line, "\n"), nil
 }
 
 func expect2xx(r *bufio.Reader) error {
@@ -540,7 +537,7 @@ func expect2xx(r *bufio.Reader) error {
 		return err
 	}
 	if code < 200 || code > 299 {
-		return &SMTPResponseError{Code: code, Line: line}
+		return &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
 	}
 	return nil
 }
@@ -551,7 +548,7 @@ func expect2xx3xx(r *bufio.Reader) error {
 		return err
 	}
 	if (code < 200 || code > 299) && (code < 300 || code > 399) {
-		return &SMTPResponseError{Code: code, Line: line}
+		return &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
 	}
 	return nil
 }
@@ -562,7 +559,7 @@ func expectCode(r *bufio.Reader, expected int) error {
 		return err
 	}
 	if code != expected {
-		return &SMTPResponseError{Code: code, Line: line}
+		return &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
 	}
 	return nil
 }

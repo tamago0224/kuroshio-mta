@@ -157,6 +157,19 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
 				reasons = append(reasons, rcpt+": "+err.Error())
 				var smtpErr *delivery.SMTPResponseError
+				smtpCode := 0
+				if errors.As(err, &smtpErr) {
+					smtpCode = smtpErr.Code
+				}
+				classification := delivery.ClassifyFailure(err)
+				d.metricInc("worker_bounce_class_" + string(classification.Category))
+				d.metricInc("worker_bounce_rule_" + classification.Rule)
+				slog.InfoContext(ctx, "delivery failure classified",
+					"component", "audit", "event", "delivery_failure_classified",
+					"msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt),
+					"category", classification.Category, "rule", classification.Rule, "smtp_code", smtpCode,
+					"stage", classification.Stage, "enhanced_status", classification.EnhancedStatus,
+					"suppression_eligible", classification.Suppress)
 				if errors.As(err, &smtpErr) && smtpErr.Permanent() {
 					if d.rep != nil {
 						d.rep.ObserveDelivery(domain, false, true)
@@ -173,9 +186,11 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 						}
 					}
 					d.metricInc("worker_permanent_bounce")
-					if d.sup != nil {
+					if d.sup != nil && classification.Suppress {
 						if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
 							slog.ErrorContext(ctx, "suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", sErr)
+						} else {
+							d.metricInc("worker_suppression_added")
 						}
 					}
 					return

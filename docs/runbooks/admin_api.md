@@ -92,3 +92,41 @@ scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
 将来の DB-backed Admin 認証方針は
 [Admin Auth DB Direction](/architecture/admin_auth_db_direction)
 を参照してください。
+
+## 配送失敗分類と自動 suppression
+
+SMTP の恒久失敗と、宛先を以後も抑止する判断は分けています。
+自動登録するのは **RCPT 段階の 5xx 応答で enhanced status が `5.1.1`** の場合だけです。
+MAIL の送信者エラー、DATA の `550 5.7.1`、認証・TLS ポリシーエラー、容量不足、
+理由のない550、段階不明のエラーは宛先無効とみなしません。
+複数行応答はすべて読み、enhanced status が欠落・不一致の場合も自動登録しません。
+
+| 分類 | 既定の判断例 | 自動 suppression |
+| --- | --- | --- |
+| `invalid_recipient` | RCPT の `5.1.1` | あり |
+| `mailbox_full` | `4.2.2` / `5.2.2` | なし |
+| `policy` | TLS・DANE・MTA-STS、その他 `X.7.*` | なし |
+| `auth` | AUTH 段階、530 / 535、`X.7.8` / `X.7.9` | なし |
+| `dns` | DNS 解決エラー、`X.4.3` | なし |
+| `transport` | ネットワーク・接続切断、その他 `X.4.*` | なし |
+| `unknown` | 段階不明・enhanced status 不明・未対応の理由 | なし |
+
+`spam` は分類名を予約していますが、既定のルールはありません。`5.7.1` だけから spam と断定しません。
+分類ルールは `internal/delivery/classification.go` に集約しています。provider 固有のルールを追加する場合は
+識別可能なルール名と回帰テストを追加し、曖昧な応答テキストから自動 suppression を有効化しないでください。
+現時点では外部ルールファイルや追加の設定項目はありません。
+
+分類によって SMTP コードを書き換えません。既存の4xx再送、5xx恒久失敗、DSN生成、
+試行回数・再送期限の扱いを維持します。DSN の MIME / status 形式と `suppression.json` の JSON 形式も変更していません。
+既存 suppression エントリは自動削除しないため、過去の誤登録が疑われる場合は次の手順で確認してください。
+
+1. `GET /api/v1/suppressions` で理由を確認し、必要なら保存データをバックアップします。
+2. 監査イベント `delivery_failure_classified` の `category`、`rule`、`stage`、`smtp_code`、
+   `enhanced_status`、`suppression_eligible` を確認します。宛先はマスクし、応答本文をこのイベントには記録しません。
+3. `worker_bounce_class_<分類>_total` と `worker_bounce_rule_<ルール>_total` で増加傾向を確認します。
+   `worker_suppression_added_total` は保存に成功した自動登録回数です。既存抑止のスキップは `worker_suppressed_recipient_total` で確認します。
+4. 誤登録と判断した宛先だけを、既存の `DELETE /api/v1/suppressions/{address}?dry_run=1` で対象確認後に削除します。
+   この変更自体は既存の抑止を解除しません。
+
+分類の根拠は [RFC 3463](https://www.rfc-editor.org/rfc/rfc3463.html) と
+[IANA enhanced status registry](https://www.iana.org/assignments/smtp-enhanced-status-codes/) を参照してください。

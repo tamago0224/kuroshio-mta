@@ -228,3 +228,10 @@ static / sqlite の既存の送信者ポリシーは維持します。
 ディスク保護には `queue_min_free_bytes` を併用してください。
 
 保証範囲、Kafka での制約、監視・復旧方法は [Queue Backlog runbook](./runbooks/slo_backlog.md) を参照してください。
+
+### 配送失敗と宛先抑止
+
+配送失敗の分類は追加設定なしで有効です。RCPT の `5.1.1` を伴う恒久失敗のみを自動 suppression に登録し、
+DATA のポリシー拒否や認証・TLSエラー、容量不足、未知の550では登録しません。
+`delivery_mode: mx` / `relay` の SMTP 配送に適用し、既存の再送設定や suppression の保存形式は維持します。
+分類・監視・既存抑止の確認手順は [Admin API runbook](./runbooks/admin_api.md#配送失敗分類と自動-suppression) を参照してください。
