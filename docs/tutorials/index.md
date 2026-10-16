@@ -13,6 +13,7 @@
 | [Grafana で trace と log を紐づける](/tutorials/otel-logs-loki) | `trace_id` / `span_id` を使って Tempo と Loki を往復する | `kuroshio` + `alloy` + `tempo` + `loki` + `grafana` |
 | [S3 Spool Backend を観測する](/tutorials/s3-spool-observability) | `spool_backend: s3` で MinIO に `.eml` が保存される流れ | `kuroshio` + `minio` + `smtp-client` |
 | [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability) | `queue_backend: kafka` で topic と worker 処理を追う | `kuroshio` + `kafka` + `smtp-client` |
+| [HTTP ポリシーフックを試す](./policy-hook.md) | 外部 JSON ポリシーによる受理・拒否・一時失敗 | ローカル Python モック + kuroshio |
 | [Rate Limit を試す](/tutorials/rate-limit) | 接続元 IP や `MAIL FROM` 単位の制限 | `kuroshio` + `smtp-client` |
 | [Domain Throttle を観測する](/tutorials/domain-throttle-observability) | Redis backend で配送側 throttle の wait と fail-open を見る | `kuroshio` + `redis` + `slow-smtp` |
 | [Admin API を試す](/tutorials/admin-operations) | queue 操作と Admin API / CLI | `kuroshio` + `smtp-client` |
