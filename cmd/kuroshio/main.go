@@ -67,6 +67,7 @@ func main() {
 		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
+	queue.SetMetrics(q, metrics)
 	rep, err := reputation.NewPersistent(reputation.Config{
 		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),
 		WarmupRules:        reputation.ParseWarmupRules(cfg.ReputationWarmupRules),

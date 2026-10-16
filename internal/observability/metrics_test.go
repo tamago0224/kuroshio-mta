@@ -26,3 +26,17 @@ func TestMetricsCounterAndRender(t *testing.T) {
 		}
 	}
 }
+
+func TestGaugeCanDecreaseWithoutChangingCounters(t *testing.T) {
+	m := NewMetrics()
+	m.Counter("accepted").Inc()
+	m.SetGauge("queue_pending_messages", 10)
+	m.SetGauge("queue_pending_messages", 2)
+	rendered := m.RenderPrometheus()
+	if !strings.Contains(rendered, "# TYPE queue_pending_messages gauge\nqueue_pending_messages 2\n") {
+		t.Fatal(rendered)
+	}
+	if m.Snapshot()["accepted_total"] != 1 {
+		t.Fatal("counter snapshot changed")
+	}
+}

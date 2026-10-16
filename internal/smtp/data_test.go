@@ -12,6 +12,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
+	"github.com/tamago0224/kuroshio-mta/internal/queue"
 )
 
 type dataTestQueue struct {
@@ -54,6 +55,10 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 		{
 			name: "8bit rejected", action: mailauth.ActionAccept, body: "caf\xc3\xa9\r\n",
 			code: 554, rcptCode: 503,
+		},
+		{
+			name: "queue capacity exhausted", action: mailauth.ActionAccept, body: "..leading\r\n",
+			queueErr: queue.ErrCapacity, code: 451, rcptCode: 250, queueFails: 1,
 		},
 		{
 			name: "enqueue failed", action: mailauth.ActionAccept, body: "..leading\r\n",

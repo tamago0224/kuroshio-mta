@@ -28,10 +28,11 @@ func (c *Counter) Load() uint64 {
 type Metrics struct {
 	mu       sync.RWMutex
 	counters map[string]*Counter
+	gauges   map[string]int64
 }
 
 func NewMetrics() *Metrics {
-	return &Metrics{counters: map[string]*Counter{}}
+	return &Metrics{counters: map[string]*Counter{}, gauges: map[string]int64{}}
 }
 
 func (m *Metrics) Counter(name string) *Counter {
@@ -63,6 +64,12 @@ func (m *Metrics) Snapshot() map[string]uint64 {
 	return out
 }
 
+func (m *Metrics) SetGauge(name string, value int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gauges[name] = value
+}
+
 func (m *Metrics) RenderPrometheus() string {
 	snap := m.Snapshot()
 	names := make([]string, 0, len(snap))
@@ -74,6 +81,16 @@ func (m *Metrics) RenderPrometheus() string {
 	for _, n := range names {
 		fmt.Fprintf(&b, "# TYPE %s counter\n", n)
 		fmt.Fprintf(&b, "%s %d\n", n, snap[n])
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	gaugeNames := make([]string, 0, len(m.gauges))
+	for name := range m.gauges {
+		gaugeNames = append(gaugeNames, name)
+	}
+	sort.Strings(gaugeNames)
+	for _, name := range gaugeNames {
+		fmt.Fprintf(&b, "# TYPE %s gauge\n%s %d\n", name, name, m.gauges[name])
 	}
 	return b.String()
 }
