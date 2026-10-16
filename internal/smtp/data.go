@@ -56,9 +56,7 @@ func (s *Server) handleDataCommand(
 	if !strings.EqualFold(ss.bodyMode, "8BITMIME") && contains8Bit(data) {
 		cmdSpan.reject("body_requires_8bitmime", 554, "8-bit data is not permitted without BODY=8BITMIME")
 		writeResp(w, 554, "8-bit data is not permitted without BODY=8BITMIME")
-		ss.mailFrom = ""
-		ss.rcptTo = nil
-		ss.data = nil
+		ss.finishData()
 		return
 	}
 	ss.data = data
@@ -86,9 +84,7 @@ func (s *Server) handleDataCommand(
 	if authRes.Action == mailauth.ActionReject {
 		cmdSpan.reject("auth_policy_reject", 550, "message rejected by auth policy")
 		writeResp(w, 550, "message rejected by auth policy")
-		ss.mailFrom = ""
-		ss.rcptTo = nil
-		ss.data = nil
+		ss.finishData()
 		return
 	}
 	addedHeaders := []string{mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)}
@@ -140,9 +136,7 @@ func (s *Server) handleDataCommand(
 	cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
 	cmdSpan.setResponse(250, "queued")
 	writeResp(w, 250, "queued")
-	ss.mailFrom = ""
-	ss.rcptTo = nil
-	ss.data = nil
+	ss.finishData()
 }
 
 func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
