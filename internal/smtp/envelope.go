@@ -168,6 +168,12 @@ func (s *Server) handleRcptCommand(
 		writeResp(w, 503, "send MAIL FROM first")
 		return
 	}
+	if len(ss.rcptTo) >= s.cfg.SMTPLimits.WithDefaults().MaxRecipients {
+		s.metricInc("smtp_limit_recipients_total")
+		cmdSpan.reject("recipient_limit", 452, "4.5.3 too many recipients")
+		writeResp(w, 452, "4.5.3 too many recipients")
+		return
+	}
 	addr, err := parseRcptTo(arg, s.cfg.Hostname)
 	if err != nil {
 		cmdSpan.recordError(err)

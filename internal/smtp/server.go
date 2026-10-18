@@ -30,6 +30,9 @@ import (
 )
 
 type Server struct {
+	connectionsMu      sync.Mutex
+	connections        int
+	connectionsPerIP   map[string]int
 	recipientPolicy    recipientAuthorizer
 	recipientPolicyErr error
 
@@ -113,6 +116,9 @@ func NewImplicitTLSSubmissionServer(cfg config.Config, q queue.Backend, metrics 
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	if err := s.cfg.SMTPLimits.Validate(); err != nil {
+		return err
+	}
 	if s.policyHookClient != nil {
 		defer s.policyHookClient.Close()
 	}
@@ -167,9 +173,16 @@ func (s *Server) Run(ctx context.Context) error {
 			slog.Warn("smtp accept error", "component", "smtp", "error", err)
 			continue
 		}
+		if !s.acquireConnection("") {
+			s.metricInc("smtp_limit_connections_total")
+			// Do not spawn a goroutine or perform TLS/PROXY work under overload.
+			_ = conn.Close()
+			continue
+		}
 		s.wg.Add(1)
 		go func(c net.Conn) {
 			defer s.wg.Done()
+			defer s.releaseConnection("")
 			s.handleConnWithContext(ctx, c)
 		}(conn)
 	}
@@ -188,6 +201,11 @@ func (s *Server) handleConn(conn net.Conn) {
 
 func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
+	rawConn := conn
+	stopCancel := context.AfterFunc(ctx, func() { _ = rawConn.Close() })
+	defer stopCancel()
+	limits := s.cfg.SMTPLimits.WithDefaults()
+	started := time.Now()
 	if s.proxyEnabled() {
 		if s.proxyPolicyErr != nil || s.proxyPolicy == nil {
 			return
@@ -200,7 +218,17 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 		conn = proxied
 		s.metricInc("smtp_proxy_accepted_total")
 	}
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	ip := ipString(parseRemoteIP(conn.RemoteAddr().String()))
+	if ip == "" {
+		ip = "unknown"
+	}
+	if !s.acquireConnection(ip) {
+		s.metricInc("smtp_limit_connections_per_ip_total")
+		return
+	}
+	defer s.releaseConnection(ip)
+	guarded := &limitedConn{Conn: conn, expires: started.Add(limits.MaxLifetime), idle: limits.IdleTimeout, remaining: limits.MaxBytes}
+	conn = guarded
 	// Complete implicit TLS before any SMTP reply, including ingress rejections.
 	if s.implicitTLS {
 		if s.tlsConfig == nil {
@@ -213,7 +241,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 		}
 		conn = tlsConn
 		defer tlsConn.Close()
-		_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+		_ = conn.SetDeadline(started.Add(limits.MaxLifetime))
 	}
 	s.metricInc("smtp_connections")
 	remoteIP := parseRemoteIP(conn.RemoteAddr().String())
@@ -295,9 +323,29 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {
+		if ss.authFailures >= limits.MaxAuthFailures || ss.rcptFailures >= limits.MaxRcptFailures {
+			reason := "rcpt_failures"
+			if ss.authFailures >= limits.MaxAuthFailures {
+				reason = "auth_failures"
+			}
+			s.metricInc("smtp_limit_" + reason + "_total")
+			writeResp(w, 421, "session failure limit reached")
+			return
+		}
+		if ss.messages >= limits.MaxMessages {
+			s.metricInc("smtp_limit_messages_total")
+			writeResp(w, 421, "session message limit reached")
+			return
+		}
 		line, err := readBoundedSMTPLine(r)
 		if err != nil {
 			sessionErr = err
+			if errors.Is(err, errSessionBytes) {
+				s.metricInc("smtp_limit_bytes_total")
+				writeResp(w, 421, "session byte limit reached")
+			} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				s.metricInc("smtp_limit_timeout_total")
+			}
 			return
 		}
 		if len(line) > 512 && !(s.submission && strings.HasPrefix(strings.ToUpper(line), "AUTH XOAUTH2 ") && len(line) <= maxAuthLineBytes) {
@@ -352,6 +400,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				return
 			}
 		case "RCPT":
+			previousRecipients := len(ss.rcptTo)
 			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.rcpt")
 			s.handleRcptCommand(
 				ctx,
@@ -360,6 +409,9 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				arg,
 				cmdSpan,
 			)
+			if len(ss.rcptTo) == previousRecipients {
+				ss.rcptFailures++
+			}
 		case "DATA":
 			_, cmdSpan := startSMTPCommandSpan(
 				sessionCtx,
@@ -376,6 +428,9 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 				w,
 				cmdSpan,
 			)
+			if ss.closeConnection {
+				return
+			}
 		case "RSET":
 			ss.resetTransaction()
 			writeResp(w, 250, "reset state")

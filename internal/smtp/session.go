@@ -3,18 +3,22 @@ package smtp
 import "github.com/tamago0224/kuroshio-mta/internal/userauth"
 
 type session struct {
-	remote   string
-	helo     string
-	mailFrom string
-	bodyMode string
-	rcptTo   []string
-	data     []byte
-	seenHelo bool
-	extended bool
-	tls      bool
-	authUser string
-	auth     userauth.Principal
-	authOK   bool
+	closeConnection bool
+	authFailures    int
+	rcptFailures    int
+	messages        int
+	remote          string
+	helo            string
+	mailFrom        string
+	bodyMode        string
+	rcptTo          []string
+	data            []byte
+	seenHelo        bool
+	extended        bool
+	tls             bool
+	authUser        string
+	auth            userauth.Principal
+	authOK          bool
 }
 
 // finishData clears a completed or rejected message, preserving the BODY mode.

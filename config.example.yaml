@@ -173,3 +173,16 @@ proxy_protocol:
   submission: false
   submission_tls: false
   trusted_cidrs: []
+
+# Receiving resource limits, independently enforced by each listener.
+# Zero or omitted values use these defaults; negative values are rejected.
+smtp_limits:
+  max_connections: 1024
+  max_connections_per_ip: 32
+  max_recipients: 100
+  max_messages: 100
+  max_bytes: 104857600
+  max_auth_failures: 5
+  max_rcpt_failures: 20
+  idle_timeout: 5m
+  max_lifetime: 10m

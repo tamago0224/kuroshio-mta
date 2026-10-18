@@ -63,11 +63,13 @@ func (s *Server) handleAuthCommand(
 			return err
 		}
 		cmdSpan.recordError(err)
+		ss.authFailures++
 		cmdSpan.setResponse(501, err.Error())
 		writeResp(w, 501, err.Error())
 		return nil
 	}
 	if !authRes.Success {
+		ss.authFailures++
 		cmdSpan.SetAttributes(
 			attribute.Bool("smtp.auth.success", false),
 			attribute.String("smtp.auth.backend", authRes.Principal.AuthSource),

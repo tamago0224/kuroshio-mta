@@ -9,6 +9,7 @@ import (
 )
 
 type yamlConfig struct {
+	SMTPLimits    *SMTPLimitsConfig    `yaml:"smtp_limits"`
 	ProxyProtocol *ProxyProtocolConfig `yaml:"proxy_protocol"`
 	InboundPolicy *InboundPolicyConfig `yaml:"inbound_policy"`
 
@@ -135,6 +136,9 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 
 	cfg := base
+	if raw.SMTPLimits != nil {
+		cfg.SMTPLimits = *raw.SMTPLimits
+	}
 	if raw.ProxyProtocol != nil {
 		cfg.ProxyProtocol = *raw.ProxyProtocol
 	}
