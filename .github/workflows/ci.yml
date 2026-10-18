@@ -40,6 +40,9 @@ jobs:
       - name: Race Tests
         run: go test -race ./...
 
+      - name: PROXY v2 Loopback LB
+        run: go test -race -tags=integration ./internal/smtp -run '^TestProxyV2LoopbackLB$' -count=1 -v
+
   smtp-conformance:
     name: SMTP Conformance
     runs-on: ubuntu-latest

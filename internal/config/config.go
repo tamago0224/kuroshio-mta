@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	ProxyProtocol                    ProxyProtocolConfig
 	InboundPolicy                    InboundPolicyConfig
 	PolicyHook                       PolicyHookConfig
 	MXShaping                        MXShapingConfig
@@ -153,6 +154,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.validateSubmissionTLS(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.ProxyProtocol.Validate(); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.InboundPolicy.Validate(); err != nil {

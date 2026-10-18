@@ -75,6 +75,7 @@ export default defineConfig({
         items: [
           { text: "Admin API", link: "/runbooks/admin_api" },
           { text: "TLS Certificate Rotation", link: "/runbooks/tls_certificate_rotation" },
+          { text: "PROXY Protocol", link: "/runbooks/proxy_protocol" },
           { text: "DR Backup / Restore", link: "/runbooks/dr_backup_restore" },
           { text: "Load / Chaos", link: "/runbooks/load_chaos" },
           { text: "Reputation Ops", link: "/runbooks/reputation_ops" },
