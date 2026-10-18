@@ -940,7 +940,7 @@ func TestSubmissionRejectsMailBeforeAuth(t *testing.T) {
 		t.Fatalf("new static backend: %v", err)
 	}
 	s := &Server{
-		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
 	}
@@ -969,8 +969,8 @@ func TestSubmissionAuthPlainSuccess(t *testing.T) {
 	}
 	s := &Server{
 		cfg: config.Config{
-			Hostname:           "sub.example.test",
-			SubmissionAuth:     true,
+			Hostname:       "sub.example.test",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 			MaxMessageBytes:    1024 * 1024,
 		},
@@ -1010,7 +1010,7 @@ func TestSubmissionAuthLoginSuccess(t *testing.T) {
 		t.Fatalf("new static backend: %v", err)
 	}
 	s := &Server{
-		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
 	}
@@ -1047,7 +1047,7 @@ func TestSubmissionAuthLoginWithInitialResponse(t *testing.T) {
 		t.Fatalf("new static backend: %v", err)
 	}
 	s := &Server{
-		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
 	}
@@ -1079,7 +1079,7 @@ func TestSubmissionAuthFailureAllowsRetry(t *testing.T) {
 		t.Fatalf("new static backend: %v", err)
 	}
 	s := &Server{
-		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
 	}
@@ -1112,8 +1112,8 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 	}
 	s := &Server{
 		cfg: config.Config{
-			Hostname:           "sub.example.test",
-			SubmissionAuth:     true,
+			Hostname:       "sub.example.test",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 		},
 		submission:  true,
@@ -1141,8 +1141,8 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 func TestSubmissionSenderIdentityAllowsScopedAddress(t *testing.T) {
 	s := &Server{
 		cfg: config.Config{
-			Hostname:           "sub.example.test",
-			SubmissionAuth:     true,
+			Hostname:       "sub.example.test",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 		},
 		submission: true,
@@ -1176,8 +1176,8 @@ func TestSubmissionSenderIdentityAllowsScopedAddress(t *testing.T) {
 func TestSubmissionSenderIdentityAllowsScopedDomain(t *testing.T) {
 	s := &Server{
 		cfg: config.Config{
-			Hostname:           "sub.example.test",
-			SubmissionAuth:     true,
+			Hostname:       "sub.example.test",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 		},
 		submission: true,
@@ -1220,7 +1220,7 @@ func TestSubmissionSTARTTLSResetsAuthState(t *testing.T) {
 	s := &Server{
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
-			SubmissionAuth: true,
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 		},
 		submission:  true,
 		authBackend: backend,

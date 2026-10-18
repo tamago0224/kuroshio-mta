@@ -19,7 +19,7 @@ func TestSubmissionGreetingAndRSETPreserveAuthentication(t *testing.T) {
 			}
 			s := &Server{
 				cfg: config.Config{
-					Hostname: "sub.example.test", SubmissionAuth: true,
+					Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 					SubmissionSenderID: true,
 				},
 				submission: true, authBackend: backend,

@@ -2,6 +2,11 @@
 
 Submission の `AUTH PLAIN` / `AUTH LOGIN` を、SQLite-backed credential と sender scope つきで確認する tutorial です。
 
+この tutorial はローカルのダミー資格情報を使う平文認証の検証です。設定に
+`submission_allow_insecure_auth: true` を明記し、ホスト側587番は loopback に限定しています。
+外部公開や実資格情報では使わず、[TLS 移行手順](../runbooks/submission_auth.md#tls-必須化の移行と切り分け)
+に従って STARTTLS 必須または暗黙 TLS を設定してください。
+
 ## 1. tutorial 用の compose を起動する
 
 この tutorial 用に、`compose.yaml` / `config.yaml` / `init.sql` を

@@ -18,6 +18,8 @@ type yamlConfig struct {
 
 	ListenAddr                       *string `yaml:"listen_addr"`
 	SubmissionAddr                   *string `yaml:"submission_addr"`
+	SubmissionTLSAddr                *string `yaml:"submission_tls_addr"`
+	SubmissionAllowInsecureAuth      *bool   `yaml:"submission_allow_insecure_auth"`
 	SubmissionAuth                   *bool   `yaml:"submission_auth_required"`
 	SubmissionUsers                  *string `yaml:"submission_users"`
 	SubmissionAuthBackend            *string `yaml:"submission_auth_backend"`
@@ -151,6 +153,12 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 
 	if raw.ListenAddr != nil {
 		cfg.ListenAddr = *raw.ListenAddr
+	}
+	if raw.SubmissionTLSAddr != nil {
+		cfg.SubmissionTLSAddr = *raw.SubmissionTLSAddr
+	}
+	if raw.SubmissionAllowInsecureAuth != nil {
+		cfg.SubmissionAllowInsecureAuth = *raw.SubmissionAllowInsecureAuth
 	}
 	if raw.SubmissionAddr != nil {
 		cfg.SubmissionAddr = *raw.SubmissionAddr

@@ -12,6 +12,8 @@ type Config struct {
 	MXShaping                        MXShapingConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
+	SubmissionTLSAddr                string
+	SubmissionAllowInsecureAuth      bool
 	SubmissionAuth                   bool
 	SubmissionUsers                  string
 	SubmissionAuthBackend            string
@@ -147,6 +149,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.PolicyHook.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validateSubmissionTLS(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

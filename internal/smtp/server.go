@@ -46,6 +46,7 @@ type Server struct {
 	ln               net.Listener
 	wg               sync.WaitGroup
 	submission       bool
+	implicitTLS      bool
 	authBackend      userauth.Backend
 }
 
@@ -92,6 +93,14 @@ func NewSubmissionServer(cfg config.Config, q queue.Backend, metrics *observabil
 	return s
 }
 
+// NewImplicitTLSSubmissionServer shares Submission authentication and sender policy.
+func NewImplicitTLSSubmissionServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics, backend userauth.Backend) *Server {
+	cfg.SubmissionAddr = cfg.SubmissionTLSAddr
+	s := NewSubmissionServer(cfg, q, metrics, backend)
+	s.implicitTLS = true
+	return s
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	if s.policyHookClient != nil {
 		defer s.policyHookClient.Close()
@@ -107,6 +116,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	if s.rateStoreErr != nil {
 		return s.rateStoreErr
+	}
+	if s.implicitTLS && s.tlsConfig == nil {
+		return errors.New("implicit TLS Submission requires a certificate and key")
 	}
 	ln, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
@@ -151,6 +163,20 @@ func (s *Server) handleConn(conn net.Conn) {
 func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	// Complete implicit TLS before any SMTP reply, including ingress rejections.
+	if s.implicitTLS {
+		if s.tlsConfig == nil {
+			return
+		}
+		tlsConn := tls.Server(conn, s.tlsConfig)
+		_ = tlsConn.SetDeadline(time.Now().Add(30 * time.Second))
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return
+		}
+		conn = tlsConn
+		defer tlsConn.Close()
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	}
 	s.metricInc("smtp_connections")
 	remoteIP := parseRemoteIP(conn.RemoteAddr().String())
 	spanAttrs := []attribute.KeyValue{
@@ -227,7 +253,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			}
 		}
 	}
-	ss = &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT"}
+	ss = &session{remote: conn.RemoteAddr().String(), bodyMode: "7BIT", tls: s.implicitTLS}
 	writeResp(w, 220, s.cfg.Hostname+" ESMTP ready")
 
 	for {

@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "2525:2525"
-      - "587:587"
+      - "127.0.0.1:587:587"
       - "9090:9090"
     volumes:
       - ./config.yaml:/etc/kuroshio/config.yaml:ro

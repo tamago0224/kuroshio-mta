@@ -161,7 +161,7 @@ func TestAuthRejectionsKeepSessionUsable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := &Server{
-				cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true},
+				cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 				submission:  tt.submission,
 				authBackend: tt.backend,
 			}

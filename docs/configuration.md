@@ -42,6 +42,8 @@ go run ./cmd/kuroshio -config ./config.yaml
 | YAML property | 環境変数 | default | 説明 |
 | --- | --- | --- | --- |
 | `listen_addr` | `MTA_LISTEN_ADDR` | `:2525` | SMTP 受信サーバーの待受アドレスです |
+| `submission_tls_addr` | `MTA_SUBMISSION_TLS_ADDR` | unset | 暗黙 TLS の Submission 待受（例 `:465`）。証明書・秘密鍵が必須。既存待受と併用可能 |
+| `submission_allow_insecure_auth` | `MTA_SUBMISSION_ALLOW_INSECURE_AUTH` | `false` | 隔離した検証環境のみで PLAIN/LOGIN の平文認証を許可 |
 | `submission_addr` | `MTA_SUBMISSION_ADDR` | unset | Submission リスナーの待受アドレスです。設定すると有効になります |
 | `submission_auth_required` | `MTA_SUBMISSION_AUTH_REQUIRED` | `true` | Submission で認証を必須にするかを制御します |
 | `submission_auth_backend` | `MTA_SUBMISSION_AUTH_BACKEND` | `static` | Submission の認証 backend を切り替えます。`static` / `sqlite` を使います |
@@ -320,3 +322,33 @@ URL・応答本文・token・メール本文はフックのメトリクスやエ
 [モックサービス付き tutorial](./tutorials/policy-hook.md) と
 [request schema](../examples/tutorials/policy-hook/request.schema.json) /
 [response schema](../examples/tutorials/policy-hook/response.schema.json) を参照してください。
+
+## Submission の TLS と移行
+
+PLAIN/LOGIN は既定で TLS 前の EHLO に広告せず、直接 AUTH を送っても
+資格情報のデコード・認証 backend 呼び出し・334 challenge より前に538で拒否します。
+STARTTLS 後は再 EHLO が必要です。XOAUTH2 は例外設定にかかわらず TLS が必須です。
+
+`submission_addr` は STARTTLS、`submission_tls_addr` は接続直後に TLS handshake を行います。
+両者は同じ認証 backend、認証必須設定、sender policy、証明書を使用します。
+暗黙 TLS は SMTP greeting 前に handshake を完了し、失敗時は接続を閉じます。
+handshake の期限は30秒、最低 TLS バージョンは1.2です。平文に切り替えて継続しません。
+HTTP ポリシーフックの同時実行枠は SMTP / STARTTLS Submission / 暗黙 TLS Submission の
+各 listener に独立して適用され、3つ有効なら合計最大3倍です。
+
+既存の平文 Submission 利用者は、サーバーに `tls_cert_file` / `tls_key_file` を設定し、
+クライアントを証明書検証付き STARTTLS 必須または暗黙 TLS へ変更してください。
+Submission 有効時は証明書の欠落・片側のみの指定・不正な鍵ペアを設定読込時に拒否します。
+暗黙 TLS と他の SMTP 待受に同一アドレスを指定する設定も拒否します。
+
+```yaml
+submission_addr: ":587"
+submission_tls_addr: ":465"
+submission_allow_insecure_auth: false
+tls_cert_file: /etc/kuroshio/tls/fullchain.pem
+tls_key_file: /etc/kuroshio/tls/privkey.pem
+```
+
+`submission_allow_insecure_auth: true` は TLS 設定のない隔離検証用の互換例外です。
+外部公開・実運用では使用しないでください。TLS 終端 proxy の背後でも、接続の TLS 状態を
+外部ヘッダから信頼することはありません。暗黙 TLS の証明書要件はこの例外でも解除しません。

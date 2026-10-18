@@ -164,6 +164,7 @@ func TestLoadSpoolBackendConfig(t *testing.T) {
 
 func TestLoadSubmissionConfig(t *testing.T) {
 	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
+	t.Setenv("MTA_SUBMISSION_ALLOW_INSECURE_AUTH", "true")
 	t.Setenv("MTA_SUBMISSION_AUTH_REQUIRED", "true")
 	t.Setenv("MTA_SUBMISSION_USERS", "alice@example.com:s3cr3t")
 	t.Setenv("MTA_SUBMISSION_AUTH_BACKEND", "static")
@@ -189,6 +190,7 @@ func TestLoadSubmissionConfig(t *testing.T) {
 
 func TestLoadSubmissionSQLiteConfig(t *testing.T) {
 	t.Setenv("MTA_SUBMISSION_ADDR", ":587")
+	t.Setenv("MTA_SUBMISSION_ALLOW_INSECURE_AUTH", "true")
 	t.Setenv("MTA_SUBMISSION_AUTH_BACKEND", "sqlite")
 	t.Setenv("MTA_SUBMISSION_AUTH_DSN", "file:./var/submission-auth.db")
 
@@ -429,6 +431,7 @@ func TestLoadYAMLConfig(t *testing.T) {
 	content := strings.TrimSpace(`
 listen_addr: ":2526"
 submission_addr: ":587"
+submission_allow_insecure_auth: true
 submission_auth_required: false
 submission_users: "yaml-user@example.com:yaml-pass"
 log_level: debug

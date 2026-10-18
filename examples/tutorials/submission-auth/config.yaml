@@ -1,6 +1,8 @@
 listen_addr: ":2525"
 submission_addr: ":587"
 submission_auth_required: true
+# Isolated local tutorial only; production requires TLS.
+submission_allow_insecure_auth: true
 submission_auth_backend: sqlite
 submission_auth_dsn: "file:/var/lib/kuroshio/submission-auth.db"
 submission_enforce_sender_identity: true
