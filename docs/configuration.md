@@ -405,3 +405,10 @@ HTTP フックの accept 応答はこの認可を解除できません。
 なることを確認し、認証失敗後にも中継できないことを確認します。
 検証用 Docker tutorial は loopback へのポート公開と明示的な Docker CIDR 許可を使います。
 異なる Docker subnet を使う場合は各 config.yaml を合わせ、検証用 CIDR を本番へコピーしないでください。
+
+## TLS 証明書の無停止更新
+
+`tls_cert_file` / `tls_key_file` は起動時に検証し、稼働中は1分ごとに再読込します。
+有効な鍵ペアのみを新規 TLS handshake に反映し、失敗時は直前の証明書を保持します。
+SMTP / Submission STARTTLS と暗黙 TLS が対象です。
+配置・ACME staging・期限監視は [TLS 証明書更新 runbook](./runbooks/tls_certificate_rotation.md) を参照してください。
