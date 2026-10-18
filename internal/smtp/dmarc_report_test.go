@@ -38,7 +38,7 @@ func TestDMARCReportsContinueAfterEnqueueFailure(t *testing.T) {
 	t.Cleanup(func() { otel.SetTextMapPropagator(originalPropagator) })
 	q := &reportFailureQueue{}
 	metrics := observability.NewMetrics()
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}, queue: q, metrics: metrics}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}, queue: q, metrics: metrics}
 	parent := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled,
 	})
@@ -107,7 +107,7 @@ func TestQueueMessageEnqueuesDMARCReports(t *testing.T) {
 	}()
 
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()

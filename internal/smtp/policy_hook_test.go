@@ -78,7 +78,7 @@ func TestPolicyHookSMTPResponsesAndBuiltInChecks(t *testing.T) {
 			}
 			defer hook.Close()
 			q := &recordingQueue{}
-			s := &Server{cfg: cfg, queue: q, policyHook: hook}
+			s := &Server{recipientPolicy: allowTestRecipients{}, cfg: cfg, queue: q, policyHook: hook}
 			client, conn := net.Pipe()
 			done := make(chan struct{})
 			go func() { defer close(done); s.handleConn(conn) }()
@@ -142,7 +142,7 @@ func (h *countingPolicyHook) Evaluate(context.Context, policyhook.Request) (poli
 }
 func TestPolicyHookCannotBypassSubmissionAuthentication(t *testing.T) {
 	hook := &countingPolicyHook{}
-	s := &Server{cfg: config.Config{SubmissionAuth: true}, submission: true, policyHook: hook}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{SubmissionAuth: true}, submission: true, policyHook: hook}
 	var output strings.Builder
 	w := bufio.NewWriter(&output)
 	_, span := startSMTPCommandSpan(context.Background(), "test")
@@ -170,7 +170,7 @@ func TestPolicyHookOverloadReturnsSMTP451(t *testing.T) {
 	done := make(chan struct{})
 	go func() { defer close(done); client.Evaluate(context.Background(), policyhook.Request{Stage: "rcpt"}) }()
 	<-entered
-	s := &Server{policyHook: client}
+	s := &Server{recipientPolicy: allowTestRecipients{}, policyHook: client}
 	var output strings.Builder
 	w := bufio.NewWriter(&output)
 	_, span := startSMTPCommandSpan(context.Background(), "test")

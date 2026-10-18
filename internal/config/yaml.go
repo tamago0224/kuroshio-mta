@@ -9,6 +9,8 @@ import (
 )
 
 type yamlConfig struct {
+	InboundPolicy *InboundPolicyConfig `yaml:"inbound_policy"`
+
 	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
 	MXShaping                *MXShapingConfig  `yaml:"mx_shaping"`
 	QueueMaxMessages         *int64            `yaml:"queue_max_messages"`
@@ -132,6 +134,9 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 
 	cfg := base
+	if raw.InboundPolicy != nil {
+		cfg.InboundPolicy = *raw.InboundPolicy
+	}
 	if raw.PolicyHook != nil {
 		cfg.PolicyHook = *raw.PolicyHook
 	}

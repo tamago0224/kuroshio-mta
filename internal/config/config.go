@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	InboundPolicy                    InboundPolicyConfig
 	PolicyHook                       PolicyHookConfig
 	MXShaping                        MXShapingConfig
 	ListenAddr                       string
@@ -152,6 +153,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.validateSubmissionTLS(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.InboundPolicy.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

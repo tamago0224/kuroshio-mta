@@ -7,3 +7,9 @@ queue_backend: local
 delivery_mode: local_spool
 spool_backend: local
 local_spool_dir: ./var/spool
+
+# Accept only these local test recipients; do not grant unauthenticated relay.
+inbound_policy:
+  local_domains: [recipient.test]
+  local_recipients: [user@recipient.test]
+  trusted_cidrs: []

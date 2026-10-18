@@ -8,3 +8,8 @@ queue_backend: local
 delivery_mode: mx
 worker_count: 1
 scan_interval: 1m
+
+# Isolated tutorial clients only. Adjust to the actual Docker bridge subnet.
+# Never trust this broad Docker range on an externally reachable deployment.
+inbound_policy:
+  trusted_cidrs: [127.0.0.0/8, '::1/128', 172.16.0.0/12]

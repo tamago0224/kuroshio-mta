@@ -74,7 +74,7 @@ func TestParseMailFromRejectsUnknownParameter(t *testing.T) {
 }
 
 func TestMailFromUnknownParameterReturns555(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -98,7 +98,7 @@ func TestMailFromUnknownParameterReturns555(t *testing.T) {
 }
 
 func TestDataLineTooLongReturns500(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -134,7 +134,7 @@ func TestDataLineTooLongReturns500(t *testing.T) {
 }
 
 func TestRSETResetsTransactionState(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -165,7 +165,7 @@ func TestRSETResetsTransactionState(t *testing.T) {
 
 func TestDataRejects8BitWhenBodyIs7Bit(t *testing.T) {
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -205,7 +205,7 @@ func TestDataRejects8BitWhenBodyIs7Bit(t *testing.T) {
 
 func TestDataAccepts8BitWhenBodyIs8BitMime(t *testing.T) {
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -245,7 +245,7 @@ func TestDataAccepts8BitWhenBodyIs8BitMime(t *testing.T) {
 
 func TestPipeliningProcessesCommandsInOrder(t *testing.T) {
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -306,7 +306,7 @@ func TestPipeliningProcessesCommandsInOrder(t *testing.T) {
 }
 
 func TestPipeliningErrorResponsesKeepCommandOrder(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -345,7 +345,7 @@ func TestPipeliningErrorResponsesKeepCommandOrder(t *testing.T) {
 
 func TestQueueMessageInjectsReceivedHeader(t *testing.T) {
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -392,7 +392,7 @@ func TestQueueMessageInjectsReceivedHeader(t *testing.T) {
 
 func TestQueueMessageWithHELOInjectsSMTPReceivedHeader(t *testing.T) {
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -458,7 +458,7 @@ func TestAuthMetricsByDMARCResultAndPolicy(t *testing.T) {
 
 	m := observability.NewMetrics()
 	q := &recordingQueue{}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:     config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024},
 		queue:   q,
 		metrics: m,
@@ -580,7 +580,7 @@ func TestBuildReceivedHeaderUsesFallbackTokens(t *testing.T) {
 }
 
 func TestMailFromSMTPUTF8ParameterRejected(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -600,7 +600,7 @@ func TestMailFromSMTPUTF8ParameterRejected(t *testing.T) {
 }
 
 func TestMailFromUTF8AddressRejected(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -620,7 +620,7 @@ func TestMailFromUTF8AddressRejected(t *testing.T) {
 }
 
 func TestRcptToUTF8AddressRejected(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -694,7 +694,7 @@ func TestParseRemoteIP(t *testing.T) {
 }
 
 func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -720,7 +720,7 @@ func TestEHLOResponseWithoutTLSDoesNotAdvertiseStartTLS(t *testing.T) {
 }
 
 func TestEHLOResponseAdvertisesConfiguredSize(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 4096}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 4096}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -746,7 +746,7 @@ func TestEHLOResponseAdvertisesConfiguredSize(t *testing.T) {
 }
 
 func TestEHLOResponseAdvertises8BitMime(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -772,7 +772,7 @@ func TestEHLOResponseAdvertises8BitMime(t *testing.T) {
 }
 
 func TestMailFromSizeAtLimitIsAccepted(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -796,7 +796,7 @@ func TestMailFromSizeAtLimitIsAccepted(t *testing.T) {
 }
 
 func TestSTARTTLSWithoutTLSConfigReturns454(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -831,7 +831,7 @@ func TestSTARTTLSWithTLSConfigUpgradesConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create cert: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:       config.Config{Hostname: "mx.example.test"},
 		tlsConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 	}
@@ -890,7 +890,7 @@ func TestSTARTTLSWithTLSConfigUpgradesConnection(t *testing.T) {
 }
 
 func TestHELPVRFYEXPNCommands(t *testing.T) {
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test"}}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -939,7 +939,7 @@ func TestSubmissionRejectsMailBeforeAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
@@ -967,7 +967,7 @@ func TestSubmissionAuthPlainSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
 			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
@@ -1009,7 +1009,7 @@ func TestSubmissionAuthLoginSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
@@ -1046,7 +1046,7 @@ func TestSubmissionAuthLoginWithInitialResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
@@ -1078,7 +1078,7 @@ func TestSubmissionAuthFailureAllowsRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:         config.Config{Hostname: "sub.example.test", SubmissionAuth: true, SubmissionAllowInsecureAuth: true},
 		submission:  true,
 		authBackend: backend,
@@ -1110,7 +1110,7 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
 			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
@@ -1139,7 +1139,7 @@ func TestSubmissionSenderIdentityMismatchRejected(t *testing.T) {
 }
 
 func TestSubmissionSenderIdentityAllowsScopedAddress(t *testing.T) {
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
 			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
@@ -1174,7 +1174,7 @@ func TestSubmissionSenderIdentityAllowsScopedAddress(t *testing.T) {
 }
 
 func TestSubmissionSenderIdentityAllowsScopedDomain(t *testing.T) {
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
 			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
@@ -1217,7 +1217,7 @@ func TestSubmissionSTARTTLSResetsAuthState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new static backend: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg: config.Config{
 			Hostname:       "sub.example.test",
 			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,

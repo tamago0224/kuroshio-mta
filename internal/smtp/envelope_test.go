@@ -35,7 +35,7 @@ func TestEnvelopeCommandsPreserveTransactionOnRejection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
+			s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}}
 			client, r, w, cleanup := openRawTestSession(t, s)
 			defer cleanup()
 			if err := client.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
@@ -77,7 +77,7 @@ func TestMailFromRateLimitClosesConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:         config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024},
 		flexLimiter: ingress.NewFlexibleLimiter(rules),
 	}

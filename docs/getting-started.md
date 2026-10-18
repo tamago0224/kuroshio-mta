@@ -20,11 +20,13 @@ cp config.local.example.yaml config.yaml
 
 この設定は loopback で待ち受け、受信メールを `./var/spool` に保存します。
 外部 SMTP への配送、Submission、TLS、DKIM 署名は有効にしていません。
+`inbound_policy` は `user@recipient.test` だけをローカル宛先として受理します。
+別の宛先で確認する場合は `local_domains` と `local_recipients` を両方更新してください。
 
 全項目の設定例は [config.example.yaml](https://github.com/tamago0224/kuroshio-mta/blob/main/config.example.yaml) にあります。
 この例を使う場合は `tls_cert_file` / `tls_key_file` の証明書・鍵と、
 `dkim_private_key_file` の署名鍵を用意してください。証明書・鍵はリポジトリに含まれません。
-TLS を使わない場合は TLS の2項目を削除し、署名しない場合は `dkim_sign_domain` / `dkim_sign_selector` / `dkim_private_key_file` を削除します。
+TLS を使わない場合は Submission を無効化して TLS の2項目を削除し、署名しない場合は `dkim_sign_domain` / `dkim_sign_selector` / `dkim_private_key_file` を削除します。
 
 最低限見ることが多い項目:
 

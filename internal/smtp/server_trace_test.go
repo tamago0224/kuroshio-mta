@@ -32,7 +32,7 @@ func TestSMTPTracingCapturesMailRcptAndDataSpans(t *testing.T) {
 
 	exp := setupSMTPTraceExporter(t)
 	q := &recordingQueue{}
-	s := &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
+	s := &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}, queue: q}
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
@@ -276,7 +276,7 @@ func TestSMTPTracingCapturesStartTLSSpan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selfSignedCert: %v", err)
 	}
-	s := &Server{
+	s := &Server{recipientPolicy: allowTestRecipients{},
 		cfg:       config.Config{Hostname: "mx.example.test"},
 		tlsConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 	}
