@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kuroshio.smtp-policy.v1 response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "action"
+  ],
+  "properties": {
+    "version": {
+      "const": "kuroshio.smtp-policy.v1"
+    },
+    "action": {
+      "enum": [
+        "accept",
+        "reject",
+        "tempfail"
+      ]
+    }
+  }
+}

@@ -9,6 +9,7 @@ import (
 
 // applyEnvConfig overlays environment values on the defaults and YAML configuration.
 func applyEnvConfig(cfg Config) Config {
+	cfg.PolicyHook.TokenFile = env("MTA_POLICY_HOOK_TOKEN_FILE", cfg.PolicyHook.TokenFile)
 	cfg.QueueMaxMessages = envInt64("MTA_QUEUE_MAX_MESSAGES", cfg.QueueMaxMessages)
 	cfg.QueueMaxBytes = envInt64("MTA_QUEUE_MAX_BYTES", cfg.QueueMaxBytes)
 	cfg.QueueLowWatermarkPercent = envInt64("MTA_QUEUE_LOW_WATERMARK_PERCENT", cfg.QueueLowWatermarkPercent)

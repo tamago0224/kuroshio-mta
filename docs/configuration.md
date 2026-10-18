@@ -275,3 +275,48 @@ Redis は `domain_throttle_redis_addrs` / username / password / db / key_prefix 
 
 例と保証範囲、延期・監視・Redis 結合テストは
 [Domain Throttle 設計・運用](./architecture/domain_throttle_externalization.md#mx-provider-グループ制御) を参照してください。
+
+## SMTP HTTP ポリシーフック
+
+`policy_hook` は設定ファイルを管理できる運用管理者が接続先を指定する機能です。
+独自 API `kuroshio.smtp-policy.v1` を使い、Stalwart MTA Hooks とは互換ではありません。
+RCPT の既存チェック後と、DATA のメール認証・ヘッダ追加後／キュー保存前に呼び出します。
+
+| property (`policy_hook` 内) | default | 説明 |
+| --- | --- | --- |
+| `url` | 空（無効） | 固定の HTTPS endpoint。SMTP 入力から変更されません |
+| `timeout` | `5s` | 1回の呼び出し全体の期限。0 は5s、上限30s |
+| `max_concurrent` | `32` | listener ごとの同時呼び出し数。0 は32、上限1000 |
+| `max_response_bytes` | `65536` | HTTP 応答本文の上限。0 は64KiB、上限1MiB |
+| `send_body` | `false` | DATA の最終メッセージ（追加ヘッダ込み）を base64 で送信する明示同意 |
+| `token_file` | 空 | 任意の Bearer token ファイル。`MTA_POLICY_HOOK_TOKEN_FILE` が優先 |
+| `allow_http_loopback` | `false` | HTTP をリテラル loopback IP に限って許可するローカル検証用例外 |
+
+空の `url` では呼び出し・token 読み込みを行わず、従来の受信動作を維持します。
+通常は OS trust store で証明書・ホスト名を検証する TLS 1.2 以上を使います。
+private CA は OS trust store（または Go が参照する `SSL_CERT_FILE`）へ設定してください。TLS 検証を無効化する設定はありません。
+redirect と環境変数由来の HTTP proxy は使いません。HTTP 応答ヘッダにも64KiBの上限を設けます。URL の userinfo・query・fragment は拒否し、
+認証情報は endpoint の URL に埋め込まず token ファイルを使います。ファイルは起動時に読み、最大4KiBの非空1行です。
+末尾の改行を除去し、ファイル内容を設定・ログ・SMTP 応答へ出しません。更新の反映には再起動が必要です。
+
+認証済み管理者による設定ファイル・環境変数・secret mount の配置を前提とし、管理 API から endpoint を変更する機能はありません。
+接続先は管理者の信頼境界に含まれます。外部サービスには envelope、接続元IP、HELO、TLS/Submission/認証済みフラグを送信します。
+SMTP AUTH のパスワード・access token・認証ユーザー名は送信しません。`send_body: false` ではヘッダ・本文を一切送信しません。
+有効時は本文自体に機密情報が含まれ得るため、サービス側の保存・ログ方針も運用管理者が設定してください。
+
+応答は HTTP 200 の厳格な JSON で、同じ `version` と `action: accept|reject|tempfail` のみを許可します。
+RCPT reject は550、DATA reject は554、tempfail・timeout・通信失敗・TLS失敗・redirect・不正JSON・応答超過・過負荷は451です。
+SMTP 応答文は固定で、サービス側が本文・宛先・ヘッダ・SMTP 応答を変更する機能はありません。
+accept はフック段階のチェックを通過するだけで、既存の AUTH / SPF / DKIM / DMARC / ARC、サイズ、8BITMIME、キュー容量制限を解除しません。
+DATA フックの拒否・一時失敗後はトランザクションを終了します。再試行は MAIL FROM から開始してください。
+
+SMTP と Submission はそれぞれ独立した呼び出し枠を持つため、両方の有効化時は最大で2倍の同時数になります。
+サービス過負荷時は枠待ちで滞留させず即時451にし、hook 応答を待つ時間も timeout で制限します。
+`smtp_policy_hook_<rcpt|data>_<accept|reject|tempfail>_total` と
+`smtp_policy_hook_<stage>_error_<reason>_total` を監視してください。
+reason は `overload`、`timeout`、`transport`、`http_status`、`read`、`response_too_large`、`json`、`version`、`action`、`request`、`canceled` の固定値です。
+URL・応答本文・token・メール本文はフックのメトリクスやエラー記録に含みません。
+
+[モックサービス付き tutorial](./tutorials/policy-hook.md) と
+[request schema](../examples/tutorials/policy-hook/request.schema.json) /
+[response schema](../examples/tutorials/policy-hook/response.schema.json) を参照してください。

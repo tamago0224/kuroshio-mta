@@ -110,6 +110,11 @@ func (s *Server) handleDataCommand(
 	)
 	ss.data = mailauth.InjectHeaders(ss.data, []string{received})
 
+	if !s.applyPolicyHook(ctx, ss, "data", "", w, cmdSpan) {
+		ss.finishData()
+		return
+	}
+
 	if err := s.enqueue(ctx, ss, id); err != nil {
 		cmdSpan.recordError(err)
 		cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))

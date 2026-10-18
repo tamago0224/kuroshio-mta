@@ -20,6 +20,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
+	"github.com/tamago0224/kuroshio-mta/internal/policyhook"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/userauth"
 	"go.opentelemetry.io/otel"
@@ -29,23 +30,31 @@ import (
 )
 
 type Server struct {
-	cfg          config.Config
-	queue        queue.Backend
-	tlsConfig    *tls.Config
-	tlsLoadErr   error
-	limiter      *ingress.RateLimiter
-	flexLimiter  *ingress.FlexibleLimiter
-	rateRuleErr  error
-	rateStoreErr error
-	dnsbl        *ingress.DNSBLChecker
-	metrics      *observability.Metrics
-	ln           net.Listener
-	wg           sync.WaitGroup
-	submission   bool
-	authBackend  userauth.Backend
+	policyHook       policyhook.Evaluator
+	policyHookClient *policyhook.Client
+	policyHookErr    error
+	cfg              config.Config
+	queue            queue.Backend
+	tlsConfig        *tls.Config
+	tlsLoadErr       error
+	limiter          *ingress.RateLimiter
+	flexLimiter      *ingress.FlexibleLimiter
+	rateRuleErr      error
+	rateStoreErr     error
+	dnsbl            *ingress.DNSBLChecker
+	metrics          *observability.Metrics
+	ln               net.Listener
+	wg               sync.WaitGroup
+	submission       bool
+	authBackend      userauth.Backend
 }
 
 func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
+	hook, hookErr := policyhook.New(cfg.PolicyHook, metrics)
+	var evaluator policyhook.Evaluator
+	if hook != nil {
+		evaluator = hook
+	}
 	tlsConfig, err := loadTLSConfig(cfg)
 	rules, rErr := ingress.ParseRateRules(cfg.RateLimitRules)
 	rateStore, storeErr := ingress.NewLimitStore(ingress.RateLimitStoreConfig{
@@ -60,6 +69,7 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 		rateStore = ingress.NewLocalLimitStore()
 	}
 	return &Server{
+		policyHook: evaluator, policyHookClient: hook, policyHookErr: hookErr,
 		cfg:          cfg,
 		queue:        q,
 		tlsConfig:    tlsConfig,
@@ -83,6 +93,12 @@ func NewSubmissionServer(cfg config.Config, q queue.Backend, metrics *observabil
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	if s.policyHookClient != nil {
+		defer s.policyHookClient.Close()
+	}
+	if s.policyHookErr != nil {
+		return s.policyHookErr
+	}
 	if s.tlsLoadErr != nil {
 		return s.tlsLoadErr
 	}
@@ -274,6 +290,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 		case "RCPT":
 			_, cmdSpan := startSMTPCommandSpan(sessionCtx, "smtp.rcpt")
 			s.handleRcptCommand(
+				ctx,
 				ss,
 				w,
 				arg,
