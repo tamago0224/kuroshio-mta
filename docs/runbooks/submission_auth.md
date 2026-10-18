@@ -1,6 +1,6 @@
 # Submission Auth Runbook
 
-Issue: #251
+Issue: #251、#313
 
 ## 目的
 
@@ -164,3 +164,22 @@ token / client secret / raw IdP response は記録しません。`invalid_token`
 
 参考: [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662)、
 [XOAUTH2 protocol](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol)。
+
+## TLS 必須化の移行と切り分け
+
+PLAIN/LOGIN の既定値は TLS 必須です。538 は認証 backend のパスワード不一致ではなく、
+暗号化されていない接続の拒否です。クライアントで STARTTLS 必須を選び、再 EHLO 後に AUTH してください。
+暗黙 TLS は `submission_tls_addr` を設定し、クライアントでも接続直後の TLS を選択します。
+いずれも信頼した CA とホスト名による証明書検証を有効にしてください。
+
+疎通確認（認証情報を入力する前に証明書検証結果を確認）:
+
+```bash
+openssl s_client -connect mail.example.com:587 -starttls smtp -verify_return_error -verify_hostname mail.example.com -crlf
+openssl s_client -connect mail.example.com:465 -verify_return_error -verify_hostname mail.example.com -crlf
+```
+
+起動時の証明書エラーはファイル配置・権限・鍵ペアを確認し、handshake 失敗はクライアントの
+CA・接続ホスト名・TLS モードを確認します。更新反映は現在は再起動が必要です。
+`submission_allow_insecure_auth` は隔離したローカル検証専用で、本番障害の回避に使用しません。
+設定例と互換性変更は [設定リファレンス](../configuration.md#submission-の-tls-と移行) を参照してください。

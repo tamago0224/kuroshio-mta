@@ -115,9 +115,9 @@ func TestSMTPTracingCapturesAuthSpan(t *testing.T) {
 	}
 	s := NewSubmissionServer(
 		config.Config{
-			Hostname:           "mx.example.test",
-			SubmissionAddr:     "127.0.0.1:587",
-			SubmissionAuth:     true,
+			Hostname:       "mx.example.test",
+			SubmissionAddr: "127.0.0.1:587",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 		},
 		&recordingQueue{},
@@ -179,9 +179,9 @@ func TestSMTPTracingCapturesSQLiteAuthScopeMetadata(t *testing.T) {
 	}
 	s := NewSubmissionServer(
 		config.Config{
-			Hostname:           "mx.example.test",
-			SubmissionAddr:     "127.0.0.1:587",
-			SubmissionAuth:     true,
+			Hostname:       "mx.example.test",
+			SubmissionAddr: "127.0.0.1:587",
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 			SubmissionSenderID: true,
 		},
 		&recordingQueue{},
@@ -234,7 +234,7 @@ func TestSMTPTracingCapturesAuthFailureReason(t *testing.T) {
 		config.Config{
 			Hostname:       "mx.example.test",
 			SubmissionAddr: "127.0.0.1:587",
-			SubmissionAuth: true,
+			SubmissionAuth: true, SubmissionAllowInsecureAuth: true,
 		},
 		&recordingQueue{},
 		nil,

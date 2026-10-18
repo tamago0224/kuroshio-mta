@@ -36,7 +36,7 @@ func main() {
 		fatal("config load failed", "error", err)
 	}
 	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout))
-	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", cfg.SubmissionAddr != "", "delivery_mode", cfg.DeliveryMode)
+	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", (cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != ""), "delivery_mode", cfg.DeliveryMode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -92,8 +92,8 @@ func main() {
 		fatal("worker init failed", "error", err)
 	}
 	s := smtp.NewServer(cfg, q, metrics)
-	var submissionServer *smtp.Server
-	if cfg.SubmissionAddr != "" {
+	var submissionServers []*smtp.Server
+	if cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != "" {
 		var (
 			authBackend userauth.Backend
 			aErr        error
@@ -128,20 +128,23 @@ func main() {
 			}
 			authBackend = &userauth.CombinedBackend{Password: authBackend, Bearer: bearer}
 		}
-		submissionServer = smtp.NewSubmissionServer(cfg, q, metrics, authBackend)
+		if cfg.SubmissionAddr != "" {
+			submissionServers = append(submissionServers, smtp.NewSubmissionServer(cfg, q, metrics, authBackend))
+		}
+		if cfg.SubmissionTLSAddr != "" {
+			submissionServers = append(submissionServers, smtp.NewImplicitTLSSubmissionServer(cfg, q, metrics, authBackend))
+		}
 	}
 
 	workers := 4
-	if submissionServer != nil {
-		workers++
-	}
+	workers += len(submissionServers)
 	if cfg.AdminAddr != "" {
 		workers++
 	}
 	workers++
 	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
-	if submissionServer != nil {
+	for _, submissionServer := range submissionServers {
 		go func() { errCh <- submissionServer.Run(ctx) }()
 	}
 	go func() { errCh <- d.Run(ctx) }()

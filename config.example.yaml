@@ -1,5 +1,8 @@
 listen_addr: ":2525"
 submission_addr: ":587"
+# Optional implicit TLS Submission (TLS before SMTP greeting).
+submission_tls_addr: "" # e.g. ":465"
+submission_allow_insecure_auth: false # isolated testing only
 submission_auth_required: true
 submission_users: "alice@example.com:s3cr3t"
 submission_auth_backend: static

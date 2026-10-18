@@ -51,9 +51,9 @@ func (s *Server) handleAuthCommand(
 		writeResp(w, 454, "authentication backend unavailable")
 		return nil
 	}
-	if mech == "XOAUTH2" && !ss.tls {
-		cmdSpan.setResponse(538, "encryption required for XOAUTH2")
-		writeResp(w, 538, "encryption required for XOAUTH2")
+	if !ss.tls && (mech == "XOAUTH2" || ((mech == "PLAIN" || mech == "LOGIN") && !s.cfg.SubmissionAllowInsecureAuth)) {
+		cmdSpan.setResponse(538, "encryption required for "+mech)
+		writeResp(w, 538, "encryption required for "+mech)
 		return nil
 	}
 	authRes, err := s.handleAuth(authCtx, r, w, arg)
@@ -123,7 +123,7 @@ func (s *Server) authMechanisms(encrypted bool) []string {
 	}
 	result := make([]string, 0, len(methods))
 	for _, method := range methods {
-		if method != "XOAUTH2" || encrypted {
+		if encrypted || (s.cfg.SubmissionAllowInsecureAuth && (method == "PLAIN" || method == "LOGIN")) {
 			result = append(result, method)
 		}
 	}

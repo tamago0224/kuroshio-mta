@@ -17,6 +17,8 @@ func applyEnvConfig(cfg Config) Config {
 
 	cfg.ListenAddr = env("MTA_LISTEN_ADDR", cfg.ListenAddr)
 	cfg.SubmissionAddr = env("MTA_SUBMISSION_ADDR", cfg.SubmissionAddr)
+	cfg.SubmissionTLSAddr = env("MTA_SUBMISSION_TLS_ADDR", cfg.SubmissionTLSAddr)
+	cfg.SubmissionAllowInsecureAuth = envBool("MTA_SUBMISSION_ALLOW_INSECURE_AUTH", cfg.SubmissionAllowInsecureAuth)
 	cfg.SubmissionAuth = envBool("MTA_SUBMISSION_AUTH_REQUIRED", cfg.SubmissionAuth)
 	cfg.SubmissionUsers = envOrFile("MTA_SUBMISSION_USERS", "MTA_SUBMISSION_USERS_FILE", cfg.SubmissionUsers)
 	cfg.SubmissionAuthBackend = envEnum("MTA_SUBMISSION_AUTH_BACKEND", cfg.SubmissionAuthBackend, []string{"static", "sqlite"})
