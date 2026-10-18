@@ -41,6 +41,8 @@ type Server struct {
 	tlsConfig        *tls.Config
 	tlsLoadErr       error
 	certificate      *tlsCertificate
+	proxyPolicy      *proxyPolicy
+	proxyPolicyErr   error
 	limiter          *ingress.RateLimiter
 	flexLimiter      *ingress.FlexibleLimiter
 	rateRuleErr      error
@@ -55,6 +57,7 @@ type Server struct {
 }
 
 func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
+	proxy, proxyErr := newProxyPolicy(cfg.ProxyProtocol)
 	recipients, recipientErr := newRecipientPolicy(cfg.InboundPolicy)
 	hook, hookErr := policyhook.New(cfg.PolicyHook, metrics)
 	var evaluator policyhook.Evaluator
@@ -76,6 +79,7 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 	}
 	return &Server{
 		recipientPolicy: recipients, recipientPolicyErr: recipientErr,
+		proxyPolicy: proxy, proxyPolicyErr: proxyErr,
 		policyHook: evaluator, policyHookClient: hook, policyHookErr: hookErr,
 		cfg:          cfg,
 		queue:        q,
@@ -111,6 +115,9 @@ func NewImplicitTLSSubmissionServer(cfg config.Config, q queue.Backend, metrics 
 func (s *Server) Run(ctx context.Context) error {
 	if s.policyHookClient != nil {
 		defer s.policyHookClient.Close()
+	}
+	if s.proxyPolicyErr != nil {
+		return s.proxyPolicyErr
 	}
 	if s.recipientPolicyErr != nil {
 		return s.recipientPolicyErr
@@ -181,6 +188,18 @@ func (s *Server) handleConn(conn net.Conn) {
 
 func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
+	if s.proxyEnabled() {
+		if s.proxyPolicyErr != nil || s.proxyPolicy == nil {
+			return
+		}
+		proxied, reason := s.proxyPolicy.accept(ctx, conn)
+		if reason != "" {
+			s.metricInc("smtp_proxy_reject_" + reason + "_total")
+			return
+		}
+		conn = proxied
+		s.metricInc("smtp_proxy_accepted_total")
+	}
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
 	// Complete implicit TLS before any SMTP reply, including ingress rejections.
 	if s.implicitTLS {

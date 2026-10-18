@@ -389,7 +389,8 @@ RCPT の構文検証後、HTTP ポリシーフックより前に次の順で判�
 メールボックス作成やローカル配送先の選択は行いません。配送は既存の delivery_mode に従います。
 
 失敗した AUTH・EHLO 名・MAIL FROM の自己申告・本文ヘッダ・PROXY コマンドは中継権限を与えません。
-PROXY protocol は未対応で、TCP peer の実アドレスだけを照合します。
+PROXY protocol 無効時は TCP peer の実アドレスだけを照合します。
+有効時は信頼 proxy が伝達した client IP を照合します（下記参照）。
 認証必須の Submission は信頼 CIDR でも AUTH を省略できず、sender identity 制約も維持します。
 HTTP フックの accept 応答はこの認可を解除できません。
 
@@ -412,3 +413,38 @@ HTTP フックの accept 応答はこの認可を解除できません。
 有効な鍵ペアのみを新規 TLS handshake に反映し、失敗時は直前の証明書を保持します。
 SMTP / Submission STARTTLS と暗黙 TLS が対象です。
 配置・ACME staging・期限監視は [TLS 証明書更新 runbook](./runbooks/tls_certificate_rotation.md) を参照してください。
+
+## 信頼した TCP proxy と PROXY v2
+
+`proxy_protocol` は YAML 専用で、既定ではすべて無効です。
+有効にする listener は LB 専用になり、通常の直接接続と共用できません。
+
+```yaml
+proxy_protocol:
+  smtp: true
+  submission: false
+  submission_tls: false
+  trusted_cidrs: [192.0.2.10/32, '2001:db8::10/128']
+```
+
+`smtp` は `listen_addr`、`submission` は `submission_addr`、
+`submission_tls` は `submission_tls_addr` を個別に選択します。
+少なくとも1つ有効なら `trusted_cidrs` は必須です。CIDR の不正値は起動前に拒否します。
+反映には再起動が必要です。既存 tutorial の直接接続設定では有効にしません。
+
+信頼 CIDR 内の実 TCP peer に限って、SMTP greeting / TLS handshake より前に
+PROXY v2 を読みます。信頼外・不正・上限超過・5秒以内に読めない接続は応答せず閉じます。
+PROXY v1、自動判別、UDP、UNIX、PROXY コマンドの UNSPEC は受け付けません。
+IPv4/IPv6 の TCP 送信元 IP/port を採用し、宛先アドレスは経路・認可に使いません。
+LOCAL は LB 自身の接続として扱い、TCP peer を維持します。
+送信元が unspecified / multicast の PROXY 接続は拒否します。
+フレーム payload は最大4096バイトで、TLV は長さのみ検証して無視します。
+TLS TLV によって TLS 済み扱いにせず、AUTH の TLS 要件も維持します。
+
+SPF、DNSBL、IP rate limit、HTTP policy hook、Received、受信認可は同じ client IP を使います。
+実 TCP peer と伝達 client は接続内部で区別して保持します。
+`proxy_protocol.trusted_cidrs` はアドレス情報を伝達する権限だけを与えます。
+中継権限を与える `inbound_policy.trusted_cidrs` と混同しないでください。
+LB のアドレスを中継許可表へ追加する必要はありません。
+
+LB 側の条件・検証・監視は [PROXY v2 runbook](./runbooks/proxy_protocol.md) を参照してください。

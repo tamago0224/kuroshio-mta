@@ -165,3 +165,11 @@ inbound_policy:
   local_domains: [example.com]
   local_recipients: [postmaster@example.com, user@example.com]
   trusted_cidrs: [] # e.g. a narrowly scoped internal submission network
+
+# Dedicated PROXY v2 listeners: enable only behind trusted TCP load balancers.
+# Enabled listeners require a PROXY v2 header before SMTP or TLS bytes.
+proxy_protocol:
+  smtp: false
+  submission: false
+  submission_tls: false
+  trusted_cidrs: []

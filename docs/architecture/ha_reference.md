@@ -81,3 +81,10 @@
 - DNS障害（名前解決失敗/遅延）
 
 各シナリオの実行は `scripts/chaos/run_ha_drill.sh` を参照。
+
+## TCP LB 配下のクライアント IP
+
+通常の TCP 中継では接続元は LB になります。実 IP が必要な場合は listener を LB 専用にし、
+明示した信頼 CIDR からだけ PROXY v2 を受け付けます。TLS は MTA まで透過させます。
+設定・検証は [PROXY v2 runbook](../runbooks/proxy_protocol.md) を参照してください。
+この参照構成全体の RTO/RPO を測定済みとするものではありません。

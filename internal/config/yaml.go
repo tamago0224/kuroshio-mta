@@ -9,6 +9,7 @@ import (
 )
 
 type yamlConfig struct {
+	ProxyProtocol *ProxyProtocolConfig `yaml:"proxy_protocol"`
 	InboundPolicy *InboundPolicyConfig `yaml:"inbound_policy"`
 
 	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
@@ -134,6 +135,9 @@ func loadYAMLConfig(path string, base Config) (Config, error) {
 	}
 
 	cfg := base
+	if raw.ProxyProtocol != nil {
+		cfg.ProxyProtocol = *raw.ProxyProtocol
+	}
 	if raw.InboundPolicy != nil {
 		cfg.InboundPolicy = *raw.InboundPolicy
 	}
