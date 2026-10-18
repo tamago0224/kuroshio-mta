@@ -40,6 +40,7 @@ type Server struct {
 	queue            queue.Backend
 	tlsConfig        *tls.Config
 	tlsLoadErr       error
+	certificate      *tlsCertificate
 	limiter          *ingress.RateLimiter
 	flexLimiter      *ingress.FlexibleLimiter
 	rateRuleErr      error
@@ -60,7 +61,7 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 	if hook != nil {
 		evaluator = hook
 	}
-	tlsConfig, err := loadTLSConfig(cfg)
+	certificate, tlsConfig, err := loadTLSConfig(cfg)
 	rules, rErr := ingress.ParseRateRules(cfg.RateLimitRules)
 	rateStore, storeErr := ingress.NewLimitStore(ingress.RateLimitStoreConfig{
 		Backend:        cfg.RateLimitBackend,
@@ -80,6 +81,7 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 		queue:        q,
 		tlsConfig:    tlsConfig,
 		tlsLoadErr:   err,
+		certificate:  certificate,
 		limiter:      ingress.NewRateLimiterWithStore("ingress:ip", cfg.IngressRateLimit, time.Minute, rateStore),
 		flexLimiter:  ingress.NewFlexibleLimiterWithStore(rules, rateStore),
 		rateRuleErr:  rErr,
@@ -133,6 +135,15 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	s.ln = ln
+	if s.certificate != nil {
+		reloadCtx, cancelReload := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.watchCertificate(reloadCtx)
+		}()
+		defer func() { cancelReload(); <-done }()
+	}
 	slog.Info("smtp listening", "component", "smtp", "listen_addr", s.cfg.ListenAddr, "submission", s.submission)
 
 	go func() {

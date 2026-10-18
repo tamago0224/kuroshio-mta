@@ -4,12 +4,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"net"
 	"time"
 
-	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -48,21 +45,4 @@ func (s *Server) handleStartTLSCommand(
 	cmdSpan.setResponse(220, "Ready to start TLS")
 	cmdSpan.end()
 	return tlsConn, nil
-}
-
-func loadTLSConfig(cfg config.Config) (*tls.Config, error) {
-	if cfg.TLSCertFile == "" && cfg.TLSKeyFile == "" {
-		return nil, nil
-	}
-	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
-		return nil, errors.New("both MTA_TLS_CERT_FILE and MTA_TLS_KEY_FILE must be set")
-	}
-	cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("load TLS cert/key: %w", err)
-	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-	}, nil
 }

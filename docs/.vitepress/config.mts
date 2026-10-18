@@ -74,6 +74,7 @@ export default defineConfig({
         text: "Runbooks",
         items: [
           { text: "Admin API", link: "/runbooks/admin_api" },
+          { text: "TLS Certificate Rotation", link: "/runbooks/tls_certificate_rotation" },
           { text: "DR Backup / Restore", link: "/runbooks/dr_backup_restore" },
           { text: "Load / Chaos", link: "/runbooks/load_chaos" },
           { text: "Reputation Ops", link: "/runbooks/reputation_ops" },
