@@ -126,11 +126,15 @@ func Load() (Config, error) {
 }
 
 func LoadWithPath(explicitPath string) (Config, error) {
+	return loadWithPath(explicitPath, false)
+}
+
+func loadWithPath(explicitPath string, strict bool) (Config, error) {
 	cfg := defaultConfig()
 
 	configPath, requestedPath, explicit := resolveConfigPath(explicitPath)
 	if configPath != "" {
-		loaded, err := loadYAMLConfig(configPath, cfg)
+		loaded, err := loadYAMLConfigMode(configPath, cfg, strict)
 		if err != nil {
 			return Config{}, err
 		}

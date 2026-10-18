@@ -41,6 +41,13 @@ TLS を使わない場合は Submission を無効化して TLS の2項目を削�
 
 ## 3. MTA を起動する
 
+起動前に、副作用なしで設定を検証できます。詳細と検証範囲は
+[起動前の設定検証](configuration.md#起動前の設定検証) を参照してください。
+
+```bash
+go run ./cmd/kuroshio -check-config -config ./config.yaml
+```
+
 ```bash
 go run ./cmd/kuroshio -config ./config.yaml
 ```

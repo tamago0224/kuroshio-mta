@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -28,8 +29,21 @@ import (
 )
 
 func main() {
+	checkConfig := flag.Bool("check-config", false, "validate configuration without starting services")
 	configPath := flag.String("config", "", "path to YAML config file")
 	flag.Parse()
+	if *checkConfig {
+		if flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "check-config does not accept positional arguments")
+			os.Exit(2)
+		}
+		if err := config.CheckWithPath(*configPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stdout, "configuration OK")
+		return
+	}
 
 	cfg, err := config.LoadWithPath(*configPath)
 	if err != nil {

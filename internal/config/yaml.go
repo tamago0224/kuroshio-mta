@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -125,13 +127,30 @@ type yamlConfig struct {
 }
 
 func loadYAMLConfig(path string, base Config) (Config, error) {
+	return loadYAMLConfigMode(path, base, false)
+}
+
+func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("read config file %q: %w", path, err)
 	}
 
 	var raw yamlConfig
-	if err := yaml.Unmarshal(b, &raw); err != nil {
+	if strict {
+		decoder := yaml.NewDecoder(bytes.NewReader(b))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(&raw); err != nil {
+			return Config{}, fmt.Errorf("invalid YAML syntax, unknown field or type")
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			return Config{}, fmt.Errorf("configuration requires one YAML document")
+		}
+		if err := validateCheckEnums(raw); err != nil {
+			return Config{}, err
+		}
+	} else if err := yaml.Unmarshal(b, &raw); err != nil {
 		return Config{}, fmt.Errorf("parse config file %q: %w", path, err)
 	}
 
