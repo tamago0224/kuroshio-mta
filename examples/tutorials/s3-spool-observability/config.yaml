@@ -18,3 +18,8 @@ spool_s3_use_tls: false
 observability_addr: ":9090"
 max_message_bytes: 1048576
 scan_interval: "2s"
+
+# Isolated tutorial clients only. Adjust to the actual Docker bridge subnet.
+# Never trust this broad Docker range on an externally reachable deployment.
+inbound_policy:
+  trusted_cidrs: [127.0.0.0/8, '::1/128', 172.16.0.0/12]

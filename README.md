@@ -86,3 +86,6 @@ docker run --rm \
 - 設定サンプル: [config.example.yaml](./config.example.yaml)
 - Prometheus alert rule ひな形: [kuroshio_slo_rules.yml](./deploy/monitoring/prometheus/kuroshio_slo_rules.yml)
 - Docker 設定: [Dockerfile](./Dockerfile), [.dockerignore](./.dockerignore)
+
+受信時は未認証の外部宛中継を既定で拒否します。ローカル宛先表、認証済み Submission、
+信頼する接続元 CIDR の設定・移行は [受信認可](docs/configuration.md#受信認可とローカル宛先) を参照してください。

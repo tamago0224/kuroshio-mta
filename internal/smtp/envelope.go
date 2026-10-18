@@ -186,6 +186,30 @@ func (s *Server) handleRcptCommand(
 		return
 	}
 	cmdSpan.SetAttributes(attribute.String("smtp.rcpt_to", logging.MaskEmail(addr)))
+	policy := s.recipientPolicy
+	if policy == nil {
+		policy, err = newRecipientPolicy(s.cfg.InboundPolicy)
+	}
+	reason := ""
+	if err == nil {
+		reason, err = policy.Authorize(ctx, parseRemoteIP(ss.remote), s.submission && ss.authOK, addr)
+	}
+	if err != nil {
+		cmdSpan.reject("recipient_backend_unavailable", 451, "recipient validation temporarily unavailable")
+		s.metricInc("smtp_reject_recipient_backend_unavailable")
+		writeResp(w, 451, "recipient validation temporarily unavailable")
+		return
+	}
+	if reason != "" {
+		code, text := 550, "5.7.1 relaying denied"
+		if reason == "unknown_recipient" {
+			text = "5.1.1 unknown recipient"
+		}
+		cmdSpan.reject(reason, code, text)
+		s.metricInc("smtp_reject_" + reason)
+		writeResp(w, code, text)
+		return
+	}
 	if !s.applyPolicyHook(ctx, ss, "rcpt", addr, w, cmdSpan) {
 		return
 	}

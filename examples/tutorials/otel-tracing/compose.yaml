@@ -13,7 +13,7 @@ services:
       context: ../../..
       dockerfile: Dockerfile
     ports:
-      - "2525:2525"
+      - "127.0.0.1:2525:2525"
       - "9090:9090"
     volumes:
       - ./config.yaml:/etc/kuroshio/config.yaml:ro

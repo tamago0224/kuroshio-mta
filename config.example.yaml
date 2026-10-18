@@ -159,3 +159,9 @@ policy_hook:
   send_body: false # explicit opt-in to send final message bytes as base64
   token_file: "" # Bearer token file; MTA_POLICY_HOOK_TOKEN_FILE can override
   allow_http_loopback: false # tutorial-only exception for literal loopback IPs
+
+# Recipient admission is independent of delivery_mode; no relay CIDR is trusted by default.
+inbound_policy:
+  local_domains: [example.com]
+  local_recipients: [postmaster@example.com, user@example.com]
+  trusted_cidrs: [] # e.g. a narrowly scoped internal submission network

@@ -352,3 +352,56 @@ tls_key_file: /etc/kuroshio/tls/privkey.pem
 `submission_allow_insecure_auth: true` は TLS 設定のない隔離検証用の互換例外です。
 外部公開・実運用では使用しないでください。TLS 終端 proxy の背後でも、接続の TLS 状態を
 外部ヘッダから信頼することはありません。暗黙 TLS の証明書要件はこの例外でも解除しません。
+
+## 受信認可とローカル宛先
+
+`inbound_policy` は YAML 専用の設定です（対応する環境変数はありません）。
+省略時はローカル宛先・信頼 CIDR とも空で、未認証の中継をすべて拒否します。
+loopback やプライベート IP を暗黙に信頼しません。`delivery_mode` や relay host を
+設定しても受信認可は変わりません。
+
+| property (`inbound_policy` 内) | default | 説明 |
+| --- | --- | --- |
+| `local_domains` | `[]` | ローカル受信対象の完全一致ドメイン。ワイルドカード・末尾ドットは不可 |
+| `local_recipients` | `[]` | 対象ドメイン内で存在を認める完全一致メールボックスの静的表 |
+| `trusted_cidrs` | `[]` | 外部宛への中継を許可する TCP 接続元 IPv4/IPv6 CIDR |
+
+ドメインとメールボックスは既存の envelope 正規化に合わせて大文字小文字を区別しません。
+local_domains のサブドメインは自動では含まれません。アドレスや CIDR の不正値、
+local_domains に属さない local_recipients は起動前に拒否します。更新反映には再起動が必要です。
+
+```yaml
+inbound_policy:
+  local_domains: [example.com]
+  local_recipients: [user@example.com, postmaster@example.com]
+  trusted_cidrs: [192.0.2.10/32, '2001:db8::10/128']
+```
+
+RCPT の構文検証後、HTTP ポリシーフックより前に次の順で判定します。
+
+1. ローカルドメイン宛は静的表にあれば受理し、なければ `550 5.1.1`。
+2. 外部ドメイン宛は、認証済み Submission または信頼 CIDR 内の接続元なら受理。
+3. それ以外は `550 5.7.1 relaying denied`。
+
+信頼 CIDR や認証済みユーザーも、未知のローカル宛先は受理しません。
+`RCPT TO:<postmaster>` は hostname で補完されるため、受信する場合はそのドメインと
+`postmaster@<hostname>` を表へ登録してください。表は受理する宛先の定義であり、
+メールボックス作成やローカル配送先の選択は行いません。配送は既存の delivery_mode に従います。
+
+失敗した AUTH・EHLO 名・MAIL FROM の自己申告・本文ヘッダ・PROXY コマンドは中継権限を与えません。
+PROXY protocol は未対応で、TCP peer の実アドレスだけを照合します。
+認証必須の Submission は信頼 CIDR でも AUTH を省略できず、sender identity 制約も維持します。
+HTTP フックの accept 応答はこの認可を解除できません。
+
+初期実装の宛先表は起動時に検証してメモリに保持し、受信中に外部 DB を参照しません。
+内部の宛先検証処理が障害を返す場合は451とし、宛先を追加せず送信元の再試行に委ねます。
+`smtp_reject_relay_denied_total`、`smtp_reject_unknown_recipient_total`、
+`smtp_reject_recipient_backend_unavailable_total` で拒否を観測できます。
+
+既存環境は、受け取るドメイン・メールボックスを表に列挙するか、クライアントを TLS と
+認証を使う Submission に移行してください。内部 relay は実際の送信元だけを狭い CIDR で指定します。
+`0.0.0.0/0` や `::/0` を指定すると公開中継を許すため使用しないでください。
+公開前に、外部の未認証クライアントで外部宛 RCPT が550、既知のローカル宛が250、未知のローカル宛が550に
+なることを確認し、認証失敗後にも中継できないことを確認します。
+検証用 Docker tutorial は loopback へのポート公開と明示的な Docker CIDR 許可を使います。
+異なる Docker subnet を使う場合は各 config.yaml を合わせ、検証用 CIDR を本番へコピーしないでください。

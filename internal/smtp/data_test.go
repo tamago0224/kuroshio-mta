@@ -73,7 +73,7 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 			}
 			q := &dataTestQueue{err: tt.queueErr}
 			metrics := observability.NewMetrics()
-			s := &Server{
+			s := &Server{recipientPolicy: allowTestRecipients{},
 				cfg:     config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024},
 				queue:   q,
 				metrics: metrics,

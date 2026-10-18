@@ -10,3 +10,8 @@ hostname: tutorial.local
 queue_dir: /var/lib/kuroshio/queue
 log_level: info
 observability_addr: ":9090"
+
+# Isolated tutorial clients only. Adjust to the actual Docker bridge subnet.
+# Never trust this broad Docker range on an externally reachable deployment.
+inbound_policy:
+  trusted_cidrs: [127.0.0.0/8, '::1/128', 172.16.0.0/12]

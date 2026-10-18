@@ -13,3 +13,8 @@ otel_service_name: kuroshio-mta
 otel_exporter_otlp_endpoint: http://alloy:4318/v1/traces
 otel_exporter_otlp_insecure: true
 otel_trace_sample_ratio: 1.0
+
+# Isolated tutorial clients only. Adjust to the actual Docker bridge subnet.
+# Never trust this broad Docker range on an externally reachable deployment.
+inbound_policy:
+  trusted_cidrs: [127.0.0.0/8, '::1/128', 172.16.0.0/12]

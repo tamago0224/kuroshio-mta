@@ -43,3 +43,9 @@
 6. [S3 Spool Backend を観測する](/tutorials/s3-spool-observability) と [Kafka Queue Mode を観測する](/tutorials/kafka-queue-observability) で backend 差し替え時の見え方を確認する
 7. [Rate Limit を試す](/tutorials/rate-limit) と [Domain Throttle を観測する](/tutorials/domain-throttle-observability) と [Admin API を試す](/tutorials/admin-operations) で運用系を見る
 8. [メール認証を試す](/tutorials/mail-auth) と [TLS 配送ポリシーを試す](/tutorials/tls-policy) で DNS / policy 系を確認する
+
+受信を行う Compose tutorial はホストの SMTP ポートを loopback に公開し、
+検証用設定で loopback と Docker の `172.16.0.0/12` を明示的に中継許可しています。
+Docker の subnet が異なる場合は各 `inbound_policy.trusted_cidrs` を変更してください。
+この広い検証用 CIDR を外部公開する設定へコピーせず、
+[受信認可](../configuration.md#受信認可とローカル宛先) に従って設定してください。

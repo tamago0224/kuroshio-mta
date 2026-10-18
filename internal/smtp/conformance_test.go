@@ -14,7 +14,7 @@ import (
 
 func TestSMTPConformance(t *testing.T) {
 	t.Run("RFC5321-4.1.4-MAIL-before-HELO-must-fail-503", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, bannerCode := readSMTPResponse(t, r)
@@ -26,7 +26,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.1-EHLO-without-domain-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -36,7 +36,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.1-HELO-without-domain-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -46,7 +46,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.4-MAIL-parameters-after-HELO-must-fail-555", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -60,7 +60,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-invalid-SIZE-parameter-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -73,7 +73,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-invalid-BODY-parameter-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -86,7 +86,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-unsupported-MAIL-parameter-must-fail-555", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -99,7 +99,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-invalid-MAIL-syntax-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -112,7 +112,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-missing-MAIL-path-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -125,7 +125,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.2-unclosed-MAIL-path-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -138,7 +138,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.5-RSET-must-clear-transaction", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -157,7 +157,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.5-RSET-must-allow-new-mail-transaction", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -177,7 +177,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.3-RCPT-before-MAIL-must-fail-503", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -190,7 +190,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.3-invalid-RCPT-syntax-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -205,7 +205,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.3-empty-RCPT-path-must-fail-501", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -220,7 +220,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.3-unsupported-RCPT-parameter-must-fail-555", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -236,7 +236,7 @@ func TestSMTPConformance(t *testing.T) {
 
 	t.Run("RFC5321-4.1.1.3-postmaster-must-be-accepted", func(t *testing.T) {
 		q := &recordingQueue{}
-		s := &Server{
+		s := &Server{recipientPolicy: allowTestRecipients{},
 			cfg:   config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024},
 			queue: q,
 		}
@@ -273,7 +273,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.4-DATA-before-RCPT-must-fail-503", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -288,7 +288,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC1870-6-SIZE-over-limit-must-fail-552", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -301,7 +301,7 @@ func TestSMTPConformance(t *testing.T) {
 
 	t.Run("RFC6152-2-BODY-8BITMIME-must-accept-8bit-data", func(t *testing.T) {
 		q := &recordingQueue{}
-		s := &Server{
+		s := &Server{recipientPolicy: allowTestRecipients{},
 			cfg:   config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024},
 			queue: q,
 		}
@@ -335,7 +335,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.5.3.1.4-command-line-limit", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -346,7 +346,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.5.3.1.6-data-line-limit-must-fail-500", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024 * 1024}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -372,7 +372,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.8-HELP-must-return-214", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -382,7 +382,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-3.5.2-VRFY-may-return-252", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -392,7 +392,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-3.5.1-EXPN-may-return-502", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -402,7 +402,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.10-QUIT-must-return-221", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -412,7 +412,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.9-NOOP-must-return-250", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -422,7 +422,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.2.4-unrecognized-command-must-return-500", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -432,7 +432,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.2.4-empty-command-must-return-500", func(t *testing.T) {
-		r, w, cleanup := openTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		r, w, cleanup := openTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -442,7 +442,7 @@ func TestSMTPConformance(t *testing.T) {
 	})
 
 	t.Run("RFC5321-4.1.1.10-QUIT-must-close-connection", func(t *testing.T) {
-		client, r, w, cleanup := openRawTestSession(t, &Server{cfg: config.Config{Hostname: "mx.example.test"}})
+		client, r, w, cleanup := openRawTestSession(t, &Server{recipientPolicy: allowTestRecipients{}, cfg: config.Config{Hostname: "mx.example.test"}})
 		defer cleanup()
 
 		_, _ = readSMTPResponse(t, r) // banner
@@ -473,7 +473,7 @@ func TestSMTPConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create cert: %v", err)
 		}
-		client, r, w, cleanup := openRawTestSession(t, &Server{
+		client, r, w, cleanup := openRawTestSession(t, &Server{recipientPolicy: allowTestRecipients{},
 			cfg:       config.Config{Hostname: "mx.example.test"},
 			tlsConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 		})

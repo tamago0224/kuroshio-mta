@@ -30,6 +30,9 @@ import (
 )
 
 type Server struct {
+	recipientPolicy    recipientAuthorizer
+	recipientPolicyErr error
+
 	policyHook       policyhook.Evaluator
 	policyHookClient *policyhook.Client
 	policyHookErr    error
@@ -51,6 +54,7 @@ type Server struct {
 }
 
 func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
+	recipients, recipientErr := newRecipientPolicy(cfg.InboundPolicy)
 	hook, hookErr := policyhook.New(cfg.PolicyHook, metrics)
 	var evaluator policyhook.Evaluator
 	if hook != nil {
@@ -70,6 +74,7 @@ func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metric
 		rateStore = ingress.NewLocalLimitStore()
 	}
 	return &Server{
+		recipientPolicy: recipients, recipientPolicyErr: recipientErr,
 		policyHook: evaluator, policyHookClient: hook, policyHookErr: hookErr,
 		cfg:          cfg,
 		queue:        q,
@@ -104,6 +109,9 @@ func NewImplicitTLSSubmissionServer(cfg config.Config, q queue.Backend, metrics 
 func (s *Server) Run(ctx context.Context) error {
 	if s.policyHookClient != nil {
 		defer s.policyHookClient.Close()
+	}
+	if s.recipientPolicyErr != nil {
+		return s.recipientPolicyErr
 	}
 	if s.policyHookErr != nil {
 		return s.policyHookErr

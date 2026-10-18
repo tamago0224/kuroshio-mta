@@ -9,3 +9,8 @@ scan_interval: 1m
 ingress_rate_limit_per_minute: 10
 rate_limit_backend: memory
 rate_limit_rules: "connect:ip:3:1m;mailfrom:ip+mailfrom:2:1m"
+
+# Isolated tutorial clients only. Adjust to the actual Docker bridge subnet.
+# Never trust this broad Docker range on an externally reachable deployment.
+inbound_policy:
+  trusted_cidrs: [127.0.0.0/8, '::1/128', 172.16.0.0/12]
