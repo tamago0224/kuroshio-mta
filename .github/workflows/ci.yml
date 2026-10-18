@@ -40,6 +40,9 @@ jobs:
       - name: Race Tests
         run: go test -race ./...
 
+      - name: Configuration Reload Process
+        run: go test -race -tags=integration ./cmd/kuroshio -run '^TestConfigReloadProcess$' -count=1 -v
+
       - name: PROXY v2 Loopback LB
         run: go test -race -tags=integration ./internal/smtp -run '^TestProxyV2LoopbackLB$' -count=1 -v
 

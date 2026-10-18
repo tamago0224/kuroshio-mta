@@ -49,7 +49,7 @@ func main() {
 	if err != nil {
 		fatal("config load failed", "error", err)
 	}
-	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout))
+	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout).With("config_generation", int64(1)))
 	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", (cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != ""), "delivery_mode", cfg.DeliveryMode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -81,6 +81,8 @@ func main() {
 		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
+	stopReload := startConfigReload(ctx, *configPath, cfg, metrics)
+	defer stopReload()
 	queue.SetMetrics(q, metrics)
 	rep, err := reputation.NewPersistent(reputation.Config{
 		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),

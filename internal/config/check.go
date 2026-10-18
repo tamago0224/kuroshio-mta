@@ -19,15 +19,24 @@ import (
 // CheckWithPath validates configuration without listeners, backend connections,
 // queue locks, credential database access or writes. Errors never contain values.
 func CheckWithPath(path string) error {
+	_, err := LoadCheckedWithPath(path)
+	return err
+}
+
+// LoadCheckedWithPath returns a complete validated snapshot without runtime side effects.
+func LoadCheckedWithPath(path string) (Config, error) {
 	if err := validateCheckEnvironment(); err != nil {
-		return err
+		return Config{}, err
 	}
 	cfg, err := loadWithPath(path, true)
 	if err != nil {
 		// YAML and TLS parsers may include credentials or input values in errors.
-		return errors.New("configuration load failed: check file availability, YAML syntax/fields/types and configuration dependencies")
+		return Config{}, errors.New("configuration load failed: check file availability, YAML syntax/fields/types and configuration dependencies")
 	}
-	return cfg.checkResources()
+	if err := cfg.checkResources(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 func (cfg Config) checkResources() error {
