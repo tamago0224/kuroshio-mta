@@ -38,6 +38,13 @@ func (s *Server) handleDataCommand(
 	writeResp(w, 354, "end with <CRLF>.<CRLF>")
 	data, err := readData(r, s.cfg.MaxMessageBytes)
 	if err != nil {
+		ss.closeConnection = true
+		if errors.Is(err, errSessionBytes) {
+			s.metricInc("smtp_limit_bytes_total")
+		}
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			s.metricInc("smtp_limit_timeout_total")
+		}
 		cmdSpan.recordError(err)
 		switch {
 		case errors.Is(err, errDataLineTooLong):
@@ -137,6 +144,7 @@ func (s *Server) handleDataCommand(
 		id,
 		time.Now().UTC(),
 	)
+	ss.messages++
 	s.metricInc("smtp_queued_messages")
 	cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))
 	cmdSpan.setResponse(250, "queued")
@@ -147,7 +155,7 @@ func (s *Server) handleDataCommand(
 func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
 	var out []byte
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readBoundedDataLine(r)
 		if err != nil {
 			return nil, err
 		}

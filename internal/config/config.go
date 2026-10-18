@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	SMTPLimits                       SMTPLimitsConfig
 	ProxyProtocol                    ProxyProtocolConfig
 	InboundPolicy                    InboundPolicyConfig
 	PolicyHook                       PolicyHookConfig
@@ -147,6 +148,9 @@ func LoadWithPath(explicitPath string) (Config, error) {
 		}
 	}
 	cfg = applyEnvConfig(cfg)
+	if err := cfg.SMTPLimits.Validate(); err != nil {
+		return Config{}, err
+	}
 	if err := cfg.MXShaping.Validate(); err != nil {
 		return Config{}, err
 	}

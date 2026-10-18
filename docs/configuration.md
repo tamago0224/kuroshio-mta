@@ -448,3 +448,44 @@ SPF、DNSBL、IP rate limit、HTTP policy hook、Received、受信認可は同�
 LB のアドレスを中継許可表へ追加する必要はありません。
 
 LB 側の条件・検証・監視は [PROXY v2 runbook](./runbooks/proxy_protocol.md) を参照してください。
+
+## SMTP 受信資源の上限
+
+`smtp_limits` は YAML 専用です。省略・0 は下表の既定値、負数は起動時エラーです。
+SMTP、STARTTLS Submission、暗黙 TLS Submission の各 listener が独立して適用します。
+複数プロセス・ノード間で共有する上限ではありません。変更反映には再起動が必要です。
+
+| property | default | 範囲・動作 |
+| --- | --- | --- |
+| `max_connections` | `1024` | listener 全体の同時接続数。PROXY/TLS 処理中も含む |
+| `max_connections_per_ip` | `32` | 実効クライアント IP ごとの同時接続数 |
+| `max_recipients` | `100` | 1トランザクションで受理する RCPT 数。重複も数える |
+| `max_messages` | `100` | 1接続でキュー保存に成功した通数 |
+| `max_bytes` | `104857600` | 1接続のネットワーク入力バイト数。SMTP コマンド・DATA・TLS framing/handshake を含む。PROXY ヘッダは別の4096バイト上限 |
+| `max_auth_failures` | `5` | 1接続の資格情報不一致・SASL 構文エラーの累計 |
+| `max_rcpt_failures` | `20` | 1接続の不受理 RCPT の累計。構文・認可・フック・宛先上限の拒否も含む |
+| `idle_timeout` | `5m` | ネットワーク read/write ごとの無通信期限 |
+| `max_lifetime` | `10m` | 接続開始からの絶対期限。PROXY/TLS 処理時間も含む |
+
+接続上限時は greeting 前に接続を閉じます。全体の枠は handler goroutine 起動前に確保し、
+IP 別の枠は信頼済み PROXY v2 のクライアント IP 復元後、TLS handshake 前に確保します。
+PROXY の読込中も全体上限と既存の5秒期限で保護します。
+枠は切断・キャンセル・TLS失敗で解放し、STARTTLS 中は保持します。
+LB が同じ IP を使う場合は [PROXY v2](runbooks/proxy_protocol.md) と組み合わせてください。
+
+宛先上限は `452 4.5.3` を返し、受理済み宛先への DATA は継続できます。
+通数・AUTH/RCPT 失敗回数の上限では、直前コマンドの応答後に `421` を返して閉じます。
+成功済みの `250 queued` は取り消しません。RSET、再 EHLO、STARTTLS は接続累計をリセットしません。
+AUTH の TLS 前拒否・未対応 AUTH・認証 backend 未設定は資格情報の失敗数に含めません。
+転送量上限ではコマンド待受中は421、DATA中は451の後に閉じます。
+無通信・寿命期限では切断します。DATA の行長・サイズ超過や読込失敗も、
+残りの本文をコマンドとして解釈しないよう応答後に切断します。
+無通信期限は各ネットワーク I/O で更新しますが、少量ずつ送るクライアントにも絶対期限は延長しません。
+
+運用では `smtp_active_connections_<smtp|submission|submission_tls>` を
+`smtp_connection_limit_<listener>` と比較して接続使用率を監視します。
+`smtp_limit_<connections|connections_per_ip|recipients|messages|bytes|auth_failures|rcpt_failures|timeout>_total`
+は制限の拒否・切断回数です（handshake/PROXY 段階の失敗は各既存メトリクスも参照）。
+IP をメトリクス名に含めません。接続元の再送・正当な一括投入を確認してから上限を調整し、
+負荷分散時は各 listener/プロセスの上限を合算して容量を設計してください。
+キュー滞留の保護には [キュー容量制限](#キュー容量とバックプレッシャー) を併用します。
