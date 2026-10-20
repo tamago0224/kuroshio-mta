@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,6 +62,98 @@ func TestPartialRouteFailureRetriesOnlyUndeliveredRecipient(t *testing.T) {
 	}
 	if failureCount.Load() != 2 {
 		t.Fatalf("temporary recipient attempts = %d", failureCount.Load())
+	}
+}
+
+func TestLMTPPartialResultsPersistOnlyTemporaryRecipient(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "lmtp.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	var transactions atomic.Int64
+	seen := make(chan []string, 2)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go serveWorkerLMTP(conn, transactions.Add(1), seen)
+		}
+	}()
+	cfg := config.Config{
+		Hostname:      "mta.example.test",
+		DialTimeout:   time.Second,
+		SendTimeout:   time.Second,
+		RetrySchedule: []time.Duration{time.Millisecond},
+		DeliveryRoutes: []config.DeliveryRoute{
+			{Name: "mailstore", Domains: []string{"local.test"}, Mode: "lmtp", LMTPUnixSocket: socket},
+		},
+	}
+	backend, err := queue.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := delivery.NewClient(cfg)
+	defer client.Close()
+	dispatcher := &Dispatcher{cfg: cfg, queue: backend, cl: client, throttle: newLocalDomainThrottle(1, nil, false, 0.3, time.Second)}
+	msg := &model.Message{ID: "lmtp-partial", MailFrom: "sender@example.test", RcptTo: []string{"ok@local.test", "later@local.test", "bad@local.test"}, Data: []byte("Subject: test\r\n\r\nbody")}
+	if err := backend.Enqueue(msg); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher.handleMessage(context.Background(), msg)
+	retry, err := backend.ListState("retry", 0)
+	if err != nil || len(retry) != 1 || len(retry[0].RcptTo) != 1 || retry[0].RcptTo[0] != "later@local.test" {
+		t.Fatalf("retry = %+v, %v", retry, err)
+	}
+	dispatcher.handleMessage(context.Background(), retry[0])
+	first, second := <-seen, <-seen
+	if strings.Join(first, ",") != "ok@local.test,later@local.test,bad@local.test" || strings.Join(second, ",") != "later@local.test" {
+		t.Fatalf("LMTP transactions = %v then %v", first, second)
+	}
+}
+
+func serveWorkerLMTP(conn net.Conn, transaction int64, seen chan<- []string) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	r := bufio.NewReader(conn)
+	fmt.Fprint(conn, "220 ready\r\n")
+	r.ReadString('\n')
+	fmt.Fprint(conn, "250 mailstore\r\n")
+	r.ReadString('\n')
+	fmt.Fprint(conn, "250 sender ok\r\n")
+	var recipients []string
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if strings.HasPrefix(line, "RCPT TO:<") {
+			recipients = append(recipients, strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(line), "RCPT TO:<"), ">"))
+			fmt.Fprint(conn, "250 recipient ok\r\n")
+			continue
+		}
+		if line == "DATA\r\n" {
+			fmt.Fprint(conn, "354 send\r\n")
+			break
+		}
+	}
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if line == ".\r\n" {
+			break
+		}
+	}
+	seen <- recipients
+	if transaction == 1 {
+		fmt.Fprint(conn, "250 delivered\r\n451 try later\r\n550 unknown user\r\n")
+	} else {
+		fmt.Fprint(conn, "250 delivered\r\n")
 	}
 }
 

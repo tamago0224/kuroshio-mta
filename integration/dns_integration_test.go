@@ -66,7 +66,7 @@ func TestOutboundPolicyPrecedenceDANEOverMTASTS(t *testing.T) {
 	)
 
 	called := false
-	cl.DeliverHostForTest(func(_ string, _ int, _ *model.Message, _ string, requireTLS bool) error {
+	cl.DeliverHostForTest(func(_ string, _ int, _ *model.Message, _ string, requireTLS bool, _ *delivery.DANEResult) error {
 		called = true
 		if !requireTLS {
 			t.Fatal("expected TLS required when DANE is active")

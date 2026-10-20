@@ -135,9 +135,13 @@ delivery_routes:
   - name: archive-spool
     domains: [archive.example]
     mode: local_spool
+  - name: dovecot-mailstore
+    domains: [mailbox.example]
+    mode: lmtp
+    lmtp_unix_socket: /run/dovecot/lmtp
 ```
 
-route の `mode` は `mx` / `local_spool` / `relay` です。認証付き relay は STARTTLS 後に
+route の `mode` は `mx` / `local_spool` / `relay` / `lmtp` です。認証付き relay は STARTTLS 後に
 サーバー証明書とホスト名を検証してから SMTP AUTH PLAIN を送ります。平文接続への資格情報送信や
 証明書検証の無効化は設定できません。`relay_username` と `relay_password_file` は一組で指定し、
 `relay_require_tls: true` が必要です。password file は起動時に読み込み、空ファイルや読込失敗では
@@ -150,6 +154,28 @@ route の `mode` は `mx` / `local_spool` / `relay` です。認証付き relay 
 名前付きルートの選択は `delivery_route_selected` 監査イベントに、メッセージID、マスク済み宛先、
 ルート名、配送方式を記録します。OpenTelemetry の `delivery.deliver` span には
 `delivery.route` と `delivery.mode` を付与します。資格情報はログと trace に出しません。
+
+`lmtp` はローカルの信頼境界内にある UNIX socket だけをサポートします。クライアントは `LHLO` を使い、
+同じrouteの複数宛先を1トランザクションへまとめ、DATA後の宛先別応答を成功・一時失敗・恒久失敗として
+個別に処理します。一時失敗した宛先だけをretryへ保存するため、local / Kafkaのいずれでも成功済み宛先を
+再送しません。TCP LMTP、暗黙TLS、STARTTLSは未対応です。
+
+Dovecotでは、例として `service lmtp` の `unix_listener /run/dovecot/lmtp` を有効にし、socketのowner/groupを
+`kuroshio` プロセスの実行ユーザーが接続できる値へ設定します。socketをコンテナ間で共有する場合は専用volumeを
+使い、ホスト全体から書き込める権限にしないでください。起動前に次のように接続権限を確認できます。
+
+```bash
+test -S /run/dovecot/lmtp
+sudo -u kuroshio test -w /run/dovecot/lmtp
+```
+
+実メールストアとの任意結合テストは、テスト用メールボックスを用意して次を実行します。
+
+```bash
+MTA_TEST_LMTP_UNIX_SOCKET=/run/dovecot/lmtp \
+MTA_TEST_LMTP_RECIPIENT=user@mailbox.example \
+go test -tags=integration ./integration -run '^TestLMTPMailstore$' -v
+```
 
 ## Kafka Queue Backend
 
