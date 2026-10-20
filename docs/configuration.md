@@ -142,6 +142,15 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | `spf_helo_policy` | `MTA_SPF_HELO_POLICY` | `advisory` | HELO に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
 | `spf_mailfrom_policy` | `MTA_SPF_MAILFROM_POLICY` | `advisory` | `MAIL FROM` に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
 
+`dkim_sign_domain` / `dkim_sign_selector` / `dkim_private_key_file` のいずれかを指定した場合は、
+DKIM と ARC の署名初期化が必須です。項目の不足、鍵の欠落・読込失敗・不正形式があれば
+worker 初期化で起動を停止します。未署名での配送には切り替えません。
+3項目すべてが未設定の場合は従来どおり署名せず配送します。
+起動前には `-check-config` で確認し、初期化に失敗した場合は設定・鍵ファイルを修復して再起動してください。
+稼働後の鍵再読込で失敗した場合も、その署名・配送はエラーになります。
+これは既存の単一署名設定に対する失敗時の挙動です。複数ドメインの profile 選択や
+DNS 事前公開を検証する selector 切替は Issue #316 の後続範囲です。
+
 ## レート制御と配送スロットリング
 
 | YAML property | 環境変数 | default | 説明 |
