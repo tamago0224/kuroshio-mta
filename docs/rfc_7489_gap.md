@@ -33,7 +33,7 @@ RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメ�
 
 ## 実装範囲外として扱う内容
 
-- RFC 9990 / RFC 9991 の RUF failure report 実装（#329 を参照。現行の単通形式が残っています）
+- RFC 9991 の RUF failure report 送信。PIIや本文の外部開示リスクがあるためサポートせず、`ruf` を公開したドメインに対しても生成しません
 - XML aggregate report の受信 / 解析パイプライン
 - すべての異常 DMARC レコードに対する厳密なエラー分類
 
