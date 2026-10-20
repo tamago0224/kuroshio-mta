@@ -18,6 +18,7 @@ import (
 )
 
 type FileSigner struct {
+	fixed    bool
 	domain   string
 	selector string
 	headers  []string
@@ -98,6 +99,9 @@ func (s *FileSigner) Sign(raw []byte) ([]byte, error) {
 }
 
 func (s *FileSigner) reloadIfNeeded() error {
+	if s.fixed {
+		return nil
+	}
 	st, err := os.Stat(s.keyFile)
 	if err != nil {
 		return err
