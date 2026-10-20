@@ -599,3 +599,62 @@ Kafka は隔離管理の保存・共有方式が未実装のため、この組�
 隔離中も `queue_max_messages` / `queue_max_bytes` / `queue_min_free_bytes` に算入するため、
 容量に余裕がなくなると新規受信を451にします。隔離解除は追加容量を要求しません。
 期限切れ削除は `queue_quarantine_expired` イベントとして system actor で監査し、本文はログへ出しません。
+
+## 宛先別配送の期限付き停止
+
+`delivery_pause.enabled`（既定 `false`）を有効にすると、管理者が宛先ドメインを
+理由・期限付きで停止できます。受信を拒否せず、新しい配送 attempt を保留します。
+設定は YAML のみで、反映には再起動が必要です。
+
+```yaml
+delivery_pause:
+  enabled: true
+  backend: local
+```
+
+`backend` は `local`（省略時も同じ）または `redis` です。
+local は `queue_dir/delivery-pauses.json` に0600のファイルで保存し、再起動後に復元します。
+1つのプロセスが専有するファイルです。複数プロセスや複数ノードで共有しないでください。
+Redis は既存の `domain_throttle_redis_addrs` / `username` / `password` / `db` / `key_prefix`
+設定を使い、domain throttle / MX shaping とは別の `{delivery-pauses}` 名前空間へ保存します。
+複数ノードでは全ノードの設定・prefix を揃え、Redis の永続化・バックアップ・HA を運用側で設定します。
+起動時の接続失敗で local へ自動切替はしません。Redis 時刻を有効期限判定に使い、
+停止情報の障害・読み取り失敗時は新しい配送を保留します。
+local/Kafka の worker で共通に照合します。Kafka を複数ノードで使う場合は Redis を選んでください。
+
+停止対象は正確に一致する ASCII ドメインだけです。小文字化と末尾の `.` 除去を行い、
+ワイルドカード、サブドメインの暗黙一致、メールアドレスの指定は受け付けません。
+同時に最大1024ドメインを保存し、理由は非空・512 bytes以内・制御文字なし、
+有効期限は現在より後かつ30日以内です。同じドメインへの停止操作は理由・期限を置き換えます。
+作成主体は認証 principal から記録し、任意の actor header を保存主体として使いません。
+停止・再開は監査ログに reason と期限（停止時）、認証主体を記録します。
+
+| 操作 | HTTP | 必要な role |
+| --- | --- | --- |
+| 有効な停止一覧 | `GET /api/v1/delivery/pauses` | viewer |
+| 停止・期限更新 | `POST /api/v1/delivery/pauses` | operator |
+| 明示再開 | `DELETE /api/v1/delivery/pauses/{domain}?reason=restored` | operator |
+
+停止の JSON は `domain`、`reason`、RFC3339 の `expires_at`、任意の `dry_run` を指定します。
+再開の `reason` も必須です。再開では `?dry_run=1&reason=restored` が使えます。
+どちらの dry-run も入力・容量を検証し、保存内容を変えず監査を記録します。
+期限切れは照合時から無効となり、次回の新規停止保存時に古い情報を掃除します。
+
+停止前にチェックを通過した SMTP 処理は完了させます。ドメインスロット待ちの後にも
+照合し、まだ配送を始めていない処理には新しい停止を反映します。
+停止中は `Defer` で最大30秒後（停止期限が近ければその時刻）に再確認し、
+attempt と LastError を増やさず、遅延 DSN も生成しません。
+同じメールの別ドメインは配送を継続し、配送済み recipient を再送対象から外します。
+別 recipient の実際の配送失敗がある場合は、その失敗による既存の再送回数を共有します。
+再開は手動操作・期限切れのいずれも次回確認時に反映し、既存の流量制御・Warm-up を通します。
+
+保留も `max_retry_age` の経過に含めます。停止照合時にメッセージ寿命へ達していた recipient は
+配送を打ち切り、既存のループ防止条件に従う失敗 DSN を生成します。
+`max_retry_age: 0` は既存どおり寿命上限なしです。
+停止機能を無効化すると照合も停止するため、未解除の停止を維持する場合は有効なまま運用してください。
+
+`delivery_pause_active_domains`、`worker_pause_deferred_total`、`worker_pause_backend_error_total`、
+`worker_pause_expired_total` を監視します。ローカルキューでは scan 時に
+`delivery_pause_messages`（メッセージ単位、隔離を除く）と
+`delivery_pause_oldest_age_seconds`（受信からの経過時間）も全 pending ファイルから計算します。
+Kafka のドメイン別全滞留統計はこの段階では未提供であり、broker lag と延期カウンターを併用してください。

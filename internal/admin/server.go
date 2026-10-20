@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 )
 
@@ -14,10 +15,15 @@ func RunServer(ctx context.Context, addr, tokenConfig string, suppressions *boun
 }
 
 func RunServerWithBackend(ctx context.Context, addr string, authBackend AuthBackend, suppressions *bounce.SuppressionStore, queue queueManager, rep *reputation.Tracker) error {
+	return RunServerWithPauses(ctx, addr, authBackend, suppressions, queue, rep, nil)
+}
+
+func RunServerWithPauses(ctx context.Context, addr string, authBackend AuthBackend, suppressions *bounce.SuppressionStore, queue queueManager, rep *reputation.Tracker, pauses deliverypause.Store) error {
 	if addr == "" {
 		return nil
 	}
 	api := NewAPIWithBackend(suppressions, queue, rep, authBackend)
+	api.SetDeliveryPauses(pauses)
 	srv := &http.Server{Addr: addr, Handler: api.Handler()}
 	go func() {
 		<-ctx.Done()

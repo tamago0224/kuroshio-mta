@@ -192,3 +192,9 @@ smtp_limits:
 quarantine:
   enabled: false
   retention: 168h
+
+# Operator domain pause/resume. local state belongs to one process;
+# use redis with shared domain_throttle_redis_* settings for multiple nodes.
+delivery_pause:
+  enabled: false
+  backend: local

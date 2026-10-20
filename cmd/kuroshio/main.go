@@ -17,6 +17,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -101,12 +102,20 @@ func main() {
 		}
 	}()
 
+	pauses, err := deliverypause.New(ctx, cfg)
+	if err != nil {
+		fatal("delivery pause init failed", "error", err)
+	}
+	if pauses != nil {
+		defer pauses.Close()
+	}
 	deliveryClient := delivery.NewClientWithMetrics(cfg, metrics)
 	defer deliveryClient.Close()
 	d, err := worker.New(cfg, q, deliveryClient, sup, metrics, rep)
 	if err != nil {
 		fatal("worker init failed", "error", err)
 	}
+	d.SetDeliveryPauses(pauses)
 	s := smtp.NewServer(cfg, q, metrics)
 	var submissionServers []*smtp.Server
 	if cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != "" {
@@ -182,7 +191,7 @@ func main() {
 			}
 		}
 		go func() {
-			errCh <- admin.RunServerWithBackend(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep)
+			errCh <- admin.RunServerWithPauses(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep, pauses)
 		}()
 	}
 	go func() {
