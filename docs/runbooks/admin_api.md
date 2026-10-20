@@ -141,3 +141,29 @@ operator は `POST /api/v1/queue/quarantine/{id}/requeue` で解放、
 期限切れは scan 時に配送せず削除するため、`queue_quarantine_messages` の増加を監視し、
 誤判定があれば期限内に対象 ID と判定元を確認してください。
 解放後は通常の配送・再送制御が適用されます。期限切れと隔離中の削除は DSN を生成しません。
+
+## 宛先別配送の一時停止
+
+[期限付き配送停止の設定・保存範囲](../configuration.md#宛先別配送の期限付き停止) を確認して有効化します。
+復旧作業を始める前に、operator が `POST /api/v1/delivery/pauses` へ次の JSON を送ります。
+最初は `dry_run: true`、確認後に `false` で実行してください。
+
+```json
+{
+  "domain": "recipient.test",
+  "reason": "DNS maintenance",
+  "expires_at": "2026-10-21T01:00:00Z",
+  "dry_run": true
+}
+```
+
+`expires_at` は実行時点より後、30日以内の日時へ変更してください。
+viewer は `GET /api/v1/delivery/pauses` で対象・理由・期限・作成主体を確認します。
+停止中は suppression の追加や DLQ 移動を行わず、キュー容量と最古経過時間を監視します。
+メッセージ寿命は停止中も進むため、長期作業では `max_retry_age` への到達にも注意してください。
+
+復旧後は operator が `DELETE /api/v1/delivery/pauses/recipient.test?reason=restored&dry_run=1`
+で確認し、`dry_run=1` を除いて再開します。反映は通常最大30秒です。
+期限切れでも同じように再開し、既存の throttle と MX shaping を通します。
+Redis 障害時は安全のため全宛先の新規 attempt を保留するので、まず状態ストアを復旧してください。
+複数ノードでは停止 API を受け付けるノードと配送ノードが同じ Redis namespace を使うことを確認します。

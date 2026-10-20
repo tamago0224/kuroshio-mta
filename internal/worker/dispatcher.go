@@ -11,6 +11,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -25,6 +26,7 @@ import (
 )
 
 type Dispatcher struct {
+	pauses   deliverypause.Store
 	cfg      config.Config
 	queue    queue.Backend
 	cl       *delivery.Client
@@ -72,6 +74,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 }
 
 func (d *Dispatcher) processBatch(ctx context.Context) error {
+	d.refreshPauseStats(ctx)
 	msgs, err := d.queue.Due(d.cfg.WorkerCount * 4)
 	if err != nil {
 		return err
@@ -107,6 +110,8 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	defer span.End()
 	observability.InjectTraceContext(ctx, msg)
 
+	pausedRecipients := map[string]bool{}
+	failedRecipients := map[string]string{}
 	var deferredUntil time.Time
 	var remaining []string
 	var (
@@ -114,12 +119,42 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		reasons []string
 	)
 	for _, rcpt := range msg.RcptTo {
-		if ctx.Err() != nil && d.cfg.MXShaping.Enabled {
+		if ctx.Err() != nil && (d.cfg.MXShaping.Enabled || d.pauses != nil) {
 			remaining = append(remaining, rcpt)
 			deferredUntil = time.Now().Add(time.Second)
 			continue
 		}
 		domain, _ := util.DomainOf(rcpt)
+		checkPause := func() bool {
+			if d.pauses != nil {
+				entry, err := d.pauses.Lookup(ctx, domain)
+				if err != nil || entry.Domain != "" {
+					if d.cfg.MaxRetryAge > 0 && !msg.CreatedAt.IsZero() && time.Since(msg.CreatedAt) >= d.cfg.MaxRetryAge {
+						d.emitHardBounceDSN(ctx, msg, rcpt, "delivery lifetime exceeded while paused")
+						d.metricInc("worker_pause_expired")
+						return true
+					}
+					remaining = append(remaining, rcpt)
+					pausedRecipients[rcpt] = true
+					until := time.Now().Add(30 * time.Second)
+					if !entry.ExpiresAt.IsZero() && entry.ExpiresAt.Before(until) {
+						until = entry.ExpiresAt
+					}
+					if until.After(deferredUntil) {
+						deferredUntil = until
+					}
+					d.metricInc("worker_pause_deferred")
+					if err != nil {
+						d.metricInc("worker_pause_backend_error")
+					}
+					return true
+				}
+			}
+			return false
+		}
+		if checkPause() {
+			continue
+		}
 		release := func() {}
 		if d.throttle != nil {
 			var lease domainThrottleLease
@@ -162,6 +197,9 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		}
 		func() {
 			defer release()
+			if checkPause() {
+				return
+			}
 			if d.rep != nil {
 				if ok, reason := d.rep.Admit(domain, time.Now().UTC()); !ok {
 					reasons = append(reasons, rcpt+": reputation "+reason)
@@ -175,6 +213,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 						d.metricInc("reputation_complaint_rate_block")
 					}
 					errs = append(errs, errors.New("reputation "+reason))
+					failedRecipients[rcpt] = "reputation " + reason
 					remaining = append(remaining, rcpt)
 					return
 				}
@@ -251,6 +290,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 					}
 				}
 				errs = append(errs, err)
+				failedRecipients[rcpt] = err.Error()
 				remaining = append(remaining, rcpt)
 			} else {
 				if d.rep != nil {
@@ -289,11 +329,29 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 
-	if d.cfg.MXShaping.Enabled {
+	if d.cfg.MXShaping.Enabled || d.pauses != nil {
 		msg.RcptTo = remaining
 	}
 	reason := strings.Join(reasons, "; ")
 	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
+		if len(pausedRecipients) > 0 {
+			span.SetAttributes(attribute.String("worker.result", "deferred"))
+			// A terminal failure for another recipient must not discard holds.
+			held := []string{}
+			for _, rcpt := range remaining {
+				if diagnostic, failed := failedRecipients[rcpt]; failed {
+					d.emitHardBounceDSN(ctx, msg, rcpt, diagnostic)
+					continue
+				}
+				held = append(held, rcpt)
+			}
+			msg.RcptTo = held
+			if err := d.queue.Defer(msg, time.Until(deferredUntil)); err != nil {
+				slog.ErrorContext(ctx, "pause reschedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
+			}
+			return
+		}
+
 		if joined := errors.Join(errs...); joined != nil {
 			span.RecordError(joined)
 		}
@@ -416,4 +474,34 @@ func (d *Dispatcher) metricAdd(name string, value uint64) {
 	if d.m != nil {
 		d.m.Counter(name).Add(value)
 	}
+}
+
+// SetDeliveryPauses must be called before starting the dispatcher.
+func (d *Dispatcher) SetDeliveryPauses(store deliverypause.Store) { d.pauses = store }
+
+func (d *Dispatcher) refreshPauseStats(ctx context.Context) {
+	if d.pauses == nil || d.m == nil {
+		return
+	}
+	entries, err := d.pauses.List(ctx)
+	if err != nil {
+		d.metricInc("worker_pause_backend_error")
+		return
+	}
+	d.m.SetGauge("delivery_pause_active_domains", int64(len(entries)))
+	local := queue.LocalStore(d.queue)
+	if local == nil {
+		return
+	}
+	domains := map[string]bool{}
+	for _, entry := range entries {
+		domains[entry.Domain] = true
+	}
+	count, oldest, err := local.PauseStats(domains, time.Now())
+	if err != nil {
+		d.metricInc("worker_pause_stats_error")
+		return
+	}
+	d.m.SetGauge("delivery_pause_messages", count)
+	d.m.SetGauge("delivery_pause_oldest_age_seconds", int64(oldest.Seconds()))
 }

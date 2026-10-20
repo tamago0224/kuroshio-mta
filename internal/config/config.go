@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	DeliveryPause                    DeliveryPauseConfig
 	Quarantine                       QuarantineConfig
 	SMTPLimits                       SMTPLimitsConfig
 	ProxyProtocol                    ProxyProtocolConfig
@@ -157,6 +158,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.MXShaping.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.DeliveryPause.Validate(cfg.DomainThrottleRedisAddrs); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Quarantine.Validate(cfg.QueueBackend); err != nil {

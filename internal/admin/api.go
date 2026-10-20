@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
@@ -30,6 +31,7 @@ const (
 )
 
 type API struct {
+	pauses       deliverypause.Store
 	suppressions *bounce.SuppressionStore
 	queue        queueManager
 	reputation   *reputation.Tracker
@@ -55,6 +57,8 @@ func NewAPIWithBackend(s *bounce.SuppressionStore, q queueManager, rep *reputati
 
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/delivery/pauses", a.handleDeliveryPauses)
+	mux.HandleFunc("/api/v1/delivery/pauses/", a.handleDeliveryResume)
 	mux.HandleFunc("/api/v1/suppressions", a.handleSuppressions)
 	mux.HandleFunc("/api/v1/suppressions/", a.handleSuppressionByAddress)
 	mux.HandleFunc("/api/v1/queue/", a.handleQueue)
