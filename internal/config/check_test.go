@@ -21,6 +21,7 @@ func TestCheckConfigRejectsInvalidInputsWithoutValues(t *testing.T) {
 		{"multiple documents", "hostname: one\n---\nhostname: two"},
 		{"missing TLS key", "tls_cert_file: " + secret},
 		{"bad TLS pair", "tls_cert_file: missing-cert\ntls_key_file: " + secret},
+		{"missing signing profile", "dkim_profiles_file: " + secret},
 		{"incomplete DKIM", "dkim_sign_domain: example.test"},
 		{"bad DKIM key", "dkim_sign_domain: example.test\ndkim_sign_selector: s1\ndkim_private_key_file: " + secret},
 		{"missing relay", "delivery_mode: relay"},

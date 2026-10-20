@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -88,5 +89,34 @@ func TestConfigReloadValidationAndGeneration(t *testing.T) {
 	}
 	if generation, err := r.reload(); err == nil || generation != 3 {
 		t.Fatalf("missing file: generation=%d error=%v", generation, err)
+	}
+}
+
+func TestSigningReloadFailureKeepsLoggerAndGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("log_level: info\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := true
+	applied := 0
+	r := &configReloader{path: path, current: cfg, generation: 1, applyLogLevel: func(string, int64) { applied++ }, reloadSigning: func() (bool, error) {
+		if failed {
+			return false, errors.New("candidate DNS check failed")
+		}
+		return true, nil
+	}}
+	if err := os.WriteFile(path, []byte("log_level: debug\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if generation, err := r.reload(); err == nil || generation != 1 || applied != 0 || r.current.LogLevel != "info" {
+		t.Fatal("failed signing reload changed active config")
+	}
+	failed = false
+	if generation, err := r.reload(); err != nil || generation != 2 || applied != 1 || r.current.LogLevel != "debug" {
+		t.Fatalf("signing reload recovery: %v %v", generation, err)
 	}
 }

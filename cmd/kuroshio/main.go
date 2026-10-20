@@ -82,8 +82,6 @@ func main() {
 		fatal("suppression init failed", "error", err)
 	}
 	metrics := observability.NewMetrics()
-	stopReload := startConfigReload(ctx, *configPath, cfg, metrics)
-	defer stopReload()
 	queue.SetMetrics(q, metrics)
 	rep, err := reputation.NewPersistent(reputation.Config{
 		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),
@@ -109,8 +107,10 @@ func main() {
 	if pauses != nil {
 		defer pauses.Close()
 	}
-	deliveryClient := delivery.NewClientWithMetrics(cfg, metrics)
+	deliveryClient := delivery.NewClientWithContext(ctx, cfg, metrics)
 	defer deliveryClient.Close()
+	stopReload := startConfigReload(ctx, *configPath, cfg, metrics, func() (bool, error) { return deliveryClient.ReloadSigning(ctx) })
+	defer stopReload()
 	d, err := worker.New(cfg, q, deliveryClient, sup, metrics, rep)
 	if err != nil {
 		fatal("worker init failed", "error", err)

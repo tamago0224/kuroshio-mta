@@ -94,6 +94,7 @@ type Config struct {
 	ScanInterval                 time.Duration
 	DialTimeout                  time.Duration
 	SendTimeout                  time.Duration
+	DKIMProfilesFile             string
 	DKIMSignDomain               string
 	DKIMSignSelector             string
 	DKIMPrivateKeyFile           string
@@ -159,6 +160,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 	}
 	if err := cfg.MXShaping.Validate(); err != nil {
 		return Config{}, err
+	}
+	if cfg.DKIMProfilesFile != "" && (cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "") {
+		return Config{}, fmt.Errorf("dkim_profiles_file cannot be combined with legacy signing settings")
 	}
 	if err := cfg.DeliveryPause.Validate(cfg.DomainThrottleRedisAddrs); err != nil {
 		return Config{}, err

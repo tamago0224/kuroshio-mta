@@ -6,6 +6,7 @@ import (
 )
 
 type session struct {
+	signing         *model.SigningIdentity
 	quarantine      *model.Quarantine
 	closeConnection bool
 	authFailures    int
@@ -32,6 +33,7 @@ func (ss *session) finishData() {
 	ss.rcptTo = nil
 	ss.data = nil
 	ss.quarantine = nil
+	ss.signing = nil
 }
 
 // resetTransaction preserves the greeting, authentication and connection state.

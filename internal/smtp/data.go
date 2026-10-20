@@ -95,6 +95,13 @@ func (s *Server) handleDataCommand(
 		ss.finishData()
 		return
 	}
+	ss.signing, err = s.signingIdentity(ss)
+	if err != nil {
+		cmdSpan.reject("signing_sender_scope", 550, "sender is not authorized for signing")
+		writeResp(w, 550, "5.7.1 sender is not authorized for signing")
+		ss.finishData()
+		return
+	}
 	addedHeaders := []string{mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)}
 	if authRes.Action == mailauth.ActionQuarantine {
 		addedHeaders = append(addedHeaders, "X-Kuroshio-Quarantine: true")
@@ -200,6 +207,8 @@ func (s *Server) enqueue(ctx context.Context, ss *session, id string) error {
 		MailFrom:   ss.mailFrom,
 		RcptTo:     append([]string(nil), ss.rcptTo...),
 		Data:       append([]byte(nil), ss.data...),
+
+		SigningIdentity: ss.signing,
 	}
 	observability.InjectTraceContext(ctx, msg)
 	return s.queue.Enqueue(msg)

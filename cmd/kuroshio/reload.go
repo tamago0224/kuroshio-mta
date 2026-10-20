@@ -15,9 +15,10 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
 )
 
-// Only log_level can change. The configuration used by SMTP sessions and
-// workers remains immutable, including when several reloads run concurrently.
+// Only log_level and the configured profile manifest can change. SMTP and worker
+// startup configuration remains immutable across concurrent reload requests.
 type configReloader struct {
+	reloadSigning func() (bool, error)
 	mu            sync.Mutex
 	path          string
 	current       config.Config
@@ -37,7 +38,14 @@ func (r *configReloader) reload() (int64, error) {
 	if !reflect.DeepEqual(unchanged, r.current) {
 		return r.generation, errors.New("configuration changes include restart-required settings; update rejected")
 	}
-	if next.LogLevel == r.current.LogLevel {
+	signingChanged := false
+	if r.reloadSigning != nil {
+		signingChanged, err = r.reloadSigning()
+		if err != nil {
+			return r.generation, err
+		}
+	}
+	if next.LogLevel == r.current.LogLevel && !signingChanged {
 		return r.generation, nil
 	}
 	generation := r.generation + 1
@@ -49,9 +57,9 @@ func (r *configReloader) reload() (int64, error) {
 	return generation, nil
 }
 
-func startConfigReload(ctx context.Context, path string, cfg config.Config, metrics *observability.Metrics) func() {
+func startConfigReload(ctx context.Context, path string, cfg config.Config, metrics *observability.Metrics, reloadSigning func() (bool, error)) func() {
 	r := &configReloader{
-		path: path, current: cfg, generation: 1,
+		path: path, current: cfg, generation: 1, reloadSigning: reloadSigning,
 		applyLogLevel: func(level string, generation int64) {
 			slog.SetDefault(logging.New(level, os.Stdout).With("config_generation", generation))
 		},
