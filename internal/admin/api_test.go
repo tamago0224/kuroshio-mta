@@ -404,3 +404,54 @@ VALUES (?, ?, ?, ?)
 		t.Fatalf("insert admin token: %v", err)
 	}
 }
+
+func TestQuarantineAPIHidesBodyAndRestrictsRelease(t *testing.T) {
+	t.Parallel()
+	store, err := queue.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Enqueue(&model.Message{ID: "held", Data: []byte("private body"), Quarantine: &model.Quarantine{Reason: "auth_policy"}}); err != nil {
+		t.Fatal(err)
+	}
+	api := NewAPI(nil, store, nil, "viewer-token:viewer,operator-token:operator")
+	for _, tc := range []struct {
+		name, method, path, token string
+		code                      int
+	}{
+		{"list", http.MethodGet, "/api/v1/queue/quarantine", "viewer-token", 200},
+		{"viewer release", http.MethodPost, "/api/v1/queue/quarantine/held/requeue", "viewer-token", 403},
+		{"dry run", http.MethodPost, "/api/v1/queue/quarantine/held/requeue?dry_run=1", "operator-token", 200},
+		{"release", http.MethodPost, "/api/v1/queue/quarantine/held/requeue", "operator-token", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+			rec := httptest.NewRecorder()
+			api.Handler().ServeHTTP(rec, req)
+			if rec.Code != tc.code {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			var response struct {
+				Items   []model.Message `json:"items"`
+				Message model.Message   `json:"message"`
+			}
+			if rec.Code == 200 {
+				if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+					t.Fatal(err)
+				}
+				for _, msg := range append(response.Items, response.Message) {
+					if len(msg.Data) != 0 {
+						t.Fatal("body disclosed")
+					}
+				}
+			}
+			if tc.name == "dry run" {
+				held, err := store.ListState("quarantine", 10)
+				if err != nil || len(held) != 1 {
+					t.Fatal("dry run changed hold")
+				}
+			}
+		})
+	}
+}

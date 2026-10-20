@@ -107,6 +107,10 @@ func newKafkaWriter(brokers []string, topic string) *kafka.Writer {
 }
 
 func (k *KafkaStore) Enqueue(msg *model.Message) error {
+	// Fail closed until Kafka has a durable hold/release administration path.
+	if msg.Quarantine != nil {
+		return errors.New("policy quarantine is not supported by Kafka backend")
+	}
 	now := time.Now().UTC()
 	msg.CreatedAt = now
 	msg.UpdatedAt = now

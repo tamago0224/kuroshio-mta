@@ -16,4 +16,12 @@ type Message struct {
 	Attempts    int       `json:"attempts"`
 	NextAttempt time.Time `json:"next_attempt"`
 	LastError   string    `json:"last_error"`
+	// Quarantine is trusted queue metadata, never inferred from message headers.
+	Quarantine *Quarantine `json:"quarantine,omitempty"`
+}
+
+// Quarantine records a policy hold. Only an explicit operator release clears it.
+type Quarantine struct {
+	Reason    string    `json:"reason"`
+	ExpiresAt time.Time `json:"expires_at"`
 }

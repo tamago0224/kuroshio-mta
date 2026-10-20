@@ -146,3 +146,27 @@ Submission では、認証済みユーザーと envelope sender の整合性を�
 - 配送前にだけ適用する sender rewrite の設計
 
 新しい正規化を入れるときは、受信時、内部保持時、配送時のどこで適用するのかを分けて管理します。
+
+## 9. Policy quarantine の保存境界（段階導入）
+
+キューの `quarantine` メタデータは本文・ヘッダと独立した信頼済み状態です。
+`reason` と `expires_at` を JSON に保存し、ローカルキューの `Due` はこの状態のメールを
+返しません。外部からの `X-Kuroshio-Quarantine` ヘッダは状態変更に使いません。
+メタデータのない旧 JSON は従来どおり配送対象です。
+
+ローカル保存では inbound ファイル内に保持し、隔離中も通常の件数・本文容量上限に
+算入します。`ListState("quarantine")` で参照し、`RequeueFromState("quarantine", id, now)`
+でメタデータを消して配送可能にします。解放は同じファイルの atomic rename で反映し、
+別ファイルへのコピーと削除の間に二重状態を作りません。二度目の解放は状態遷移エラーです。
+隔離中の通常 requeue・Retry・Defer・AckSent・Fail は拒否します。
+
+この段階は保存契約の追加です。SMTP の認証 quarantine は引き続きヘッダ通知のみであり、
+実際の隔離への opt-in、期限処理、削除操作は後続で接続します。
+既存管理 API の `GET /api/v1/queue/quarantine` は viewer が参照でき、
+`POST /api/v1/queue/quarantine/{id}/requeue` は operator が解放できます。
+`?dry_run=1` は変更せず監査のみ記録します。どちらの応答にも本文を含めず、
+本文確認はキューディレクトリのアクセス権を持つ管理者に限定します。
+`expires_at` は保存情報であり、この段階で自動解放・自動削除しません。
+Kafka は管理・解放経路が揃うまで quarantine 付きの Enqueue を明示的に拒否します。
+Kafka の既存 topic へ隔離メタデータを外部から直接投入する運用はサポートしません。
+Issue #315 はこれらの接続が完了するまで未完了として追跡します。

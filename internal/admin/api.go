@@ -192,6 +192,13 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if strings.EqualFold(strings.TrimSpace(state), "quarantine") {
+			for i, msg := range items {
+				copy := *msg
+				copy.Data = nil
+				items[i] = &copy
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 		return
 	}
@@ -221,6 +228,11 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.audit(r, "queue_requeue", map[string]any{"state": state, "message_id": id, "dry_run": false})
+		if strings.EqualFold(strings.TrimSpace(state), "quarantine") {
+			copy := *msg
+			copy.Data = nil
+			msg = &copy
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
 		return
 	}
