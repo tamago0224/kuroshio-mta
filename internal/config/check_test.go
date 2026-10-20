@@ -25,6 +25,7 @@ func TestCheckConfigRejectsInvalidInputsWithoutValues(t *testing.T) {
 		{"incomplete DKIM", "dkim_sign_domain: example.test"},
 		{"bad DKIM key", "dkim_sign_domain: example.test\ndkim_sign_selector: s1\ndkim_private_key_file: " + secret},
 		{"missing relay", "delivery_mode: relay"},
+		{"missing route credential", "delivery_routes:\n  - name: auth\n    domains: [example.test]\n    mode: relay\n    relay_host: relay.example.test\n    relay_require_tls: true\n    relay_username: sender\n    relay_password_file: " + secret},
 		{"bad rule", "rate_limit_rules: " + secret},
 		{"capacity backend", "queue_backend: kafka\nqueue_max_messages: 10"},
 		{"bad sample ratio", "otel_trace_sample_ratio: 3"},

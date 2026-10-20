@@ -92,6 +92,15 @@ func (cfg Config) checkResources() error {
 	if cfg.DeliveryMode == "relay" && (strings.TrimSpace(cfg.RelayHost) == "" || cfg.RelayPort < 1 || cfg.RelayPort > 65535) {
 		return errors.New("relay requires relay_host and port in 1..65535")
 	}
+	for _, route := range cfg.DeliveryRoutes {
+		if route.RelayPasswordFile == "" {
+			continue
+		}
+		secret, err := os.ReadFile(route.RelayPasswordFile)
+		if err != nil || strings.TrimSpace(string(secret)) == "" {
+			return errors.New("invalid or unreadable delivery route credential file")
+		}
+	}
 	if cfg.DeliveryMode == "local_spool" && cfg.SpoolBackend == "s3" && cfg.SpoolS3Bucket == "" {
 		return errors.New("S3 spool requires spool_s3_bucket")
 	}

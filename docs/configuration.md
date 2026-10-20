@@ -102,6 +102,7 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `relay_host` | `MTA_RELAY_HOST` | unset | `relay` 配送時の中継先ホストです |
 | `relay_port` | `MTA_RELAY_PORT` | `25` | `relay` 配送時の中継先ポートです |
 | `relay_require_tls` | `MTA_RELAY_REQUIRE_TLS` | `false` | リレー配送で TLS を必須にします |
+| `delivery_routes` | YAML only | unset | 宛先ドメイン別の名前付き配送ルートです。配列順で最初に一致したルートを使います |
 | `worker_count` | `MTA_WORKER_COUNT` | `4` | 配送ワーカー数です |
 | `max_attempts` | `MTA_MAX_ATTEMPTS` | `12` | 最大再試行回数です |
 | `max_retry_age` | `MTA_MAX_RETRY_AGE` | `120h` | 再試行を続ける最大期間です |
@@ -111,6 +112,44 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `send_timeout` | `MTA_SEND_TIMEOUT` | `20s` | SMTP 送信全体のタイムアウトです |
 
 Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mode.md](./kafka_queue_mode.md) にまとめています。
+
+### 宛先別の名前付き配送ルート
+
+`delivery_routes` は宛先ドメインの完全一致とサブドメイン一致を上から順に評価します。
+一致しない宛先は `delivery_mode` とトップレベルの relay / spool 設定へフォールバックします。
+同じメッセージの宛先が異なるルートに一致した場合も宛先ごとに配送し、成功済みの宛先を
+retry レコードから除外します。local / Kafka のどちらのキューでも、再試行に残す `rcpt_to` は
+未配送の宛先だけです。
+
+```yaml
+delivery_mode: mx
+delivery_routes:
+  - name: internal-relay
+    domains: [corp.example]
+    mode: relay
+    relay_host: smtp.internal.example
+    relay_port: 587
+    relay_require_tls: true
+    relay_username: kuroshio
+    relay_password_file: /run/secrets/internal-relay-password
+  - name: archive-spool
+    domains: [archive.example]
+    mode: local_spool
+```
+
+route の `mode` は `mx` / `local_spool` / `relay` です。認証付き relay は STARTTLS 後に
+サーバー証明書とホスト名を検証してから SMTP AUTH PLAIN を送ります。平文接続への資格情報送信や
+証明書検証の無効化は設定できません。`relay_username` と `relay_password_file` は一組で指定し、
+`relay_require_tls: true` が必要です。password file は起動時に読み込み、空ファイルや読込失敗では
+起動しません。ファイルを0600など配送プロセスだけが読める権限で管理してください。
+
+ルート設定と資格情報は起動時のスナップショットです。SIGHUP の限定的な再読込対象ではないため、
+変更後はプロセスを再起動します。キュー内のメッセージはルート名を固定保存せず、各配送試行時の
+設定で選び直します。このため、再起動後の retry は新しいルート定義を使います。
+
+名前付きルートの選択は `delivery_route_selected` 監査イベントに、メッセージID、マスク済み宛先、
+ルート名、配送方式を記録します。OpenTelemetry の `delivery.deliver` span には
+`delivery.route` と `delivery.mode` を付与します。資格情報はログと trace に出しません。
 
 ## Kafka Queue Backend
 

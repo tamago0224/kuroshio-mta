@@ -59,6 +59,22 @@ spool_s3_use_tls: false
 relay_host: smtp.relay.local
 relay_port: 587
 relay_require_tls: true
+# Named routes are checked from top to bottom before delivery_mode fallback.
+# Keep relay credentials in a 0600 file; authenticated routes require STARTTLS.
+# delivery_routes:
+#   - name: internal-relay
+#     domains:
+#       - corp.example
+#     mode: relay
+#     relay_host: smtp.internal.example
+#     relay_port: 587
+#     relay_require_tls: true
+#     relay_username: kuroshio
+#     relay_password_file: /run/secrets/internal-relay-password
+#   - name: archive-spool
+#     domains:
+#       - archive.example
+#     mode: local_spool
 max_message_bytes: 10485760
 worker_count: 4
 max_attempts: 12

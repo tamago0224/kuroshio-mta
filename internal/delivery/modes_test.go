@@ -66,6 +66,50 @@ func TestDeliverRelayUsesConfiguredTarget(t *testing.T) {
 	}
 }
 
+func TestDeliverSelectsFirstMatchingNamedRoute(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "relay-password")
+	if err := os.WriteFile(secret, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{DeliveryMode: "mx", DeliveryRoutes: []config.DeliveryRoute{
+		{Name: "internal", Domains: []string{"example.test"}, Mode: "relay", RelayHost: "relay.example.test", RelayPort: 587, RelayRequireTLS: true, RelayUsername: "sender", RelayPasswordFile: secret},
+		{Name: "later", Domains: []string{"sub.example.test"}, Mode: "relay", RelayHost: "wrong.example.test", RelayRequireTLS: true},
+	}}
+	cl := NewClient(cfg)
+	cl.deliverHostFn = func(ctx context.Context, host string, port int, _ *model.Message, _ string, requireTLS bool, _ *DANEResult) error {
+		auth, ok := ctx.Value(relayAuthContextKey{}).(relayAuth)
+		if host != "relay.example.test" || port != 587 || !requireTLS || !ok || auth.username != "sender" || auth.password != "s3cret" {
+			t.Fatalf("route host=%s port=%d tls=%v auth=%+v", host, port, requireTLS, auth)
+		}
+		return nil
+	}
+	if err := cl.Deliver(context.Background(), &model.Message{ID: "routed"}, "user@sub.example.test"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeliverUsesFallbackWhenNoNamedRouteMatches(t *testing.T) {
+	cfg := config.Config{
+		DeliveryMode: "relay",
+		RelayHost:    "fallback.example.test",
+		RelayPort:    2525,
+		DeliveryRoutes: []config.DeliveryRoute{
+			{Name: "internal", Domains: []string{"corp.example"}, Mode: "mx"},
+		},
+	}
+	client := NewClient(cfg)
+	defer client.Close()
+	client.deliverHostFn = func(_ context.Context, host string, port int, _ *model.Message, _ string, _ bool, _ *DANEResult) error {
+		if host != "fallback.example.test" || port != 2525 {
+			t.Fatalf("fallback target = %s:%d", host, port)
+		}
+		return nil
+	}
+	if err := client.Deliver(context.Background(), &model.Message{ID: "fallback"}, "user@external.example"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDeliverLocalSpoolAppliesDKIMSignerWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{DeliveryMode: "local_spool", SpoolBackend: "local", LocalSpoolDir: dir}

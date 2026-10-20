@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/dkim"
+	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"github.com/tamago0224/kuroshio-mta/internal/router"
@@ -48,6 +50,7 @@ type Client struct {
 	shaper                         *shaping.Shaper
 	shapingErr                     error
 	signingErr                     error
+	routingErr                     error
 	cfg                            config.Config
 	dane                           *DANEResolver
 	mtaSTS                         *MTASTSResolver
@@ -55,10 +58,12 @@ type Client struct {
 	arcSigner                      messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
+	tlsConfigFn                    func(string) *tls.Config
 	spoolStore                     spoolBackend
 	spoolStoreErr                  error
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
 	metrics                        *observability.Metrics
+	routes                         []deliveryRoute
 }
 
 func NewClient(cfg config.Config) *Client {
@@ -78,6 +83,7 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 		resolveMXFn: router.LookupWithTimeout,
 		metrics:     metrics,
 	}
+	c.routes, c.routingErr = loadDeliveryRoutes(cfg.DeliveryRoutes)
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
 		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
 			c.signer = signer
@@ -104,6 +110,9 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 	}
 	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
 	c.deliverHostFn = c.deliverHost
+	c.tlsConfigFn = func(host string) *tls.Config {
+		return &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	}
 	c.spoolStore, c.spoolStoreErr = c.newSpoolBackend()
 	c.reportMTASTSTestingViolationFn = func(ctx context.Context, domain, host, reason string) {
 		slog.WarnContext(ctx, "mta-sts testing policy violation",
@@ -115,7 +124,7 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 	return c
 }
 
-func (c *Client) InitError() error { return errors.Join(c.shapingErr, c.signingErr) }
+func (c *Client) InitError() error { return errors.Join(c.shapingErr, c.signingErr, c.routingErr) }
 func (c *Client) Close() error     { return c.shaper.Close() }
 
 type shapingContextKey struct{}
@@ -134,6 +143,10 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	}
 	rcptDomain, _ := util.DomainOf(rcpt)
 	mode := strings.ToLower(strings.TrimSpace(c.cfg.DeliveryMode))
+	route, routed := c.routeFor(rcptDomain)
+	if routed {
+		mode = strings.ToLower(strings.TrimSpace(route.Mode))
+	}
 	if mode == "" {
 		mode = "mx"
 	}
@@ -143,8 +156,19 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		attribute.String("mail.message_id", msg.ID),
 		attribute.Int("mail.attempt", msg.Attempts),
 		attribute.String("mail.rcpt_domain", rcptDomain),
+		attribute.String("delivery.route", route.Name),
 	)
 	defer span.End()
+	if routed {
+		slog.InfoContext(ctx, "delivery route selected",
+			"component", "audit",
+			"event", "delivery_route_selected",
+			"msg_id", msg.ID,
+			"rcpt", logging.MaskEmail(rcpt),
+			"route", route.Name,
+			"mode", mode,
+		)
+	}
 
 	var err error
 	defer func() {
@@ -168,19 +192,25 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		}
 		err = c.storeToSpool(ctx, msg, rcpt)
 	case "relay":
-		if strings.TrimSpace(c.cfg.RelayHost) == "" {
+		host, port, requireTLS := c.cfg.RelayHost, c.cfg.RelayPort, c.cfg.RelayRequireTLS
+		if routed {
+			host, port, requireTLS = route.RelayHost, route.RelayPort, route.RelayRequireTLS
+			if route.RelayUsername != "" {
+				ctx = context.WithValue(ctx, relayAuthContextKey{}, relayAuth{username: route.RelayUsername, password: route.password})
+			}
+		}
+		if strings.TrimSpace(host) == "" {
 			err = errors.New("relay mode requires MTA_RELAY_HOST")
 			break
 		}
-		port := c.cfg.RelayPort
 		if port <= 0 {
 			port = 25
 		}
 		if c.shaper != nil {
-			key, limits := c.shaper.Group(rcptDomain, []router.MXHost{{Host: c.cfg.RelayHost}})
+			key, limits := c.shaper.Group(rcptDomain, []router.MXHost{{Host: host}})
 			ctx = context.WithValue(ctx, shapingContextKey{}, &shapingAttempt{key: key, limits: limits})
 		}
-		err = c.deliverHostFn(ctx, c.cfg.RelayHost, port, msg, rcpt, c.cfg.RelayRequireTLS, nil)
+		err = c.deliverHostFn(ctx, host, port, msg, rcpt, requireTLS, nil)
 	default:
 		err = fmt.Errorf("unknown delivery mode: %s", mode)
 	}
@@ -430,7 +460,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	if err != nil {
 		return atStage(StageEHLO, err)
 	}
-	startTLS := false
+	startTLS, tlsActive := false, false
 	for _, l := range ehloLines {
 		if strings.Contains(strings.ToUpper(l), "STARTTLS") {
 			startTLS = true
@@ -450,7 +480,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 			return atStage(StageTLS, &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)})
 		}
 		if code == 220 {
-			tlsConn := tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+			tlsConn := tls.Client(conn, c.tlsConfigFn(host))
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				if requireTLS {
 					return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "starttls handshake failed"}
@@ -464,17 +494,39 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 				}
 			}
 			conn = tlsConn
+			tlsActive = true
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
 			if err := writeLine(w, "EHLO "+c.cfg.Hostname); err != nil {
 				return atStage(StageEHLO, err)
 			}
-			if _, err := readLines(r); err != nil {
+			ehloLines, err = readLines(r)
+			if err != nil {
 				return atStage(StageEHLO, err)
 			}
 		}
 	} else if requireTLS {
 		return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts enforce requires starttls"}
+	}
+
+	if auth, ok := ctx.Value(relayAuthContextKey{}).(relayAuth); ok {
+		if !tlsActive {
+			return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "relay authentication requires verified TLS"}
+		}
+		if !supportsAuthPlain(ehloLines) {
+			return &SMTPResponseError{Stage: StageAUTH, Code: 504, Line: "relay does not advertise AUTH PLAIN"}
+		}
+		payload := base64.StdEncoding.EncodeToString([]byte("\x00" + auth.username + "\x00" + auth.password))
+		if err := writeLine(w, "AUTH PLAIN "+payload); err != nil {
+			return atStage(StageAUTH, err)
+		}
+		code, line, err := readCode(r)
+		if err != nil {
+			return atStage(StageAUTH, err)
+		}
+		if code != 235 {
+			return &SMTPResponseError{Stage: StageAUTH, Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
+		}
 	}
 
 	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
@@ -518,6 +570,28 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	_ = writeLine(w, "QUIT")
 	_, _, _ = readCode(r)
 	return nil
+}
+
+func supportsAuthPlain(lines []string) bool {
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) >= 4 && line[0] >= '0' && line[0] <= '9' && line[1] >= '0' && line[1] <= '9' && line[2] >= '0' && line[2] <= '9' && (line[3] == ' ' || line[3] == '-') {
+			line = line[4:]
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if !strings.EqualFold(fields[0], "AUTH") {
+			continue
+		}
+		for _, mechanism := range fields[1:] {
+			if strings.EqualFold(mechanism, "PLAIN") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *Client) writeLocalSpool(ctx context.Context, msg *model.Message, rcpt string) (int, error) {
