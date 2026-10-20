@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "revision": "2026-10-selector-a",
+  "unknown_domain": "reject",
+  "profiles": [
+    {
+      "domain": "sender.test",
+      "selector": "rsa-202610",
+      "algorithm": "rsa-sha256",
+      "key_file": "keys/sender-rsa-202610.pem",
+      "headers": "from:to:subject:date:message-id",
+      "arc": true
+    },
+    {
+      "domain": "alerts.test",
+      "selector": "ed-202610",
+      "algorithm": "ed25519-sha256",
+      "key_file": "keys/alerts-ed-202610.pem",
+      "headers": "from:to:subject:date:message-id",
+      "arc": false
+    }
+  ]
+}

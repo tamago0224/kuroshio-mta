@@ -12,6 +12,7 @@ import (
 )
 
 type ARCFileSigner struct {
+	fixed    bool
 	domain   string
 	selector string
 	authserv string
@@ -160,6 +161,9 @@ func (s *ARCFileSigner) SignWithChainValidation(raw []byte, validation string) (
 }
 
 func (s *ARCFileSigner) reloadIfNeeded() error {
+	if s.fixed {
+		return nil
+	}
 	st, err := os.Stat(s.keyFile)
 	if err != nil {
 		return err

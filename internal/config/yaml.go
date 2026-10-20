@@ -99,6 +99,7 @@ type yamlConfig struct {
 	ScanInterval                 *string  `yaml:"scan_interval"`
 	DialTimeout                  *string  `yaml:"dial_timeout"`
 	SendTimeout                  *string  `yaml:"send_timeout"`
+	DKIMProfilesFile             *string  `yaml:"dkim_profiles_file"`
 	DKIMSignDomain               *string  `yaml:"dkim_sign_domain"`
 	DKIMSignSelector             *string  `yaml:"dkim_sign_selector"`
 	DKIMPrivateKeyFile           *string  `yaml:"dkim_private_key_file"`
@@ -157,6 +158,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 
 	cfg := base
+	if raw.DKIMProfilesFile != nil {
+		cfg.DKIMProfilesFile = *raw.DKIMProfilesFile
+	}
 	if raw.DeliveryPause != nil {
 		cfg.DeliveryPause = *raw.DeliveryPause
 	}

@@ -21,9 +21,9 @@ type s3PutObjectAPI interface {
 }
 
 type s3SpoolStore struct {
-	cfg       config.Config
-	client    s3PutObjectAPI
-	prepareFn func([]byte) ([]byte, error)
+	prepareMessage func(context.Context, *model.Message) ([]byte, error)
+	cfg            config.Config
+	client         s3PutObjectAPI
 }
 
 var newS3PutObjectClient = func(cfg config.Config) (s3PutObjectAPI, error) {
@@ -65,7 +65,7 @@ var newS3PutObjectClient = func(cfg config.Config) (s3PutObjectAPI, error) {
 	return s3.NewFromConfig(awsCfg, options), nil
 }
 
-func newS3SpoolStore(cfg config.Config, prepareFn func([]byte) ([]byte, error)) (spoolBackend, error) {
+func newS3SpoolStore(cfg config.Config, prepareMessage func(context.Context, *model.Message) ([]byte, error)) (spoolBackend, error) {
 	if strings.TrimSpace(cfg.SpoolS3Bucket) == "" {
 		return nil, fmt.Errorf("spool s3 backend requires MTA_SPOOL_S3_BUCKET")
 	}
@@ -73,17 +73,18 @@ func newS3SpoolStore(cfg config.Config, prepareFn func([]byte) ([]byte, error)) 
 	if err != nil {
 		return nil, err
 	}
-	return &s3SpoolStore{cfg: cfg, client: client, prepareFn: prepareFn}, nil
+	store := &s3SpoolStore{cfg: cfg, client: client, prepareMessage: prepareMessage}
+	return store, nil
 }
 
-func (s *s3SpoolStore) Store(_ context.Context, msg *model.Message, rcpt string) (int, error) {
+func (s *s3SpoolStore) Store(ctx context.Context, msg *model.Message, rcpt string) (int, error) {
 	key := spoolObjectKey(s.cfg, msg, rcpt)
-	payload, err := s.prepareFn(msg.Data)
+	payload, err := s.prepareMessage(ctx, msg)
 	if err != nil {
 		return 0, err
 	}
 
-	_, err = s.client.PutObject(context.Background(), &s3.PutObjectInput{
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &s.cfg.SpoolS3Bucket,
 		Key:         &key,
 		Body:        bytes.NewReader(payload),

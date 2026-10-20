@@ -18,10 +18,19 @@ type Message struct {
 	LastError   string    `json:"last_error"`
 	// Quarantine is trusted queue metadata, never inferred from message headers.
 	Quarantine *Quarantine `json:"quarantine,omitempty"`
+
+	// SigningIdentity is trusted ingress metadata; nil denotes legacy/unknown origin.
+	SigningIdentity *SigningIdentity `json:"signing_identity,omitempty"`
 }
 
 // Quarantine records a policy hold. Only an explicit operator release clears it.
 type Quarantine struct {
 	Reason    string    `json:"reason"`
 	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// SigningIdentity with an empty Domain explicitly denotes unsigned inbound mail.
+// A nonempty domain is granted only by authenticated ingress sender scope.
+type SigningIdentity struct {
+	Domain string `json:"domain,omitempty"`
 }

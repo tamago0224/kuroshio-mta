@@ -18,6 +18,8 @@
 
 ### 配信・レピュテーション
 
+- [DKIM Signing Profiles and Key Rotation](./dkim_rotation.md)
+
 - [Reputation Operations Runbook](/runbooks/reputation_ops)
 
 ### 負荷試験・障害訓練

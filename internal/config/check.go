@@ -126,6 +126,11 @@ func (cfg Config) checkResources() error {
 			return errors.New("invalid or unreadable TLS certificate/key")
 		}
 	}
+	if cfg.DKIMProfilesFile != "" {
+		if err := dkim.ValidateProfilesFile(cfg.DKIMProfilesFile, cfg.Hostname); err != nil {
+			return errors.New("invalid or unreadable DKIM profiles")
+		}
+	}
 	signing := cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != ""
 	if signing {
 		if _, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err != nil {

@@ -72,6 +72,8 @@ retry_schedule:
 scan_interval: 5s
 dial_timeout: 8s
 send_timeout: 20s
+# Multi-domain profiles are an alternative to the following three legacy settings.
+# dkim_profiles_file: /etc/kuroshio/signing-profiles.json
 dkim_sign_domain: example.com
 dkim_sign_selector: default
 # RSA (PKCS#1 / PKCS#8 PEM) または Ed25519 (PKCS#8 PEM)。DKIM/ARC 共用。

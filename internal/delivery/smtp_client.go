@@ -44,6 +44,7 @@ func (f spoolBackendFunc) Store(ctx context.Context, msg *model.Message, rcpt st
 var deliveryTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/delivery")
 
 type Client struct {
+	profiles                       *dkim.ProfileManager
 	shaper                         *shaping.Shaper
 	shapingErr                     error
 	signingErr                     error
@@ -65,6 +66,11 @@ func NewClient(cfg config.Config) *Client {
 }
 
 func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Client {
+	return NewClientWithContext(context.TODO(), cfg, metrics)
+}
+
+// NewClientWithContext propagates startup cancellation into profile DNS checks.
+func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *observability.Metrics) *Client {
 	c := &Client{
 		cfg:         cfg,
 		dane:        NewDANEResolver(cfg.DialTimeout, nil),
@@ -82,6 +88,18 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 			c.arcSigner = &validatedARCSigner{signer: arcSigner}
 		} else {
 			c.signingErr = errors.Join(c.signingErr, errors.New("configured ARC signer initialization failed"))
+		}
+	}
+	if cfg.DKIMProfilesFile != "" {
+		if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
+			c.signingErr = errors.New("profiles cannot be combined with legacy signing settings")
+		} else {
+			manager, err := dkim.NewProfileManager(ctx, cfg.DKIMProfilesFile, cfg.Hostname, nil)
+			if err != nil {
+				c.signingErr = err
+			} else {
+				c.profiles = manager
+			}
 		}
 	}
 	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
@@ -178,7 +196,7 @@ func (c *Client) newSpoolBackend() (spoolBackend, error) {
 	case "local":
 		return spoolBackendFunc(c.writeLocalSpool), nil
 	case "s3":
-		return newS3SpoolStore(c.cfg, c.prepareOutboundData)
+		return newS3SpoolStore(c.cfg, c.prepareOutboundMessage)
 	default:
 		return nil, fmt.Errorf("unknown spool backend: %s", backend)
 	}
@@ -480,7 +498,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		return fmt.Errorf("data not accepted: %w", atStage(StageDATA, err))
 	}
 
-	payload, err := c.prepareOutboundData(msg.Data)
+	payload, err := c.prepareOutboundMessage(ctx, msg)
 	if err != nil {
 		return err
 	}
@@ -502,7 +520,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	return nil
 }
 
-func (c *Client) writeLocalSpool(_ context.Context, msg *model.Message, rcpt string) (int, error) {
+func (c *Client) writeLocalSpool(ctx context.Context, msg *model.Message, rcpt string) (int, error) {
 	dir := strings.TrimSpace(c.cfg.LocalSpoolDir)
 	if dir == "" {
 		dir = "./var/spool"
@@ -516,7 +534,7 @@ func (c *Client) writeLocalSpool(_ context.Context, msg *model.Message, rcpt str
 	}
 	name := fmt.Sprintf("%s_%s.eml", id, sanitizeFilename(rcpt))
 	path := filepath.Join(dir, name)
-	payload, err := c.prepareOutboundData(msg.Data)
+	payload, err := c.prepareOutboundMessage(ctx, msg)
 	if err != nil {
 		return 0, err
 	}
@@ -636,6 +654,9 @@ func dotStuff(data []byte) []byte {
 }
 
 func (c *Client) prepareOutboundData(raw []byte) ([]byte, error) {
+	if c.profiles != nil {
+		return nil, errors.New("profile signing requires trusted message identity")
+	}
 	if c.signingErr != nil {
 		return nil, c.signingErr
 	}

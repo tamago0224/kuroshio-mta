@@ -134,6 +134,7 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | `dane_dnssec_trust_model` | `MTA_DANE_DNSSEC_TRUST_MODEL` | `ad_required` | DANE の DNSSEC 信頼モデルです。`ad_required` / `insecure_allow_unsigned` を使います |
 | `mta_sts_cache_ttl` | `MTA_MTA_STS_CACHE_TTL` | `1h` | MTA-STS policy のキャッシュ期間です |
 | `mta_sts_fetch_timeout` | `MTA_MTA_STS_FETCH_TIMEOUT` | `5s` | MTA-STS policy の取得タイムアウトです |
+| `dkim_profiles_file` | `MTA_DKIM_PROFILES_FILE` | unset | 複数ドメイン用の署名 profile JSON。従来の domain/selector/key 設定と併用不可 |
 | `dkim_sign_domain` | `MTA_DKIM_SIGN_DOMAIN` | unset | 送信時 DKIM/ARC 署名に使うドメインです |
 | `dkim_sign_selector` | `MTA_DKIM_SIGN_SELECTOR` | unset | 送信時 DKIM/ARC 署名に使う selector です |
 | `dkim_private_key_file` | `MTA_DKIM_PRIVATE_KEY_FILE` | unset | DKIM/ARC 共用の PEM 秘密鍵です。RSA は PKCS#1 / PKCS#8、Ed25519 は PKCS#8 に対応し、鍵種別から署名アルゴリズムを自動選択します |
@@ -148,8 +149,8 @@ worker 初期化で起動を停止します。未署名での配送には切り�
 3項目すべてが未設定の場合は従来どおり署名せず配送します。
 起動前には `-check-config` で確認し、初期化に失敗した場合は設定・鍵ファイルを修復して再起動してください。
 稼働後の鍵再読込で失敗した場合も、その署名・配送はエラーになります。
-これは既存の単一署名設定に対する失敗時の挙動です。複数ドメインの profile 選択や
-DNS 事前公開を検証する selector 切替は Issue #316 の後続範囲です。
+複数ドメインの profile 選択と DNS 事前公開を検証する切替は、
+[DKIM 署名 profile と鍵切替](./runbooks/dkim_rotation.md) を参照してください。
 
 ## レート制御と配送スロットリング
 
@@ -532,7 +533,8 @@ SQLite は DSN の必須指定のみを確認し、DB を開かず、schema・�
 ## 設定の限定的な再読込
 
 稼働中の `kuroshio` プロセスへ SIGHUP を送ると、起動前検証と同じ厳格な検証を行い、
-**`log_level` だけの変更**を新しいロガーへ原子的に反映します。起動時の世代は1で、
+`log_level` の変更と、起動時に指定した `dkim_profiles_file` の内容更新を反映します。
+署名 profile は鍵・DNS を検証後に一式を切り替え、ロガーには新しい世代を反映します。起動時の世代は1で、
 変更成功ごとに1増えます。同じ設定の再読込は世代を増やしません。
 ログにはロガーと一緒に公開する `config_generation` が付きます。
 
@@ -543,16 +545,19 @@ kill -HUP <kuroshioのPID>
 ```
 
 listener、認証、秘密情報、TLS/DKIM鍵のパス、キュー、配送、rate limit、受信資源上限など、
-`log_level` 以外の設定値の変更は再起動が必要です。同時に変更されていれば更新全体を拒否します。
+`log_level` 以外の YAML 設定値の変更は再起動が必要です。
+例外は同じ `dkim_profiles_file` 内の profile 内容更新で、参照先 JSON のパス自体は変更できません。同時に変更されていれば更新全体を拒否します。
 誤字・不正値・読めない鍵/secret file も更新を拒否し、旧設定・ロガー・世代を維持します。
 再読込時のファイル選択・環境変数優先順位は起動時と同じです。環境変数はプロセス起動時の値なので、
 環境変数で指定したログレベルを YAML の変更で上書きすることはできません。
 通常起動で許容している未知項目や fallback 対象の不正値も、再読込時は検証エラーになります。
 
-進行中の SMTP セッションや配送 worker の設定は変更しません。
+SMTP セッションや配送 worker の起動設定は変更しません。
+署名 profile は各署名処理が取得した一組を使い切るため、切替前の進行中処理は旧 selector を使う場合があります。
 ログのレベルと世代は1つのロガーとして公開し、並行して記録されるログも各ロガーの一貫した世代を持ちます。
 切替前に取得済みのロガーを使う記録は旧世代で出る場合があります。
-既存の証明書・署名鍵の同じパスでの更新処理は、それぞれの従来の仕組みに従います。
+既存の証明書・従来の単一署名鍵の同じパスでの更新処理は、それぞれの従来の仕組みに従います。
+profile モードの鍵は反映時点の一組を保持し、ファイル上書きによる自動更新は行いません。
 
 監視には `config_reload_success_total`、`config_reload_failure_total`、`config_generation` を使います。
 成功（変更なしも含む）は `config_reloaded`、失敗は `config_reload_rejected` のログイベントに記録します。

@@ -90,6 +90,7 @@ func applyEnvConfig(cfg Config) Config {
 	cfg.ScanInterval = envDuration("MTA_SCAN_INTERVAL", cfg.ScanInterval)
 	cfg.DialTimeout = envDuration("MTA_DIAL_TIMEOUT", cfg.DialTimeout)
 	cfg.SendTimeout = envDuration("MTA_SEND_TIMEOUT", cfg.SendTimeout)
+	cfg.DKIMProfilesFile = env("MTA_DKIM_PROFILES_FILE", cfg.DKIMProfilesFile)
 	cfg.DKIMSignDomain = env("MTA_DKIM_SIGN_DOMAIN", cfg.DKIMSignDomain)
 	cfg.DKIMSignSelector = env("MTA_DKIM_SIGN_SELECTOR", cfg.DKIMSignSelector)
 	cfg.DKIMPrivateKeyFile = env("MTA_DKIM_PRIVATE_KEY_FILE", cfg.DKIMPrivateKeyFile)
