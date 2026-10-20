@@ -125,6 +125,9 @@ func (s *Store) ListState(state string, limit int) ([]*model.Message, error) {
 		if err != nil {
 			return nil, err
 		}
+		if (state == "quarantine") != (msg.Quarantine != nil) {
+			continue
+		}
 		out = append(out, msg)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -140,6 +143,10 @@ func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Messag
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.refreshCapacityMetrics()
+	if id == "" || filepath.Base(id) != id || strings.ContainsAny(id, `/\\`) {
+		return nil, ErrMessageNotFound
+	}
+	state = strings.ToLower(strings.TrimSpace(state))
 	dir, err := s.dirForState(state)
 	if err != nil {
 		return nil, err
@@ -152,6 +159,10 @@ func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Messag
 		}
 		return nil, err
 	}
+	if (state == "quarantine") != (msg.Quarantine != nil) {
+		return nil, ErrInvalidStateTransition
+	}
+	msg.Quarantine = nil
 	msg.UpdatedAt = now.UTC()
 	msg.NextAttempt = now.UTC()
 	if dir == s.sent || dir == s.dlq {
@@ -183,7 +194,7 @@ func (s *Store) AckSent(id string, msg *model.Message) error {
 	switch st {
 	case "sent":
 		return nil
-	case "dlq":
+	case "dlq", "quarantine":
 		return ErrInvalidStateTransition
 	case "none":
 		return ErrMessageNotFound
@@ -204,7 +215,7 @@ func (s *Store) Retry(msg *model.Message, delay time.Duration, reason string) er
 		return err
 	}
 	switch st {
-	case "sent", "dlq":
+	case "sent", "dlq", "quarantine":
 		return ErrInvalidStateTransition
 	case "none":
 		return ErrMessageNotFound
@@ -228,7 +239,7 @@ func (s *Store) Defer(msg *model.Message, delay time.Duration) error {
 		return err
 	}
 	switch st {
-	case "sent", "dlq":
+	case "sent", "dlq", "quarantine":
 		return ErrInvalidStateTransition
 	case "none":
 		return ErrMessageNotFound
@@ -252,7 +263,7 @@ func (s *Store) Fail(msg *model.Message, reason string) error {
 	switch st {
 	case "dlq":
 		return nil
-	case "sent":
+	case "sent", "quarantine":
 		return ErrInvalidStateTransition
 	case "none":
 		return ErrMessageNotFound
@@ -286,7 +297,7 @@ func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
 			_ = s.quarantinePoison(path, e.Name(), err)
 			continue
 		}
-		if msg.NextAttempt.After(now) {
+		if msg.Quarantine != nil || msg.NextAttempt.After(now) {
 			continue
 		}
 		out = append(out, msg)
@@ -381,6 +392,15 @@ func (s *Store) messageState(id string) (string, error) {
 			return "", err
 		}
 		if ok {
+			if p.state == "inbound" {
+				msg, err := s.read(filepath.Join(p.dir, id+".json"))
+				if err != nil {
+					return "", err
+				}
+				if msg.Quarantine != nil {
+					return "quarantine", nil
+				}
+			}
 			return p.state, nil
 		}
 	}
@@ -389,7 +409,7 @@ func (s *Store) messageState(id string) (string, error) {
 
 func (s *Store) dirForState(state string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(state)) {
-	case "inbound":
+	case "inbound", "quarantine":
 		return s.inbound, nil
 	case "retry":
 		return s.retry, nil
