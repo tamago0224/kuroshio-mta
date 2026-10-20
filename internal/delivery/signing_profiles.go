@@ -41,7 +41,7 @@ func (c *Client) prepareOutboundMessage(ctx context.Context, msg *model.Message)
 	}
 	authorDomain, _ := util.DomainOf(author)
 	envelopeDomain, _ := util.DomainOf(msg.MailFrom)
-	if domain != strings.ToLower(domain) || domain != authorDomain || domain != envelopeDomain {
+	if domain != strings.ToLower(domain) || domain != authorDomain || (msg.MailFrom != "" && domain != envelopeDomain) {
 		return nil, errors.New("persisted signing identity does not match message")
 	}
 	pair, err := c.profiles.Signers(domain)

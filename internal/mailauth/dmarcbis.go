@@ -60,7 +60,7 @@ func EvalDMARCbis(ctx context.Context, author string, spf SPFResult, dkim DKIMRe
 			policy = value
 		}
 	}
-	pass := false
+	spfAligned, dkimAligned := false, false
 	aspf, adkim := rec.tags["aspf"], rec.tags["adkim"]
 	if aspf == "" {
 		aspf = "r"
@@ -73,7 +73,7 @@ func EvalDMARCbis(ctx context.Context, author string, spf SPFResult, dkim DKIMRe
 		if err != nil {
 			return DMARCbisResult{Result: "temperror", AuthorDomain: author, PolicyDomain: rec.domain, OrgDomain: org, Policy: policy, Discovery: "treewalk", Reason: "identifier alignment lookup failed"}
 		}
-		pass = aligned
+		spfAligned = aligned
 	}
 	for _, sig := range dkim.Sigs {
 		if strings.EqualFold(sig.Result, "pass") {
@@ -82,19 +82,25 @@ func EvalDMARCbis(ctx context.Context, author string, spf SPFResult, dkim DKIMRe
 				return DMARCbisResult{Result: "temperror", AuthorDomain: author, PolicyDomain: rec.domain, OrgDomain: org, Policy: policy, Discovery: "treewalk", Reason: "identifier alignment lookup failed"}
 			}
 			if aligned {
-				pass = true
+				dkimAligned = true
 				break
 			}
 		}
 	}
 	result, reason := "fail", "alignment failed"
-	if pass {
+	if spfAligned || dkimAligned {
 		result, reason = "pass", ""
 	}
 	if rec.tags["t"] == "n" {
 		policy, reason = "none", "assessment policy disabled by t=n"
 	}
-	return DMARCbisResult{Result: result, AuthorDomain: author, PolicyDomain: rec.domain, OrgDomain: org, Policy: policy, Discovery: "treewalk", Reason: reason}
+	return DMARCbisResult{
+		Result: result, AuthorDomain: author, PolicyDomain: rec.domain, OrgDomain: org, Policy: policy,
+		PublishedP: rec.tags["p"], PublishedSP: rec.tags["sp"], PublishedNP: rec.tags["np"],
+		FailureOptions: rec.tags["fo"], DKIMMode: rec.tags["adkim"], SPFMode: rec.tags["aspf"], Testing: rec.tags["t"],
+		SPFAligned: spfAligned, DKIMAligned: dkimAligned, AggregateReport: parseDMARCList(rec.tags["rua"], nil),
+		Discovery: "treewalk", Reason: reason,
+	}
 }
 
 func dmarcBisAligned(ctx context.Context, author, identifier, org, mode string) (bool, error) {
@@ -119,6 +125,12 @@ func dmarcBisOrg(ctx context.Context, domain string) (string, error) {
 		return domain, nil
 	}
 	return dmarcBisOrgFromRecords(domain, records), nil
+}
+
+// DMARCbisOrganizationalDomain returns the RFC 9989 Tree Walk based domain
+// used when checking alignment and external report destination scope.
+func DMARCbisOrganizationalDomain(ctx context.Context, domain string) (string, error) {
+	return dmarcBisOrg(ctx, domain)
 }
 
 func dmarcBisOrgFromRecords(domain string, records []dmarcbisRecord) string {

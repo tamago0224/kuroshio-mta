@@ -54,13 +54,23 @@ type DMARCResult struct {
 }
 
 type DMARCbisResult struct {
-	Result       string
-	AuthorDomain string
-	PolicyDomain string
-	OrgDomain    string
-	Policy       string
-	Discovery    string
-	Reason       string
+	Result          string
+	AuthorDomain    string
+	PolicyDomain    string
+	OrgDomain       string
+	Policy          string
+	PublishedP      string
+	PublishedSP     string
+	PublishedNP     string
+	FailureOptions  string
+	DKIMMode        string
+	SPFMode         string
+	Testing         string
+	SPFAligned      bool
+	DKIMAligned     bool
+	AggregateReport []string
+	Discovery       string
+	Reason          string
 }
 
 type ARCResult struct {
