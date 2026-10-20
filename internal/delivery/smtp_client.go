@@ -46,6 +46,7 @@ var deliveryTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/de
 type Client struct {
 	shaper                         *shaping.Shaper
 	shapingErr                     error
+	signingErr                     error
 	cfg                            config.Config
 	dane                           *DANEResolver
 	mtaSTS                         *MTASTSResolver
@@ -74,9 +75,13 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
 		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
 			c.signer = signer
+		} else {
+			c.signingErr = errors.New("configured DKIM signer initialization failed")
 		}
 		if arcSigner, err := dkim.NewARCFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.Hostname, cfg.DKIMSignHeaders); err == nil {
 			c.arcSigner = &validatedARCSigner{signer: arcSigner}
+		} else {
+			c.signingErr = errors.Join(c.signingErr, errors.New("configured ARC signer initialization failed"))
 		}
 	}
 	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
@@ -92,7 +97,7 @@ func NewClientWithMetrics(cfg config.Config, metrics *observability.Metrics) *Cl
 	return c
 }
 
-func (c *Client) InitError() error { return c.shapingErr }
+func (c *Client) InitError() error { return errors.Join(c.shapingErr, c.signingErr) }
 func (c *Client) Close() error     { return c.shaper.Close() }
 
 type shapingContextKey struct{}
@@ -103,8 +108,8 @@ type shapingAttempt struct {
 }
 
 func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) error {
-	if c.shapingErr != nil {
-		return c.shapingErr
+	if err := c.InitError(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -631,6 +636,9 @@ func dotStuff(data []byte) []byte {
 }
 
 func (c *Client) prepareOutboundData(raw []byte) ([]byte, error) {
+	if c.signingErr != nil {
+		return nil, c.signingErr
+	}
 	signed := raw
 	if c.signer != nil {
 		var err error
