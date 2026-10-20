@@ -11,6 +11,7 @@ import (
 )
 
 type yamlConfig struct {
+	Quarantine    *QuarantineConfig    `yaml:"quarantine"`
 	SMTPLimits    *SMTPLimitsConfig    `yaml:"smtp_limits"`
 	ProxyProtocol *ProxyProtocolConfig `yaml:"proxy_protocol"`
 	InboundPolicy *InboundPolicyConfig `yaml:"inbound_policy"`
@@ -155,6 +156,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 
 	cfg := base
+	if raw.Quarantine != nil {
+		cfg.Quarantine = *raw.Quarantine
+	}
 	if raw.SMTPLimits != nil {
 		cfg.SMTPLimits = *raw.SMTPLimits
 	}

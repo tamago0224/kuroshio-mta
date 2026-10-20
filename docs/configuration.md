@@ -306,7 +306,9 @@ redirect と環境変数由来の HTTP proxy は使いません。HTTP 応答ヘ
 SMTP AUTH のパスワード・access token・認証ユーザー名は送信しません。`send_body: false` ではヘッダ・本文を一切送信しません。
 有効時は本文自体に機密情報が含まれ得るため、サービス側の保存・ログ方針も運用管理者が設定してください。
 
-応答は HTTP 200 の厳格な JSON で、同じ `version` と `action: accept|reject|tempfail` のみを許可します。
+応答は HTTP 200 の厳格な JSON で、同じ `version` と `action: accept|reject|tempfail|quarantine` のみを許可します。
+`quarantine` は DATA 専用で、後述の `quarantine.enabled: true` が必要です。
+RCPT での quarantine、または無効時の quarantine 応答は451にします。
 RCPT reject は550、DATA reject は554、tempfail・timeout・通信失敗・TLS失敗・redirect・不正JSON・応答超過・過負荷は451です。
 SMTP 応答文は固定で、サービス側が本文・宛先・ヘッダ・SMTP 応答を変更する機能はありません。
 accept はフック段階のチェックを通過するだけで、既存の AUTH / SPF / DKIM / DMARC / ARC、サイズ、8BITMIME、キュー容量制限を解除しません。
@@ -314,9 +316,9 @@ DATA フックの拒否・一時失敗後はトランザクションを終了し
 
 SMTP と Submission はそれぞれ独立した呼び出し枠を持つため、両方の有効化時は最大で2倍の同時数になります。
 サービス過負荷時は枠待ちで滞留させず即時451にし、hook 応答を待つ時間も timeout で制限します。
-`smtp_policy_hook_<rcpt|data>_<accept|reject|tempfail>_total` と
+`smtp_policy_hook_<rcpt|data>_<accept|reject|tempfail|quarantine>_total` と
 `smtp_policy_hook_<stage>_error_<reason>_total` を監視してください。
-reason は `overload`、`timeout`、`transport`、`http_status`、`read`、`response_too_large`、`json`、`version`、`action`、`request`、`canceled` の固定値です。
+reason は `overload`、`timeout`、`transport`、`http_status`、`read`、`response_too_large`、`json`、`version`、`action`、`action_stage`、`request`、`canceled` の固定値です。
 URL・応答本文・token・メール本文はフックのメトリクスやエラー記録に含みません。
 
 [モックサービス付き tutorial](./tutorials/policy-hook.md) と
@@ -554,3 +556,46 @@ SIGHUP は設定更新の完了後に送ってください。短時間に連続�
 ```bash
 go test -race -tags=integration ./cmd/kuroshio -run '^TestConfigReloadProcess$' -count=1 -v
 ```
+
+## Policy quarantine の運用
+
+`quarantine.enabled` は既定 `false` で、認証の quarantine は従来どおりヘッダ通知のみです。
+次の設定で認証判定と DATA フックの quarantine を永続保留へ接続します。
+YAML のみで指定し、反映には再起動が必要です。`retention` は有効時に必須の正の duration（最大8760h）です。
+
+```yaml
+queue_backend: local
+quarantine:
+  enabled: true
+  retention: 168h
+```
+
+Kafka は隔離管理の保存・共有方式が未実装のため、この組み合わせを起動前検証と起動時に拒否します。
+機能を後で無効にしても保存済みの隔離は解除しません。旧 JSON と外部からの X ヘッダは隔離状態を変更しません。
+理由は `auth_policy` または `policy_hook`、期限は受信時刻＋retention として保存します。
+隔離中は配送 attempt を増やさず、worker の scan 時に期限切れを削除します。
+停止中は削除せず、再起動後の scan で処理します。期限切れの手動解放は409で拒否します。
+削除による DSN は送らないため、管理者が期限内に確認してください。
+認証判定からの DMARC 通知の扱いは従来どおりで、元メールの隔離とは独立しています。
+
+管理 API を有効化した環境で次を使います。認証・actor の監査は既存管理 API と同じです。
+
+| 操作 | HTTP | 必要な role |
+| --- | --- | --- |
+| 隔離一覧（本文なし） | `GET /api/v1/queue/quarantine?limit=50` | viewer |
+| 明示解放 | `POST /api/v1/queue/quarantine/{id}/requeue` | operator |
+| 明示削除 | `DELETE /api/v1/queue/quarantine/{id}` | operator |
+
+解放・削除は `?dry_run=1` で変更せず確認できます。解放の dry-run は操作予定の監査だけで、
+存在・期限の検証は実操作時に行います。削除の dry-run は存在・隔離状態も確認します。
+解放後の再解放は409、存在しない ID は404です。通常キューの requeue を使った解除はできません。
+一覧・解放の応答には本文を含めません。本文確認はキューファイルへのアクセス権を持つ管理者が
+隔離した環境で行い、API の viewer/operator token に本文参照を許可しません。
+隔離ファイルも本文を含むため、queue ディレクトリとバックアップの OS 権限・暗号化を管理してください。
+
+`queue_quarantine_messages`（scan 時更新）と `queue_quarantine_expired_total` を監視します。
+保存データの読み取り・削除エラーは worker の queue scan エラーとして確認してください。
+件数が増える場合は判定元の障害・誤判定を確認し、解放前に宛先と期限を確認してください。
+隔離中も `queue_max_messages` / `queue_max_bytes` / `queue_min_free_bytes` に算入するため、
+容量に余裕がなくなると新規受信を451にします。隔離解除は追加容量を要求しません。
+期限切れ削除は `queue_quarantine_expired` イベントとして system actor で監査し、本文はログへ出しません。

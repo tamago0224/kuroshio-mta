@@ -26,3 +26,18 @@ func TestNewBackendUnknown(t *testing.T) {
 		t.Fatal("expected error for unknown backend")
 	}
 }
+
+func TestLocalAdministrationThroughObservedBackend(t *testing.T) {
+	t.Parallel()
+	b, err := NewBackend(config.Config{QueueBackend: "local", QueueDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if LocalStore(b) == nil {
+		t.Fatal("local admin unavailable behind tracing wrapper")
+	}
+	if LocalStore(&KafkaStore{}) != nil {
+		t.Fatal("Kafka exposed local administration")
+	}
+}

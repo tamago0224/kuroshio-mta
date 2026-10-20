@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Quarantine                       QuarantineConfig
 	SMTPLimits                       SMTPLimitsConfig
 	ProxyProtocol                    ProxyProtocolConfig
 	InboundPolicy                    InboundPolicyConfig
@@ -156,6 +157,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.MXShaping.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Quarantine.Validate(cfg.QueueBackend); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.PolicyHook.Validate(); err != nil {

@@ -15,7 +15,8 @@
       "enum": [
         "accept",
         "reject",
-        "tempfail"
+        "tempfail",
+        "quarantine"
       ]
     }
   }

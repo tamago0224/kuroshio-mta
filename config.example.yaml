@@ -186,3 +186,9 @@ smtp_limits:
   max_rcpt_failures: 20
   idle_timeout: 5m
   max_lifetime: 10m
+
+# Opt-in local policy isolation; disabled mode keeps auth quarantine header-only.
+# Kafka is unsupported and rejected when enabled. Expired holds are deleted.
+quarantine:
+  enabled: false
+  retention: 168h

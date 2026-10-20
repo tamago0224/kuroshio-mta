@@ -8,6 +8,9 @@ import (
 )
 
 func NewBackend(cfg config.Config) (Backend, error) {
+	if err := cfg.Quarantine.Validate(cfg.QueueBackend); err != nil {
+		return nil, err
+	}
 	limits := CapacityLimits{MaxMessages: cfg.QueueMaxMessages, MaxBytes: cfg.QueueMaxBytes, LowPercent: cfg.QueueLowWatermarkPercent, MinFreeBytes: cfg.QueueMinFreeBytes}
 	if err := limits.validate(); err != nil {
 		return nil, err
@@ -20,7 +23,7 @@ func NewBackend(cfg config.Config) (Backend, error) {
 		}
 		b.limits = limits
 		b.freeBytes = diskFreeBytes
-		if limits.enabled() {
+		if limits.enabled() || cfg.Quarantine.Enabled {
 			b.ownerLock, err = lockQueue(b.root)
 			if err != nil {
 				return nil, err
@@ -49,4 +52,14 @@ func NewBackend(cfg config.Config) (Backend, error) {
 	default:
 		return nil, errors.New("unknown queue backend: " + cfg.QueueBackend)
 	}
+}
+
+// LocalStore returns the local administration surface through tracing wrappers.
+// Kafka has no local state administration and returns nil.
+func LocalStore(b Backend) *Store {
+	if observed, ok := b.(*observedBackend); ok {
+		return LocalStore(observed.next)
+	}
+	s, _ := b.(*Store)
+	return s
 }

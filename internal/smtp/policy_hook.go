@@ -3,6 +3,8 @@ package smtp
 import (
 	"bufio"
 	"context"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/policyhook"
 )
@@ -26,6 +28,15 @@ func (s *Server) applyPolicyHook(ctx context.Context, ss *session, stage, recipi
 	switch action {
 	case policyhook.Accept:
 		return true
+	case policyhook.Quarantine:
+		if stage == "data" && s.cfg.Quarantine.Enabled {
+			if ss.quarantine == nil {
+				ss.quarantine = &model.Quarantine{Reason: "policy_hook", ExpiresAt: time.Now().UTC().Add(s.cfg.Quarantine.Retention)}
+			}
+			return true
+		}
+		span.reject("policy_hook_quarantine_unavailable", 451, "policy quarantine unavailable")
+		writeResp(w, 451, "4.3.0 policy quarantine unavailable")
 	case policyhook.Reject:
 		code := 550
 		if stage == "data" {
