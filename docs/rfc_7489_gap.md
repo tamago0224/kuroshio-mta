@@ -1,6 +1,6 @@
 # DMARC implementation and RFC 9989 migration note
 
-現行 `Evaluate` は RFC 7489 互換評価を本判定に使い、`EvaluateWithDMARCbis` は RFC 9989 結果を `DMARCResult.DMARCbis` に付けて比較します。shadow 結果は配送 action を変更しません。呼び出し側が shadow 関数を使うよう切り替えるまでは通常処理へ追加 DNS 照会を行いません。
+現行 `Evaluate` は RFC 7489 互換評価を本判定に使い、`EvaluateWithDMARCbis` は RFC 9989 結果を `DMARCResult.DMARCbis` に付けて比較します。shadow 結果は配送 action を変更しません。SMTPはaggregateレポートStoreが有効なため、受信評価のあとRFC 9989結果も記録します。
 
 RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメイン決定を DNS Tree Walk に置き換えています。[RFC 9989](https://www.rfc-editor.org/rfc/rfc9989.html)
 
@@ -12,7 +12,7 @@ RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメ�
 - 一時 DNS 障害は `temperror` として shadow 結果に記録し、配送判断には使いません。
 - `EvaluateWithDMARCbis` は旧判定を実行した後に shadow を追加します。shadow の有効化は自動ではありません。
 
-移行前に production 相当のトラフィックで旧新結果、DNS query 数・遅延、`psd/np/t` と strict alignment の差を観測してください。shadow は比較用 API で、保存・メトリクス・本判定切替の運用スイッチはまだ提供しません。切替後は失敗や DNS エラーを理由に旧方式の pass へ fallback しない設計が必要です。
+移行前に production 相当のトラフィックで旧新結果、DNS query 数・遅延、`psd/np/t` と strict alignment の差を観測してください。集計保存は [DMARC aggregate reports](./runbooks/dmarc_aggregate_reports.md) の範囲で実装済みですが、shadow 結果を本判定へ切り替える運用スイッチはまだありません。切替後は失敗や DNS エラーを理由に旧方式の pass へ fallback しない設計が必要です。
 
 ## RFC 7489 互換評価
 
@@ -24,13 +24,12 @@ RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメ�
 - `p`, `sp`, `pct`, `aspf`, `adkim`, `fo`, `rf`, `ri`, `rua`, `ruf` の主要タグ解釈
 - 既存固定 suffix 表による組織ドメインベースのサブドメインポリシー継承
 - `pct` サンプリングとポリシー適用
-- 集計 / 失敗レポート生成
+- RFC 9990 aggregate report の生成（運用詳細は [DMARC aggregate reports](./runbooks/dmarc_aggregate_reports.md)）
 
 ## 実装範囲外として扱う内容
 
-- 外部宛先レポート配送の完全な認可検証
+- RFC 9990 / RFC 9991 の RUF failure report 実装（#329 を参照。現行の単通形式が残っています）
 - XML aggregate report の受信 / 解析パイプライン
-- RFC 9990/9991 の集約・failure report 実装（#328/#329 を参照）
 - すべての異常 DMARC レコードに対する厳密なエラー分類
 
 ## 判断メモ

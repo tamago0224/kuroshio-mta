@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestBuildDMARCOutboundReportsFailIncludesAggregateAndFailure(t *testing.T) {
+func TestBuildDMARCOutboundReportsFailIncludesFailureOnly(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	res := DMARCResult{
 		Result:          "fail",
@@ -16,14 +16,11 @@ func TestBuildDMARCOutboundReportsFailIncludesAggregateAndFailure(t *testing.T) 
 	}
 
 	got := BuildDMARCOutboundReports(res, "example.com", "mx.example.test", "msg-1", now)
-	if len(got) != 2 {
-		t.Fatalf("len=%d want=2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("len=%d want=1", len(got))
 	}
-	if got[0].To != "agg@example.net" {
-		t.Fatalf("aggregate to=%q", got[0].To)
-	}
-	if got[1].To != "forensic@example.net" {
-		t.Fatalf("failure to=%q", got[1].To)
+	if got[0].To != "forensic@example.net" {
+		t.Fatalf("failure to=%q", got[0].To)
 	}
 }
 
@@ -37,11 +34,8 @@ func TestBuildDMARCOutboundReportsPassSkipsFailure(t *testing.T) {
 	}
 
 	got := BuildDMARCOutboundReports(res, "example.com", "mx.example.test", "msg-1", now)
-	if len(got) != 1 {
-		t.Fatalf("len=%d want=1", len(got))
-	}
-	if got[0].To != "agg@example.net" {
-		t.Fatalf("to=%q", got[0].To)
+	if len(got) != 0 {
+		t.Fatalf("len=%d want=0", len(got))
 	}
 }
 

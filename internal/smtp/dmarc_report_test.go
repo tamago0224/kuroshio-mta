@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
 	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -22,6 +24,42 @@ import (
 type reportFailureQueue struct {
 	recordingQueue
 	attempts int
+}
+
+func TestRecordDMARCObservationStoresAuthorizedDomainOnlyData(t *testing.T) {
+	oldOrg, oldLookup := dmarcReportOrganizationalDomain, dmarcReportLookupTXT
+	dmarcReportOrganizationalDomain = func(context.Context, string) (string, error) { return "vendor.test", nil }
+	dmarcReportLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name != "example.test._report._dmarc.reports.vendor.test" {
+			t.Fatalf("authorization query=%q", name)
+		}
+		return []string{"v=DMARC1; x-vendor=opaque"}, nil
+	}
+	t.Cleanup(func() { dmarcReportOrganizationalDomain, dmarcReportLookupTXT = oldOrg, oldLookup })
+	store, err := dmarcreport.Open(context.Background(), filepath.Join(t.TempDir(), "reports.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	s := &Server{dmarcReports: store, metrics: observability.NewMetrics()}
+	now := time.Date(2026, 10, 19, 4, 0, 0, 0, time.UTC)
+	auth := mailauth.Result{SPF: mailauth.SPFResult{Domain: "bounce.example.test", Result: "pass"}, DMARC: mailauth.DMARCResult{DMARCbis: &mailauth.DMARCbisResult{
+		Result: "fail", AuthorDomain: "mail.example.test", PolicyDomain: "example.test", OrgDomain: "example.test", Policy: "reject", PublishedP: "reject", Discovery: "treewalk", AggregateReport: []string{"mailto:agg@reports.vendor.test"},
+	}}}
+	s.recordDMARCObservation(context.Background(), auth, "sender@example.test", []string{"user@recipient.test"}, net.ParseIP("192.0.2.8"), []byte("From: sender@example.test\r\n\r\nbody\r\n"), now)
+	rows, err := store.Snapshot(context.Background(), now)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("snapshot rows=%d err=%v", len(rows), err)
+	}
+	ob := rows[0].Observation
+	if rows[0].Count != 1 || ob.Disposition != "reject" || ob.EnvelopeFrom != "example.test" || ob.EnvelopeTo != "recipient.test" || len(ob.Recipients) != 1 {
+		t.Fatalf("unexpected stored aggregate: %+v", rows[0])
+	}
+	s.recordDMARCObservation(context.Background(), auth, "sender@example.test", []string{"user@recipient.test"}, net.ParseIP("192.0.2.8"), []byte("From: sender@example.test\r\nX-Kuroshio-DMARC-Report: aggregate\r\n\r\nreport\r\n"), now)
+	rows, err = store.Snapshot(context.Background(), now)
+	if err != nil || len(rows) != 1 || rows[0].Count != 1 {
+		t.Fatalf("report loop was counted: rows=%+v err=%v", rows, err)
+	}
 }
 
 func (q *reportFailureQueue) Enqueue(msg *model.Message) error {
@@ -48,22 +86,15 @@ func TestDMARCReportsContinueAfterEnqueueFailure(t *testing.T) {
 		FailureReport: []string{"mailto:forensic@example.net"},
 	}}
 	s.enqueueDMARCReports(ctx, result, "alice@example.com", "original", time.Now())
-	if q.attempts != 2 || len(q.msgs) != 1 {
+	if q.attempts != 1 || len(q.msgs) != 0 {
 		t.Fatalf("attempts=%d queued=%d", q.attempts, len(q.msgs))
 	}
-	msg := q.msgs[0]
-	if msg.MailFrom != "" || len(msg.RcptTo) != 1 || msg.RcptTo[0] != "forensic@example.net" {
-		t.Fatalf("unexpected report envelope: %+v", msg)
-	}
-	if got := trace.SpanContextFromContext(observability.ExtractTraceContext(context.Background(), msg)); got.TraceID() != parent.TraceID() {
-		t.Fatalf("trace ID=%s want=%s", got.TraceID(), parent.TraceID())
-	}
-	if got := metrics.Counter("smtp_dmarc_report_queued").Load(); got != 1 {
-		t.Fatalf("queued metric=%d want=1", got)
+	if got := metrics.Counter("smtp_dmarc_report_queued").Load(); got != 0 {
+		t.Fatalf("queued metric=%d want=0", got)
 	}
 	s.submission = true
 	s.enqueueDMARCReports(ctx, result, "alice@example.com", "original", time.Now())
-	if q.attempts != 2 {
+	if q.attempts != 1 {
 		t.Fatal("submission generated reports")
 	}
 }
@@ -140,19 +171,13 @@ func TestQueueMessageEnqueuesDMARCReports(t *testing.T) {
 	if code != 250 {
 		t.Fatalf("code=%d want=250", code)
 	}
-	if len(q.msgs) != 3 {
-		t.Fatalf("queued=%d want=3", len(q.msgs))
+	if len(q.msgs) != 2 {
+		t.Fatalf("queued=%d want=2", len(q.msgs))
 	}
-	if q.msgs[1].MailFrom != "" || len(q.msgs[1].RcptTo) != 1 || q.msgs[1].RcptTo[0] != "agg@example.net" {
-		t.Fatalf("aggregate report envelope mismatch: %+v", q.msgs[1])
+	if q.msgs[1].MailFrom != "" || len(q.msgs[1].RcptTo) != 1 || q.msgs[1].RcptTo[0] != "forensic@example.net" {
+		t.Fatalf("failure report envelope mismatch: %+v", q.msgs[1])
 	}
-	if q.msgs[2].MailFrom != "" || len(q.msgs[2].RcptTo) != 1 || q.msgs[2].RcptTo[0] != "forensic@example.net" {
-		t.Fatalf("failure report envelope mismatch: %+v", q.msgs[2])
-	}
-	if !strings.Contains(string(q.msgs[1].Data), "Subject: DMARC aggregate report for example.com") {
-		t.Fatalf("missing aggregate report subject: %q", string(q.msgs[1].Data))
-	}
-	if !strings.Contains(string(q.msgs[2].Data), "Subject: DMARC failure report for example.com") {
-		t.Fatalf("missing failure report subject: %q", string(q.msgs[2].Data))
+	if !strings.Contains(string(q.msgs[1].Data), "Subject: DMARC failure report for example.com") {
+		t.Fatalf("missing failure report subject: %q", string(q.msgs[1].Data))
 	}
 }

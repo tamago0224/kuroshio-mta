@@ -18,6 +18,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
+	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -77,6 +78,15 @@ func main() {
 			slog.Error("queue close failed", "component", "main", "error", cErr)
 		}
 	}()
+	dmarcReports, err := dmarcreport.Open(ctx, filepath.Join(cfg.QueueDir, "dmarc-reports.db"))
+	if err != nil {
+		fatal("DMARC report store init failed", "error", err)
+	}
+	defer func() {
+		if err := dmarcReports.Close(); err != nil {
+			slog.Error("DMARC report store close failed", "error", err)
+		}
+	}()
 	sup, err := bounce.NewSuppressionStore(filepath.Join(cfg.QueueDir, "suppression.json"))
 	if err != nil {
 		fatal("suppression init failed", "error", err)
@@ -117,6 +127,7 @@ func main() {
 	}
 	d.SetDeliveryPauses(pauses)
 	s := smtp.NewServer(cfg, q, metrics)
+	s.SetDMARCReportStore(dmarcReports)
 	var submissionServers []*smtp.Server
 	if cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != "" {
 		var (
@@ -161,7 +172,7 @@ func main() {
 		}
 	}
 
-	workers := 4
+	workers := 5
 	workers += len(submissionServers)
 	if cfg.AdminAddr != "" {
 		workers++
@@ -173,6 +184,7 @@ func main() {
 		go func() { errCh <- submissionServer.Run(ctx) }()
 	}
 	go func() { errCh <- d.Run(ctx) }()
+	go func() { errCh <- runDMARCReports(ctx, dmarcReports, q, cfg.Hostname, metrics) }()
 	go func() { errCh <- rep.RunPersistence(ctx, 5*time.Second) }()
 	go func() { errCh <- observability.RunServerWithReputation(ctx, cfg.ObservabilityAddr, metrics, rep) }()
 	if cfg.AdminAddr != "" {
@@ -210,6 +222,29 @@ func main() {
 		}
 		slog.Error("runtime error", "component", "main", "error", err)
 		stop()
+	}
+}
+
+func runDMARCReports(ctx context.Context, store *dmarcreport.Store, backend queue.Backend, hostname string, metrics *observability.Metrics) error {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	flush := func() {
+		flushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if err := store.Flush(flushCtx, backend, hostname, "postmaster@"+hostname, time.Now().UTC()); err != nil && ctx.Err() == nil {
+			metrics.Counter("dmarc_aggregate_flush_errors_total").Inc()
+			slog.Warn("DMARC aggregate report flush failed", "component", "dmarc_report", "error", err)
+		} else if err == nil {
+			metrics.Counter("dmarc_aggregate_flush_runs_total").Inc()
+		}
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			flush()
+		}
 	}
 }
 

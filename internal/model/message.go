@@ -19,7 +19,7 @@ type Message struct {
 	// Quarantine is trusted queue metadata, never inferred from message headers.
 	Quarantine *Quarantine `json:"quarantine,omitempty"`
 
-	// SigningIdentity is trusted ingress metadata; nil denotes legacy/unknown origin.
+	// SigningIdentity is trusted ingress or system metadata; nil denotes legacy/unknown origin.
 	SigningIdentity *SigningIdentity `json:"signing_identity,omitempty"`
 }
 

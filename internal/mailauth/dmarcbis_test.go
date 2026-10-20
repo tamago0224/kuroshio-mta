@@ -66,6 +66,13 @@ func TestDMARCBisRejectsMultipleAndMalformedRecords(t *testing.T) {
 	}
 }
 
+func TestDMARCBisPreservesUnknownExtensionTags(t *testing.T) {
+	got, ok := parseDMARCbisRecord("v=DMARC1; p=reject; x-vendor=opaque")
+	if !ok || got["x-vendor"] != "opaque" {
+		t.Fatalf("unknown extension was not preserved: tags=%v ok=%v", got, ok)
+	}
+}
+
 func TestDMARCBisPropagatesTemporaryLookupFailure(t *testing.T) {
 	withDMARCBisDNS(t, func(_ context.Context, name string) ([]string, error) {
 		if name == "_dmarc.author.example" {

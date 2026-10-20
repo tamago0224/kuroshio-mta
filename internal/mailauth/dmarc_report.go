@@ -15,27 +15,9 @@ type DMARCOutboundReport struct {
 }
 
 func BuildDMARCOutboundReports(res DMARCResult, fromDomain, hostname, msgID string, now time.Time) []DMARCOutboundReport {
-	out := make([]DMARCOutboundReport, 0, len(res.AggregateReport)+len(res.FailureReport))
-	for _, rua := range res.AggregateReport {
-		to, ok := parseDMARCReportURI(rua)
-		if !ok {
-			continue
-		}
-		body := strings.Join([]string{
-			"DMARC Aggregate Report",
-			fmt.Sprintf("domain: %s", fromDomain),
-			fmt.Sprintf("result: %s", res.Result),
-			fmt.Sprintf("policy: %s", res.Policy),
-			fmt.Sprintf("message-id: %s", msgID),
-			fmt.Sprintf("time: %s", now.UTC().Format(time.RFC3339)),
-			"",
-		}, "\n")
-		out = append(out, DMARCOutboundReport{
-			To:      to,
-			Subject: fmt.Sprintf("DMARC aggregate report for %s", fromDomain),
-			Body:    []byte(body),
-		})
-	}
+	// RUA aggregate reports are generated from durable daily aggregates in
+	// internal/dmarcreport; never emit per-message summaries as aggregate data.
+	out := make([]DMARCOutboundReport, 0, len(res.FailureReport))
 	if !strings.EqualFold(res.Result, "fail") {
 		return out
 	}

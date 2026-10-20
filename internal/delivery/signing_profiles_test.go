@@ -61,17 +61,27 @@ func TestProfileSigningRequiresTrustedPersistedIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		identity     *model.SigningIdentity
+		mailFrom     string
 		from         string
 		fail, signed bool
 	}{
 		{name: "authorized", identity: &model.SigningIdentity{Domain: "sender.test"}, from: "sender.test", signed: true},
+		{name: "system report null reverse path", identity: &model.SigningIdentity{Domain: "sender.test"}, from: "sender.test", signed: true},
 		{name: "untrusted inbound", identity: &model.SigningIdentity{}, from: "sender.test"},
 		{name: "legacy unknown", from: "sender.test", fail: true},
 		{name: "persisted mismatch", identity: &model.SigningIdentity{Domain: "other.test"}, from: "sender.test", fail: true},
 		{name: "unknown profile", identity: &model.SigningIdentity{Domain: "other.test"}, from: "other.test", fail: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := &model.Message{ID: tc.name, MailFrom: "user@" + tc.from, SigningIdentity: tc.identity, Data: []byte("From: user@" + tc.from + "\r\nSubject: test\r\n\r\nbody")}
+			mailFrom := tc.mailFrom
+			if mailFrom == "" && tc.name != "system report null reverse path" {
+				mailFrom = "user@" + tc.from
+			}
+			author := "user@" + tc.from
+			if tc.name == "system report null reverse path" {
+				author = "postmaster@" + tc.from
+			}
+			msg := &model.Message{ID: tc.name, MailFrom: mailFrom, SigningIdentity: tc.identity, Data: []byte("From: " + author + "\r\nSubject: test\r\n\r\nbody")}
 			got, err := client.prepareOutboundMessage(t.Context(), msg)
 			if (err != nil) != tc.fail {
 				t.Fatalf("prepare: %v", err)

@@ -84,12 +84,22 @@ func (s *Server) handleDataCommand(
 		},
 	)
 	s.metricAuthResult(authRes)
+	if s.dmarcReports != nil && !s.submission && authRes.DMARC.Domain != "" {
+		spf := authRes.SPF
+		if strings.TrimSpace(ss.mailFrom) == "" || strings.EqualFold(strings.TrimSpace(s.cfg.SPFMailFromPolicy), "off") {
+			spf = authRes.SPFHelo
+		}
+		shadowCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		authRes.DMARC.DMARCbis = ptrSMTPDMARCbis(mailauth.EvalDMARCbis(shadowCtx, authRes.DMARC.Domain, spf, authRes.DKIM))
+		cancel()
+	}
 	cmdSpan.SetAttributes(
 		attribute.String("smtp.auth.action", string(authRes.Action)),
 		attribute.String("smtp.auth.dmarc.result", authRes.DMARC.Result),
 		attribute.String("smtp.auth.dmarc.policy", authRes.DMARC.Policy),
 	)
 	if authRes.Action == mailauth.ActionReject {
+		s.recordDMARCObservation(ctx, authRes, ss.mailFrom, ss.rcptTo, msgRemoteIP, ss.data, time.Now().UTC())
 		cmdSpan.reject("auth_policy_reject", 550, "message rejected by auth policy")
 		writeResp(w, 550, "message rejected by auth policy")
 		ss.finishData()
@@ -155,6 +165,7 @@ func (s *Server) handleDataCommand(
 		id,
 		time.Now().UTC(),
 	)
+	s.recordDMARCObservation(ctx, authRes, ss.mailFrom, ss.rcptTo, msgRemoteIP, ss.data, time.Now().UTC())
 	ss.messages++
 	s.metricInc("smtp_queued_messages")
 	cmdSpan.SetAttributes(attribute.String("smtp.message_id", id))

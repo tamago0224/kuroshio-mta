@@ -80,6 +80,7 @@ export default defineConfig({
           { text: "DR Backup / Restore", link: "/runbooks/dr_backup_restore" },
           { text: "Load / Chaos", link: "/runbooks/load_chaos" },
           { text: "Reputation Ops", link: "/runbooks/reputation_ops" },
+          { text: "DMARC Aggregate Reports", link: "/runbooks/dmarc_aggregate_reports" },
           { text: "SLO Backlog", link: "/runbooks/slo_backlog" },
           { text: "SLO Delivery", link: "/runbooks/slo_delivery" },
           { text: "SLO Retry", link: "/runbooks/slo_retry" }

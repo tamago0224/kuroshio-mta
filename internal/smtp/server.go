@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/config"
+	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
 	"github.com/tamago0224/kuroshio-mta/internal/ingress"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/mailauth"
@@ -41,6 +42,7 @@ type Server struct {
 	policyHookErr    error
 	cfg              config.Config
 	queue            queue.Backend
+	dmarcReports     *dmarcreport.Store
 	tlsConfig        *tls.Config
 	tlsLoadErr       error
 	certificate      *tlsCertificate
@@ -58,6 +60,9 @@ type Server struct {
 	implicitTLS      bool
 	authBackend      userauth.Backend
 }
+
+// SetDMARCReportStore enables durable aggregate reporting on this inbound server.
+func (s *Server) SetDMARCReportStore(store *dmarcreport.Store) { s.dmarcReports = store }
 
 func NewServer(cfg config.Config, q queue.Backend, metrics *observability.Metrics) *Server {
 	proxy, proxyErr := newProxyPolicy(cfg.ProxyProtocol)
