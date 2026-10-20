@@ -17,6 +17,7 @@ type DeliveryRoute struct {
 	RelayRequireTLS   bool     `yaml:"relay_require_tls,omitempty"`
 	RelayUsername     string   `yaml:"relay_username,omitempty"`
 	RelayPasswordFile string   `yaml:"relay_password_file,omitempty"`
+	LMTPUnixSocket    string   `yaml:"lmtp_unix_socket,omitempty"`
 }
 
 func (c Config) validateDeliveryRoutes() error {
@@ -41,8 +42,8 @@ func (c Config) validateDeliveryRoutes() error {
 		}
 		switch strings.ToLower(strings.TrimSpace(route.Mode)) {
 		case "mx", "local_spool":
-			if route.RelayHost != "" || route.RelayPort != 0 || route.RelayRequireTLS || route.RelayUsername != "" || route.RelayPasswordFile != "" {
-				return fmt.Errorf("delivery route %q has relay settings for non-relay mode", name)
+			if route.RelayHost != "" || route.RelayPort != 0 || route.RelayRequireTLS || route.RelayUsername != "" || route.RelayPasswordFile != "" || route.LMTPUnixSocket != "" {
+				return fmt.Errorf("delivery route %q has transport settings for incompatible mode", name)
 			}
 		case "relay":
 			if strings.TrimSpace(route.RelayHost) == "" {
@@ -57,6 +58,16 @@ func (c Config) validateDeliveryRoutes() error {
 			}
 			if credentials && !route.RelayRequireTLS {
 				return errors.New("authenticated relay routes require relay_require_tls")
+			}
+			if route.LMTPUnixSocket != "" {
+				return fmt.Errorf("delivery route %q has LMTP settings for relay mode", name)
+			}
+		case "lmtp":
+			if strings.TrimSpace(route.LMTPUnixSocket) == "" {
+				return fmt.Errorf("delivery route %q requires lmtp_unix_socket", name)
+			}
+			if route.RelayHost != "" || route.RelayPort != 0 || route.RelayRequireTLS || route.RelayUsername != "" || route.RelayPasswordFile != "" {
+				return fmt.Errorf("delivery route %q has relay settings for LMTP mode", name)
 			}
 		default:
 			return fmt.Errorf("delivery route %q has invalid mode", name)

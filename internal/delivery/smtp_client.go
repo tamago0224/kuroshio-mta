@@ -58,6 +58,7 @@ type Client struct {
 	arcSigner                      messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
 	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
+	deliverLMTPFn                  func(context.Context, string, *model.Message, []string) map[string]error
 	tlsConfigFn                    func(string) *tls.Config
 	spoolStore                     spoolBackend
 	spoolStoreErr                  error
@@ -110,6 +111,7 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 	}
 	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
 	c.deliverHostFn = c.deliverHost
+	c.deliverLMTPFn = c.deliverLMTP
 	c.tlsConfigFn = func(host string) *tls.Config {
 		return &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 	}
@@ -211,10 +213,95 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 			ctx = context.WithValue(ctx, shapingContextKey{}, &shapingAttempt{key: key, limits: limits})
 		}
 		err = c.deliverHostFn(ctx, host, port, msg, rcpt, requireTLS, nil)
+	case "lmtp":
+		if !routed {
+			err = errors.New("LMTP requires a named delivery route")
+			break
+		}
+		err = c.deliverLMTPFn(ctx, route.LMTPUnixSocket, msg, []string{rcpt})[rcpt]
 	default:
 		err = fmt.Errorf("unknown delivery mode: %s", mode)
 	}
 	return err
+}
+
+// BatchKey identifies recipients that can share one multi-recipient delivery.
+func (c *Client) BatchKey(rcpt string) (string, bool) {
+	domain, ok := util.DomainOf(rcpt)
+	if !ok {
+		return "", false
+	}
+	route, ok := c.routeFor(domain)
+	if !ok || !strings.EqualFold(strings.TrimSpace(route.Mode), "lmtp") {
+		return "", false
+	}
+	return route.Name, true
+}
+
+// DeliverBatch sends recipients on one LMTP route in a single transaction.
+func (c *Client) DeliverBatch(ctx context.Context, msg *model.Message, recipients []string) map[string]error {
+	results := make(map[string]error, len(recipients))
+	if len(recipients) == 0 {
+		return results
+	}
+	if err := c.InitError(); err != nil {
+		for _, rcpt := range recipients {
+			results[rcpt] = err
+		}
+		return results
+	}
+	if err := ctx.Err(); err != nil {
+		for _, rcpt := range recipients {
+			results[rcpt] = err
+		}
+		return results
+	}
+	domain, ok := util.DomainOf(recipients[0])
+	if !ok {
+		results[recipients[0]] = errors.New("invalid recipient domain")
+		return results
+	}
+	route, ok := c.routeFor(domain)
+	if !ok || !strings.EqualFold(strings.TrimSpace(route.Mode), "lmtp") {
+		for _, rcpt := range recipients {
+			results[rcpt] = c.Deliver(ctx, msg, rcpt)
+		}
+		return results
+	}
+	for _, rcpt := range recipients[1:] {
+		key, matches := c.BatchKey(rcpt)
+		if !matches || key != route.Name {
+			results[rcpt] = errors.New("LMTP batch contains recipients from different routes")
+			return results
+		}
+	}
+	ctx, span := deliveryTracer.Start(ctx, "delivery.lmtp_batch")
+	span.SetAttributes(
+		attribute.String("delivery.mode", "lmtp"),
+		attribute.String("delivery.route", route.Name),
+		attribute.String("mail.message_id", msg.ID),
+		attribute.Int("mail.rcpt_count", len(recipients)),
+	)
+	defer span.End()
+	for _, rcpt := range recipients {
+		slog.InfoContext(ctx, "delivery route selected",
+			"component", "audit",
+			"event", "delivery_route_selected",
+			"msg_id", msg.ID,
+			"rcpt", logging.MaskEmail(rcpt),
+			"route", route.Name,
+			"mode", "lmtp",
+		)
+	}
+	results = c.deliverLMTPFn(ctx, route.LMTPUnixSocket, msg, recipients)
+	for _, err := range results {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "one or more LMTP recipients failed")
+			break
+		}
+	}
+	return results
 }
 
 func (c *Client) newSpoolBackend() (spoolBackend, error) {

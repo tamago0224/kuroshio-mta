@@ -118,6 +118,94 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		errs    []error
 		reasons []string
 	)
+	type batchRecipient struct {
+		rcpt    string
+		domain  string
+		release func()
+	}
+	lmtpBatches := map[string][]batchRecipient{}
+	lmtpLeaseHeld := map[string]bool{}
+	handleResult := func(rcpt, domain string, err error) {
+		if err != nil {
+			var deferred *shaping.DeferredError
+			if errors.As(err, &deferred) {
+				remaining = append(remaining, rcpt)
+				until := time.Now().Add(deferred.Delay)
+				if until.After(deferredUntil) {
+					deferredUntil = until
+				}
+				d.metricInc("worker_shaping_deferred")
+				return
+			}
+			reasons = append(reasons, rcpt+": "+err.Error())
+			var smtpErr *delivery.SMTPResponseError
+			smtpCode := 0
+			if errors.As(err, &smtpErr) {
+				smtpCode = smtpErr.Code
+			}
+			classification := delivery.ClassifyFailure(err)
+			d.metricInc("worker_bounce_class_" + string(classification.Category))
+			d.metricInc("worker_bounce_rule_" + classification.Rule)
+			slog.InfoContext(ctx, "delivery failure classified",
+				"component", "audit", "event", "delivery_failure_classified",
+				"msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt),
+				"category", classification.Category, "rule", classification.Rule, "smtp_code", smtpCode,
+				"stage", classification.Stage, "enhanced_status", classification.EnhancedStatus,
+				"suppression_eligible", classification.Suppress)
+			if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+				if d.rep != nil {
+					d.rep.ObserveDelivery(domain, false, true)
+				}
+				d.emitHardBounceDSN(ctx, msg, rcpt, smtpErr.Error())
+				if d.throttle != nil && d.throttle.observe(domain, false) {
+					d.metricInc("worker_domain_throttle_backend_error")
+					span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+						attribute.String("mail.domain", domain),
+						attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+						attribute.String("domain_throttle.stage", "observe"),
+					))
+				}
+				d.metricInc("worker_permanent_bounce")
+				if d.sup != nil && classification.Suppress {
+					if suppressErr := d.sup.Add(rcpt, smtpErr.Line); suppressErr != nil {
+						slog.ErrorContext(ctx, "suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", suppressErr)
+					} else {
+						d.metricInc("worker_suppression_added")
+					}
+				}
+				return
+			}
+			d.metricInc("worker_temporary_failure")
+			if d.rep != nil {
+				d.rep.ObserveDelivery(domain, true, false)
+			}
+			d.emitSoftBounceDSN(ctx, msg, rcpt, err.Error())
+			if d.throttle != nil && d.throttle.observe(domain, true) {
+				d.metricInc("worker_domain_throttle_backend_error")
+				span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+					attribute.String("mail.domain", domain),
+					attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+					attribute.String("domain_throttle.stage", "observe"),
+				))
+			}
+			errs = append(errs, err)
+			failedRecipients[rcpt] = err.Error()
+			remaining = append(remaining, rcpt)
+			return
+		}
+		if d.rep != nil {
+			d.rep.ObserveDelivery(domain, false, false)
+		}
+		if d.throttle != nil && d.throttle.observe(domain, false) {
+			d.metricInc("worker_domain_throttle_backend_error")
+			span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
+				attribute.String("mail.domain", domain),
+				attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
+				attribute.String("domain_throttle.stage", "observe"),
+			))
+		}
+		d.metricInc("worker_delivery_success")
+	}
 	for _, rcpt := range msg.RcptTo {
 		if ctx.Err() != nil && (d.cfg.MXShaping.Enabled || d.pauses != nil) {
 			remaining = append(remaining, rcpt)
@@ -155,8 +243,12 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		if checkPause() {
 			continue
 		}
+		batchKey, batchable := "", false
+		if d.cl != nil {
+			batchKey, batchable = d.cl.BatchKey(rcpt)
+		}
 		release := func() {}
-		if d.throttle != nil {
+		if d.throttle != nil && !(batchable && lmtpLeaseHeld[domain]) {
 			var lease domainThrottleLease
 			if d.cfg.MXShaping.Enabled {
 				var wait time.Duration
@@ -196,7 +288,12 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 		}
 		func() {
-			defer release()
+			releaseAfter := true
+			defer func() {
+				if releaseAfter {
+					release()
+				}
+			}()
 			if checkPause() {
 				return
 			}
@@ -223,92 +320,27 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				d.metricInc("worker_suppressed_recipient")
 				return
 			}
-			if err := d.cl.Deliver(ctx, msg, rcpt); err != nil {
-				var deferred *shaping.DeferredError
-				if errors.As(err, &deferred) {
-					remaining = append(remaining, rcpt)
-					until := time.Now().Add(deferred.Delay)
-					if until.After(deferredUntil) {
-						deferredUntil = until
-					}
-					d.metricInc("worker_shaping_deferred")
-					return
-				}
-				reasons = append(reasons, rcpt+": "+err.Error())
-				var smtpErr *delivery.SMTPResponseError
-				smtpCode := 0
-				if errors.As(err, &smtpErr) {
-					smtpCode = smtpErr.Code
-				}
-				classification := delivery.ClassifyFailure(err)
-				d.metricInc("worker_bounce_class_" + string(classification.Category))
-				d.metricInc("worker_bounce_rule_" + classification.Rule)
-				slog.InfoContext(ctx, "delivery failure classified",
-					"component", "audit", "event", "delivery_failure_classified",
-					"msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt),
-					"category", classification.Category, "rule", classification.Rule, "smtp_code", smtpCode,
-					"stage", classification.Stage, "enhanced_status", classification.EnhancedStatus,
-					"suppression_eligible", classification.Suppress)
-				if errors.As(err, &smtpErr) && smtpErr.Permanent() {
-					if d.rep != nil {
-						d.rep.ObserveDelivery(domain, false, true)
-					}
-					d.emitHardBounceDSN(ctx, msg, rcpt, smtpErr.Error())
-					if d.throttle != nil {
-						if d.throttle.observe(domain, false) {
-							d.metricInc("worker_domain_throttle_backend_error")
-							span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
-								attribute.String("mail.domain", domain),
-								attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
-								attribute.String("domain_throttle.stage", "observe"),
-							))
-						}
-					}
-					d.metricInc("worker_permanent_bounce")
-					if d.sup != nil && classification.Suppress {
-						if sErr := d.sup.Add(rcpt, smtpErr.Line); sErr != nil {
-							slog.ErrorContext(ctx, "suppression add failed", "component", "worker", "rcpt", logging.MaskEmail(rcpt), "msg_id", msg.ID, "error", sErr)
-						} else {
-							d.metricInc("worker_suppression_added")
-						}
-					}
-					return
-				}
-				d.metricInc("worker_temporary_failure")
-				if d.rep != nil {
-					d.rep.ObserveDelivery(domain, true, false)
-				}
-				d.emitSoftBounceDSN(ctx, msg, rcpt, err.Error())
+			if batchable {
+				lmtpBatches[batchKey] = append(lmtpBatches[batchKey], batchRecipient{rcpt: rcpt, domain: domain, release: release})
 				if d.throttle != nil {
-					if d.throttle.observe(domain, true) {
-						d.metricInc("worker_domain_throttle_backend_error")
-						span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
-							attribute.String("mail.domain", domain),
-							attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
-							attribute.String("domain_throttle.stage", "observe"),
-						))
-					}
+					lmtpLeaseHeld[domain] = true
 				}
-				errs = append(errs, err)
-				failedRecipients[rcpt] = err.Error()
-				remaining = append(remaining, rcpt)
-			} else {
-				if d.rep != nil {
-					d.rep.ObserveDelivery(domain, false, false)
-				}
-				if d.throttle != nil {
-					if d.throttle.observe(domain, false) {
-						d.metricInc("worker_domain_throttle_backend_error")
-						span.AddEvent("domain_throttle.backend_error", trace.WithAttributes(
-							attribute.String("mail.domain", domain),
-							attribute.String("domain_throttle.backend", d.cfg.DomainThrottleBackend),
-							attribute.String("domain_throttle.stage", "observe"),
-						))
-					}
-				}
-				d.metricInc("worker_delivery_success")
+				releaseAfter = false
+				return
 			}
+			handleResult(rcpt, domain, d.cl.Deliver(ctx, msg, rcpt))
 		}()
+	}
+	for _, batch := range lmtpBatches {
+		recipients := make([]string, 0, len(batch))
+		for _, item := range batch {
+			recipients = append(recipients, item.rcpt)
+		}
+		results := d.cl.DeliverBatch(ctx, msg, recipients)
+		for _, item := range batch {
+			handleResult(item.rcpt, item.domain, results[item.rcpt])
+			item.release()
+		}
 	}
 	persistRecipients := func(recipients []string, persist func() error) error {
 		original := msg.RcptTo

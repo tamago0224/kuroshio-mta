@@ -57,3 +57,18 @@ func TestUnsignedIngressIdentitySurvivesKafkaCodec(t *testing.T) {
 		t.Fatal("explicit unsigned origin became legacy unknown origin")
 	}
 }
+
+func TestKafkaCodecPreservesLMTPPartialRetryRecipients(t *testing.T) {
+	in := &model.Message{ID: "lmtp-partial", RcptTo: []string{"temporary@example.test"}, Attempts: 1, LastError: "451 mailbox busy"}
+	b, err := marshalMessage(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := unmarshalMessage(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.RcptTo) != 1 || out.RcptTo[0] != "temporary@example.test" || out.Attempts != 1 {
+		t.Fatalf("partial retry state = %+v", out)
+	}
+}

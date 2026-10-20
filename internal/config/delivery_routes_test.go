@@ -26,10 +26,19 @@ func TestDeliveryRoutesRejectUnsafeOrAmbiguousConfiguration(t *testing.T) {
 		{DeliveryRoutes: []DeliveryRoute{{Name: "auth", Domains: []string{"example.test"}, Mode: "relay", RelayHost: "relay.test", RelayUsername: "u", RelayPasswordFile: "secret"}}},
 		{DeliveryRoutes: []DeliveryRoute{{Name: "duplicate", Domains: []string{"a.test"}, Mode: "mx"}, {Name: "duplicate", Domains: []string{"b.test"}, Mode: "mx"}}},
 		{DeliveryRoutes: []DeliveryRoute{{Name: "bad", Domains: []string{"a.test"}, Mode: "unknown"}}},
+		{DeliveryRoutes: []DeliveryRoute{{Name: "lmtp", Domains: []string{"a.test"}, Mode: "lmtp"}}},
+		{DeliveryRoutes: []DeliveryRoute{{Name: "mixed", Domains: []string{"a.test"}, Mode: "lmtp", LMTPUnixSocket: "/run/dovecot/lmtp", RelayHost: "relay.test"}}},
 	}
 	for i, cfg := range tests {
 		if err := cfg.validateDeliveryRoutes(); err == nil {
 			t.Errorf("case %d accepted", i)
 		}
+	}
+}
+
+func TestDeliveryRoutesAcceptLMTPUnixSocket(t *testing.T) {
+	cfg := Config{DeliveryRoutes: []DeliveryRoute{{Name: "mailstore", Domains: []string{"mail.example"}, Mode: "lmtp", LMTPUnixSocket: "/run/dovecot/lmtp"}}}
+	if err := cfg.validateDeliveryRoutes(); err != nil {
+		t.Fatal(err)
 	}
 }
