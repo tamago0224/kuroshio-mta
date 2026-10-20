@@ -455,3 +455,40 @@ func TestQuarantineAPIHidesBodyAndRestrictsRelease(t *testing.T) {
 		})
 	}
 }
+
+func TestQuarantineDeleteAPI(t *testing.T) {
+	t.Parallel()
+	store, err := queue.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Enqueue(&model.Message{ID: "held", Quarantine: &model.Quarantine{Reason: "policy_hook"}}); err != nil {
+		t.Fatal(err)
+	}
+	api := NewAPI(nil, store, nil, "viewer-token:viewer,operator-token:operator")
+	for _, tc := range []struct {
+		name, path, token string
+		code              int
+	}{
+		{"viewer", "/api/v1/queue/quarantine/held", "viewer-token", 403},
+		{"dry-run", "/api/v1/queue/quarantine/held?dry_run=1", "operator-token", 200},
+		{"delete", "/api/v1/queue/quarantine/held", "operator-token", 200},
+		{"missing", "/api/v1/queue/quarantine/held", "operator-token", 404},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodDelete, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+			rec := httptest.NewRecorder()
+			api.Handler().ServeHTTP(rec, req)
+			if rec.Code != tc.code {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			if tc.name == "dry-run" {
+				held, err := store.ListState("quarantine", 10)
+				if err != nil || len(held) != 1 {
+					t.Fatal("dry run deleted message")
+				}
+			}
+		})
+	}
+}

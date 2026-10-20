@@ -171,7 +171,7 @@ func main() {
 			ListState(state string, limit int) ([]*model.Message, error)
 			RequeueFromState(state, id string, now time.Time) (*model.Message, error)
 		}
-		if localQueue, ok := q.(*queue.Store); ok {
+		if localQueue := queue.LocalStore(q); localQueue != nil {
 			queueAdmin = localQueue
 		}
 		adminAuthBackend := admin.NewConfigTokenBackend(cfg.AdminTokens)

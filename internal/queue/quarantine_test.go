@@ -2,8 +2,10 @@ package queue
 
 import (
 	"errors"
+	"github.com/tamago0224/kuroshio-mta/internal/observability"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,5 +116,77 @@ func TestQuarantineReleaseWriteFailurePreservesHold(t *testing.T) {
 	held, err := s.ListState("quarantine", 10)
 	if err != nil || len(held) != 1 {
 		t.Fatalf("failed release lost hold: %v %v", held, err)
+	}
+}
+
+func TestQuarantineExpiryAndDelete(t *testing.T) {
+	t.Parallel()
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, id := range []string{"expired", "manual"} {
+		expiry := now.Add(time.Hour)
+		if id == "expired" {
+			expiry = now.Add(-time.Second)
+		}
+		if err := s.Enqueue(&model.Message{ID: id, Quarantine: &model.Quarantine{Reason: "policy_hook", ExpiresAt: expiry}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RequeueFromState("quarantine", "expired", now); !errors.Is(err, ErrInvalidStateTransition) {
+		t.Fatalf("expired release: %v", err)
+	}
+	due, err := s.Due(10)
+	if err != nil || len(due) != 0 {
+		t.Fatalf("expiry delivered: %v %v", due, err)
+	}
+	held, err := s.ListState("quarantine", 10)
+	if err != nil || len(held) != 1 || held[0].ID != "manual" {
+		t.Fatalf("expiry: %v %v", held, err)
+	}
+	if err := s.DeleteQuarantined("manual", true); err != nil {
+		t.Fatal(err)
+	}
+	held, err = s.ListState("quarantine", 10)
+	if err != nil || len(held) != 1 {
+		t.Fatal("dry-run deleted hold")
+	}
+	if err := s.DeleteQuarantined("manual", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteQuarantined("manual", false); !errors.Is(err, ErrMessageNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+}
+
+func TestQuarantineMetricsFollowScan(t *testing.T) {
+	t.Parallel()
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics := observability.NewMetrics()
+	SetMetrics(s, metrics)
+	for _, tc := range []struct {
+		id     string
+		expiry time.Time
+	}{
+		{id: "held", expiry: time.Now().Add(time.Hour)},
+		{id: "expired", expiry: time.Now().Add(-time.Second)},
+	} {
+		if err := s.Enqueue(&model.Message{ID: tc.id, Quarantine: &model.Quarantine{Reason: "auth_policy", ExpiresAt: tc.expiry}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Due(10); err != nil {
+		t.Fatal(err)
+	}
+	if got := metrics.RenderPrometheus(); !strings.Contains(got, "queue_quarantine_messages 1\n") {
+		t.Fatalf("held gauge: %v", got)
+	}
+	if metrics.Snapshot()["queue_quarantine_expired_total"] != 1 {
+		t.Fatal("expiry counter missing")
 	}
 }

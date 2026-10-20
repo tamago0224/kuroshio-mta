@@ -130,3 +130,14 @@ MAIL の送信者エラー、DATA の `550 5.7.1`、認証・TLS ポリシーエ
 
 分類の根拠は [RFC 3463](https://www.rfc-editor.org/rfc/rfc3463.html) と
 [IANA enhanced status registry](https://www.iana.org/assignments/smtp-enhanced-status-codes/) を参照してください。
+
+## Policy quarantine
+
+ローカルキューで隔離を有効化した場合は、
+[設定・期限・管理操作](../configuration.md#policy-quarantine-の運用) を参照してください。
+viewer は `GET /api/v1/queue/quarantine` で本文を含まない一覧を確認できます。
+operator は `POST /api/v1/queue/quarantine/{id}/requeue` で解放、
+`DELETE /api/v1/queue/quarantine/{id}` で削除できます。両操作とも `?dry_run=1` を利用できます。
+期限切れは scan 時に配送せず削除するため、`queue_quarantine_messages` の増加を監視し、
+誤判定があれば期限内に対象 ID と判定元を確認してください。
+解放後は通常の配送・再送制御が適用されます。期限切れと隔離中の削除は DSN を生成しません。

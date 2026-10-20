@@ -174,6 +174,10 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/queue/")
 	parts := strings.Split(path, "/")
+	if len(parts) == 2 && parts[0] == "quarantine" && r.Method == http.MethodDelete {
+		a.deleteQuarantine(w, r, parts[1])
+		return
+	}
 	if len(parts) == 1 && r.Method == http.MethodGet {
 		if next, _, ok := a.authorize(w, r, roleViewer); !ok {
 			return
@@ -221,6 +225,8 @@ func (a *API) handleQueue(w http.ResponseWriter, r *http.Request) {
 			code := http.StatusInternalServerError
 			if errors.Is(err, queue.ErrMessageNotFound) {
 				code = http.StatusNotFound
+			} else if errors.Is(err, queue.ErrInvalidStateTransition) {
+				code = http.StatusConflict
 			} else if strings.Contains(err.Error(), "unknown queue state") {
 				code = http.StatusBadRequest
 			}
@@ -375,4 +381,31 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (a *API) deleteQuarantine(w http.ResponseWriter, r *http.Request, id string) {
+	next, _, ok := a.authorize(w, r, roleOperator)
+	if !ok {
+		return
+	}
+	r = next
+	store, ok := a.queue.(interface{ DeleteQuarantined(string, bool) error })
+	if !ok {
+		http.Error(w, "quarantine administration unavailable", http.StatusNotImplemented)
+		return
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "1"
+	if err := store.DeleteQuarantined(id, dryRun); err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, queue.ErrMessageNotFound) {
+			code = http.StatusNotFound
+		}
+		if errors.Is(err, queue.ErrInvalidStateTransition) {
+			code = http.StatusConflict
+		}
+		http.Error(w, "quarantine deletion failed", code)
+		return
+	}
+	a.audit(r, "queue_quarantine_delete", map[string]any{"message_id": id, "dry_run": dryRun})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "dry_run": dryRun})
 }

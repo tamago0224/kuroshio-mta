@@ -22,9 +22,10 @@ const Version = "kuroshio.smtp-policy.v1"
 type Action string
 
 const (
-	Accept   Action = "accept"
-	Reject   Action = "reject"
-	Tempfail Action = "tempfail"
+	Accept     Action = "accept"
+	Quarantine Action = "quarantine"
+	Reject     Action = "reject"
+	Tempfail   Action = "tempfail"
 )
 
 // Request intentionally contains no SMTP AUTH credentials or authenticated user
@@ -189,6 +190,12 @@ func (c *Client) Evaluate(ctx context.Context, request Request) (Action, error) 
 		return c.fail(stage, "version")
 	}
 	switch decision.Action {
+	case Quarantine:
+		if stage != "data" {
+			return c.fail(stage, "action_stage")
+		}
+		c.count(stage, string(decision.Action))
+		return decision.Action, nil
 	case Accept, Reject, Tempfail:
 		c.count(stage, string(decision.Action))
 		return decision.Action, nil

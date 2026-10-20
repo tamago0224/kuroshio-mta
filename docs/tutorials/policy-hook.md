@@ -77,3 +77,7 @@ SMTP AUTH のシークレットや認証ユーザー名は常に除外します�
 `reject` は恒久拒否、`tempfail` は再送可能な一時失敗です。HTTP エラーや不正応答は tempfail になります。
 フックは既存拒否条件を通過した後で呼ばれるため、accept で組み込みの認証・メール認証ポリシーを迂回できません。
 タイムアウト、同時数、TLS、secret、監視の詳細は [Configuration](../configuration.md#smtp-http-ポリシーフック) を参照してください。
+
+`quarantine` 応答を追加する場合は DATA 段階だけで返し、MTA 側の
+[Policy quarantine](../configuration.md#policy-quarantine-の運用) を有効にしてください。
+このモックの既定設定はヘッダ通知モードのため、quarantine 応答は451になります。

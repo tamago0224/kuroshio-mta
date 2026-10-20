@@ -1,8 +1,12 @@
 package smtp
 
-import "github.com/tamago0224/kuroshio-mta/internal/userauth"
+import (
+	"github.com/tamago0224/kuroshio-mta/internal/model"
+	"github.com/tamago0224/kuroshio-mta/internal/userauth"
+)
 
 type session struct {
+	quarantine      *model.Quarantine
 	closeConnection bool
 	authFailures    int
 	rcptFailures    int
@@ -27,6 +31,7 @@ func (ss *session) finishData() {
 	ss.mailFrom = ""
 	ss.rcptTo = nil
 	ss.data = nil
+	ss.quarantine = nil
 }
 
 // resetTransaction preserves the greeting, authentication and connection state.

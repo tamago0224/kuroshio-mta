@@ -67,6 +67,7 @@ func (s *Server) handleDataCommand(
 		return
 	}
 	ss.data = data
+	ss.quarantine = nil
 	msgRemoteIP := remoteIP
 	if msgRemoteIP == nil {
 		msgRemoteIP = parseRemoteIP(ss.remote)
@@ -97,6 +98,9 @@ func (s *Server) handleDataCommand(
 	addedHeaders := []string{mailauth.BuildAuthResultsHeader(s.cfg.Hostname, authRes, ss.mailFrom)}
 	if authRes.Action == mailauth.ActionQuarantine {
 		addedHeaders = append(addedHeaders, "X-Kuroshio-Quarantine: true")
+		if s.cfg.Quarantine.Enabled {
+			ss.quarantine = &model.Quarantine{Reason: "auth_policy", ExpiresAt: time.Now().UTC().Add(s.cfg.Quarantine.Retention)}
+		}
 	}
 	ss.data = mailauth.InjectHeaders(ss.data, addedHeaders)
 	id, err := newID()
@@ -190,6 +194,7 @@ func contains8Bit(data []byte) bool {
 func (s *Server) enqueue(ctx context.Context, ss *session, id string) error {
 	msg := &model.Message{
 		ID:         id,
+		Quarantine: ss.quarantine,
 		RemoteAddr: ss.remote,
 		Helo:       ss.helo,
 		MailFrom:   ss.mailFrom,

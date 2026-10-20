@@ -31,6 +31,7 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 	original := evaluateAuthWithPolicy
 	t.Cleanup(func() { evaluateAuthWithPolicy = original })
 	tests := []struct {
+		hold       bool
 		name       string
 		action     mailauth.Action
 		body       string
@@ -47,6 +48,12 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 		{
 			name: "quarantined", action: mailauth.ActionQuarantine, body: "..leading\r\n",
 			code: 250, rcptCode: 503, queued: 1,
+		},
+		{
+			name: "persistent quarantine", action: mailauth.ActionQuarantine, hold: true, body: "..leading\r\n", code: 250, rcptCode: 503, queued: 1,
+		},
+		{
+			name: "quarantine save failed", action: mailauth.ActionQuarantine, hold: true, body: "..leading\r\n", queueErr: errors.New("storage failed"), code: 451, rcptCode: 250, queueFails: 1,
 		},
 		{
 			name: "auth rejected", action: mailauth.ActionReject, body: "..leading\r\n",
@@ -74,7 +81,7 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 			q := &dataTestQueue{err: tt.queueErr}
 			metrics := observability.NewMetrics()
 			s := &Server{recipientPolicy: allowTestRecipients{},
-				cfg:     config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024},
+				cfg:     config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024, Quarantine: config.QuarantineConfig{Enabled: tt.hold, Retention: time.Hour}},
 				queue:   q,
 				metrics: metrics,
 			}
@@ -128,6 +135,9 @@ func TestDataOutcomesPreserveSessionBehavior(t *testing.T) {
 				t.Fatalf("queued messages = %d, want %d", len(q.msgs), tt.queued)
 			}
 			if tt.queued > 0 {
+				if (q.msgs[0].Quarantine != nil) != tt.hold {
+					t.Fatal("quarantine metadata does not match opt-in")
+				}
 				raw := string(q.msgs[0].Data)
 				if !strings.HasSuffix(raw, "\r\n\r\n.leading\r\n") {
 					t.Fatal("queued body did not preserve CRLF and remove dot-stuffing")

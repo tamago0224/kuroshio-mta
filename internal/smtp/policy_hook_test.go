@@ -24,11 +24,15 @@ func TestPolicyHookSMTPResponsesAndBuiltInChecks(t *testing.T) {
 		name, stage, reply, body string
 		status                   int
 		delay                    time.Duration
+		hold                     bool
 		authReject               bool
 		want                     int
 		queued                   int
 	}{
 		{name: "accept", stage: "data", reply: `{"version":"kuroshio.smtp-policy.v1","action":"accept"}`, want: 250, queued: 1},
+		{name: "DATA quarantine", stage: "data", reply: `{"version":"kuroshio.smtp-policy.v1","action":"quarantine"}`, hold: true, want: 250, queued: 1},
+		{name: "quarantine without opt-in", stage: "data", reply: `{"version":"kuroshio.smtp-policy.v1","action":"quarantine"}`, want: 451},
+		{name: "RCPT quarantine fails closed", stage: "rcpt", reply: `{"version":"kuroshio.smtp-policy.v1","action":"quarantine"}`, hold: true, want: 451},
 		{name: "RCPT reject", stage: "rcpt", reply: `{"version":"kuroshio.smtp-policy.v1","action":"reject"}`, want: 550},
 		{name: "DATA reject", stage: "data", reply: `{"version":"kuroshio.smtp-policy.v1","action":"reject"}`, want: 554},
 		{name: "DATA tempfail", stage: "data", reply: `{"version":"kuroshio.smtp-policy.v1","action":"tempfail"}`, want: 451},
@@ -71,7 +75,7 @@ func TestPolicyHookSMTPResponsesAndBuiltInChecks(t *testing.T) {
 			if tc.delay > 0 {
 				timeout = 50 * time.Millisecond
 			}
-			cfg := config.Config{Hostname: "mx.example.test", MaxMessageBytes: 1024, PolicyHook: config.PolicyHookConfig{URL: server.URL, AllowHTTPLoopback: true, Timeout: timeout, MaxResponseBytes: 1024}}
+			cfg := config.Config{Quarantine: config.QuarantineConfig{Enabled: tc.hold, Retention: time.Hour}, Hostname: "mx.example.test", MaxMessageBytes: 1024, PolicyHook: config.PolicyHookConfig{URL: server.URL, AllowHTTPLoopback: true, Timeout: timeout, MaxResponseBytes: 1024}}
 			hook, err := policyhook.New(cfg.PolicyHook, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -120,6 +124,9 @@ func TestPolicyHookSMTPResponsesAndBuiltInChecks(t *testing.T) {
 			}
 			if len(q.msgs) != tc.queued {
 				t.Fatalf("queued %d", len(q.msgs))
+			}
+			if tc.queued > 0 && ((q.msgs[0].Quarantine != nil) != tc.hold) {
+				t.Fatal("hook quarantine metadata mismatch")
 			}
 			if (tc.authReject || tc.body != "") && calls.Load() != 0 {
 				t.Fatal("hook accept bypassed built-in rejection")

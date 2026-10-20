@@ -162,6 +162,9 @@ func (s *Store) RequeueFromState(state, id string, now time.Time) (*model.Messag
 	if (state == "quarantine") != (msg.Quarantine != nil) {
 		return nil, ErrInvalidStateTransition
 	}
+	if quarantineExpired(msg, now) {
+		return nil, ErrInvalidStateTransition
+	}
 	msg.Quarantine = nil
 	msg.UpdatedAt = now.UTC()
 	msg.NextAttempt = now.UTC()
@@ -278,6 +281,12 @@ func (s *Store) Fail(msg *model.Message, reason string) error {
 }
 
 func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
+	var held int64
+	defer func() {
+		if dir == s.inbound && s.metrics != nil {
+			s.metrics.SetGauge("queue_quarantine_messages", held)
+		}
+	}()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -297,7 +306,17 @@ func (s *Store) dueFromDir(dir string) ([]*model.Message, error) {
 			_ = s.quarantinePoison(path, e.Name(), err)
 			continue
 		}
-		if msg.Quarantine != nil || msg.NextAttempt.After(now) {
+		if quarantineExpired(msg, now) {
+			if err := s.expireQuarantine(path, msg); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if msg.Quarantine != nil {
+			held++
+			continue
+		}
+		if msg.NextAttempt.After(now) {
 			continue
 		}
 		out = append(out, msg)
