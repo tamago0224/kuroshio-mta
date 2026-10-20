@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	DeliveryRoutes                   []DeliveryRoute
 	DeliveryPause                    DeliveryPauseConfig
 	Quarantine                       QuarantineConfig
 	SMTPLimits                       SMTPLimitsConfig
@@ -181,6 +182,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.InboundPolicy.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validateDeliveryRoutes(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

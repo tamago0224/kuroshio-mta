@@ -310,11 +310,16 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 		}()
 	}
+	persistRecipients := func(recipients []string, persist func() error) error {
+		original := msg.RcptTo
+		msg.RcptTo = recipients
+		defer func() { msg.RcptTo = original }()
+		return persist()
+	}
 
 	if len(errs) == 0 && !deferredUntil.IsZero() {
-		msg.RcptTo = remaining
 		span.SetAttributes(attribute.String("worker.result", "deferred"))
-		if err := d.queue.Defer(msg, time.Until(deferredUntil)); err != nil {
+		if err := persistRecipients(remaining, func() error { return d.queue.Defer(msg, time.Until(deferredUntil)) }); err != nil {
 			slog.ErrorContext(ctx, "shaping reschedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		return
@@ -329,9 +334,6 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 
-	if d.cfg.MXShaping.Enabled || d.pauses != nil {
-		msg.RcptTo = remaining
-	}
 	reason := strings.Join(reasons, "; ")
 	if shouldFail(msg, errs, d.cfg, time.Now().UTC()) {
 		if len(pausedRecipients) > 0 {
@@ -345,8 +347,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 				held = append(held, rcpt)
 			}
-			msg.RcptTo = held
-			if err := d.queue.Defer(msg, time.Until(deferredUntil)); err != nil {
+			if err := persistRecipients(held, func() error { return d.queue.Defer(msg, time.Until(deferredUntil)) }); err != nil {
 				slog.ErrorContext(ctx, "pause reschedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 			}
 			return
@@ -358,7 +359,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		span.SetAttributes(attribute.String("worker.result", "failed"))
 		span.AddEvent("worker.failed", trace.WithAttributes(attribute.String("worker.reason", reason)))
 		span.SetStatus(codes.Error, reason)
-		if err := d.queue.Fail(msg, reason); err != nil {
+		if err := persistRecipients(remaining, func() error { return d.queue.Fail(msg, reason) }); err != nil {
 			slog.ErrorContext(ctx, "mark failed failed", "component", "worker", "msg_id", msg.ID, "error", err)
 		}
 		d.metricInc("worker_mark_failed")
@@ -377,7 +378,8 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		attribute.String("worker.retry_delay", delay.String()),
 	))
 	span.SetStatus(codes.Error, reason)
-	if err := d.queue.Retry(msg, delay, reason); err != nil {
+	// Retry only recipients that did not already complete on another route.
+	if err := persistRecipients(remaining, func() error { return d.queue.Retry(msg, delay, reason) }); err != nil {
 		slog.ErrorContext(ctx, "retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
