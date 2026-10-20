@@ -150,13 +150,6 @@ func (s *Server) handleDataCommand(
 		writeResp(w, 451, "temporary local problem")
 		return
 	}
-	s.enqueueDMARCReports(
-		ctx,
-		authRes,
-		ss.mailFrom,
-		id,
-		time.Now().UTC(),
-	)
 	s.recordDMARCObservation(ctx, authRes, ss.mailFrom, ss.rcptTo, msgRemoteIP, ss.data, time.Now().UTC())
 	ss.messages++
 	s.metricInc("smtp_queued_messages")

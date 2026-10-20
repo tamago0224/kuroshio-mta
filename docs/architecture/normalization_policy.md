@@ -95,9 +95,9 @@ SMTP `DATA` で受け取る本文は、キュー投入前に SMTP として必�
 ここでの loop 防止は、受信メール全体を rewrite するのではなく、
 通知生成条件と DSN の envelope を制限する形で実装しています。
 
-### 5.2 DMARC report
+### 5.2 DMARC aggregate report
 
-DMARC aggregate / failure report の生成時は次を行います。
+DMARC aggregate report の生成時は次を行います。
 
 - 本文中の改行は一度 `\n` に正規化してから CRLF に戻します
 - `From` `To` `Subject` `Date` `Message-ID` を自前で付与します
@@ -105,6 +105,8 @@ DMARC aggregate / failure report の生成時は次を行います。
 
 自動生成メッセージでは、入力をそのまま透過するよりも、
 安全で予測可能な形式へ寄せることを優先します。
+
+RFC 9991 failure report は生成しません。受信メッセージのヘッダ、本文、送信者・受信者情報を外部の `ruf` 宛先へ開示しないことを既定かつ固定の方針とします。
 
 ## 6. 認証済み Submission の正規化ルール
 

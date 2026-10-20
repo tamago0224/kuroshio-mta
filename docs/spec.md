@@ -273,14 +273,14 @@ mail._domainkey.example.com  TXT  "v=DKIM1; k=ed25519; p=<公開鍵>"
 
 **実装ポイント:**
 - `rua` タグで集計レポート受信エンドポイントを設定 (XML形式の日次レポート)
-- `ruf` タグでフォレンジックレポート受信 (失敗メールのサンプル)
+- `ruf` failure report は扱わず、PIIやメール本文を外部送信しない
 - identifier alignment: strict vs relaxed を要件に応じて設定
 - サブドメイン用 `sp=` ポリシーも設定
 - **Gmail等への一括送信: `p=quarantine` 以上が2024年以降必須**
 
 **DNSレコード例:**
 ```
-_dmarc.example.com  TXT  "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com; ruf=mailto:dmarc-failures@example.com; pct=100"
+_dmarc.example.com  TXT  "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
 ```
 
 ---
@@ -450,7 +450,7 @@ infrastructure:
 - [ ] **SPF レコード設定** — DNS TXTレコード公開・10 lookup制限確認
 - [ ] **DKIM 署名実装** — Ed25519 + RSA2048並用・セレクター設計
 - [ ] **DKIM 鍵ローテーション自動化** — 月次ローテーション・KMS連携
-- [ ] **DMARC ポリシー設定 (none→)** — rua/ruf レポートエンドポイント構築
+- [ ] **DMARC ポリシー設定 (none→)** — rua aggregateレポートエンドポイント構築
 - [ ] **DMARC レポートパーサー** — XML集計レポート自動処理・可視化
 - [ ] **ARC 署名実装** — OpenARC導入・転送時チェーン維持
 - [ ] **MTA-STS ポリシーファイル公開** — HTTPS `.well-known/mta-sts.txt`
