@@ -102,7 +102,7 @@ export default defineConfig({
           { text: "RFC 6376: DKIM", link: "/rfc_6376_gap" },
           { text: "RFC 6409: Message Submission", link: "/rfc_6409_gap" },
           { text: "RFC 7208: SPF", link: "/rfc_7208_gap" },
-          { text: "RFC 7489: DMARC", link: "/rfc_7489_gap" },
+          { text: "DMARC RFC 9989 / 7489 gap", link: "/rfc_7489_gap" },
           { text: "RFC 7672: DANE for SMTP", link: "/rfc_7672_gap" },
           { text: "RFC 8461: MTA-STS", link: "/rfc_8461_gap" },
           { text: "RFC 8617: ARC", link: "/rfc_8617_gap" }

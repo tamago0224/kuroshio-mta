@@ -1,10 +1,12 @@
 package mailauth
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"net"
 	"strings"
+	"time"
 )
 
 type SPFPolicy struct {
@@ -128,6 +130,25 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 	}
 	return result
 }
+
+// EvaluateWithDMARCbis runs the legacy evaluator as the policy authority and
+// attaches RFC 9989 output for shadow comparison. The shadow result never changes Action.
+func EvaluateWithDMARCbis(remoteIP net.IP, helo, mailFrom string, raw []byte, policy SPFPolicy) Result {
+	result := EvaluateWithPolicy(remoteIP, helo, mailFrom, raw, policy)
+	if result.DMARC.Domain == "" {
+		return result
+	}
+	spf := result.SPF
+	if strings.TrimSpace(mailFrom) == "" || normalizeSPFMode(policy.MailFromMode, "advisory") == "off" {
+		spf = result.SPFHelo
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	result.DMARC.DMARCbis = ptrDMARCbis(EvalDMARCbis(ctx, result.DMARC.Domain, spf, result.DKIM))
+	return result
+}
+
+func ptrDMARCbis(result DMARCbisResult) *DMARCbisResult { return &result }
 
 func isEnforcingDMARCPolicy(policy string) bool {
 	switch strings.ToLower(strings.TrimSpace(policy)) {
