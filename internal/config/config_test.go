@@ -346,6 +346,25 @@ func TestLoadARCFailurePolicyConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDMARCPolicyMode(t *testing.T) {
+	t.Setenv("MTA_DMARC_POLICY_MODE", "enforce")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DMARCPolicyMode != "enforce" {
+		t.Fatalf("mode=%q", cfg.DMARCPolicyMode)
+	}
+	t.Setenv("MTA_DMARC_POLICY_MODE", "unsupported")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DMARCPolicyMode != "shadow" {
+		t.Fatalf("invalid mode fallback=%q", cfg.DMARCPolicyMode)
+	}
+}
+
 func TestLoadDomainThrottleConfig(t *testing.T) {
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", "4")
 	t.Setenv("MTA_DOMAIN_MAX_CONCURRENT_RULES", "gmail.com:2,yahoo.com:1")

@@ -1,6 +1,6 @@
 # DMARC implementation and RFC 9989 migration note
 
-現行 `Evaluate` は RFC 7489 互換評価を本判定に使い、`EvaluateWithDMARCbis` は RFC 9989 結果を `DMARCResult.DMARCbis` に付けて比較します。shadow 結果は配送 action を変更しません。SMTPはaggregateレポートStoreが有効なため、受信評価のあとRFC 9989結果も記録します。
+`dmarc_policy_mode` で RFC 7489互換評価とRFC 9989評価を段階的に切り替えます。既定の `shadow` は旧評価を本判定に使い、RFC 9989結果を `DMARCResult.DMARCbis` に付けて比較します。`enforce` はRFC 9989結果を本判定、Authentication-Results、レポートに使います。`legacy` は明示的なrollback用です。
 
 RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメイン決定を DNS Tree Walk に置き換えています。[RFC 9989](https://www.rfc-editor.org/rfc/rfc9989.html)
 
@@ -8,11 +8,16 @@ RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメ�
 
 - `EvalDMARCbis` は Author Domain の完全一致 record を先に調べ、続けて DNS Tree Walk を実施します。Tree Walk は最大8照会に制限します。
 - 単一の有効 record のみ採用し、`p`, `sp`, `np`, `psd`, `t`, `aspf`, `adkim` を構文検証します。複数の DMARC record は採用しません。
-- SPF / DKIM relaxed alignment は DNS Tree Walk で選んだ組織ドメインを比較し、strict は完全一致します。`psd=y/n`、存在する/しない Author Domain の `sp/np`、`t=n` を結果へ反映します。
+- SPF / DKIM relaxed alignment は DNS Tree Walk で選んだ組織ドメインを比較し、strict は完全一致します。`psd=y/n`、存在する/しない Author Domain の `sp/np`、`t=y` による一段階のpolicy緩和を結果へ反映します。`t` の既定値は `n` です。
 - 一時 DNS 障害は `temperror` として shadow 結果に記録し、配送判断には使いません。
-- `EvaluateWithDMARCbis` は旧判定を実行した後に shadow を追加します。shadow の有効化は自動ではありません。
+- `shadow` は旧判定を実行した後にRFC 9989結果を追加し、受理actionを変更しません。
+- `enforce` では `pct`, `rf`, `ri` を判定に使いません。RFC 9989の `np`, `psd`, `t` とTree Walk結果を使い、DNS一時障害から旧方式へ自動fallbackしません。
 
-移行前に production 相当のトラフィックで旧新結果、DNS query 数・遅延、`psd/np/t` と strict alignment の差を観測してください。集計保存は [DMARC aggregate reports](./runbooks/dmarc_aggregate_reports.md) の範囲で実装済みですが、shadow 結果を本判定へ切り替える運用スイッチはまだありません。切替後は失敗や DNS エラーを理由に旧方式の pass へ fallback しない設計が必要です。
+移行前に production 相当のトラフィックで `smtp_auth_dmarc_engine_mismatch_total`、`smtp_auth_dmarcbis_dns_error_total`、DNS query数・遅延、`psd/np/t` とstrict alignmentの差を観測してください。差分とDNSエラーが許容範囲に収まったら `dmarc_policy_mode: enforce` に変更して再起動します。問題時は `shadow`、緊急時だけ `legacy` に戻して再起動します。設定読込時のaudit logに選択modeが残ります。
+
+`enforce` で `temperror` になった場合はlocal policyとして受理し、旧方式のpass/rejectを採用しません。SPFの明示的enforceとARC failure policyはDMARCエンジンとは別のlocal policyとして引き続き優先されます。RFC 9989の本判定結果は `DMARCResult.Result/Policy`、比較用の旧結果は `LegacyResult/LegacyPolicy` に保持します。
+
+各送信組織は移行前にAuthor Domainと必要なOrganizational Domainへ明示的なDMARC recordを公開してください。strict alignment (`adkim=s` / `aspf=s`) を使う場合は、実際のDKIM `d=` またはSPF domainがAuthor Domainと完全一致することを確認します。PSD境界に依存する構成では `psd` と `np` の結果をshadowメトリクスで確認してから切り替えます。
 
 ## RFC 7489 互換評価
 
@@ -34,4 +39,4 @@ RFC 9989 は RFC 7489 を置き換え、固定 PSL suffix による組織ドメ�
 
 ## 判断メモ
 
-RFC 7489 の運用面や周辺仕様を含む全面実装を意味するものではありません。RFC 9989 の完全移行には shadow 結果の永続的な観測、設定による段階切替、旧形式保存データとの互換確認が残っています。
+RFC 7489互換データのDB migrationは不要です。キュー済みメッセージは評価結果を保存しておらず、切替後に再評価しません。日次aggregate DBは探索方式をtupleに含むため、切替期間をまたいでも異なる評価を混在させません。

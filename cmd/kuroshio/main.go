@@ -52,7 +52,7 @@ func main() {
 		fatal("config load failed", "error", err)
 	}
 	slog.SetDefault(logging.New(cfg.LogLevel, os.Stdout).With("config_generation", int64(1)))
-	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", (cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != ""), "delivery_mode", cfg.DeliveryMode)
+	slog.Info("audit event", "component", "audit", "event", "config_loaded", "queue_backend", cfg.QueueBackend, "submission_enabled", (cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != ""), "delivery_mode", cfg.DeliveryMode, "dmarc_policy_mode", cfg.DMARCPolicyMode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

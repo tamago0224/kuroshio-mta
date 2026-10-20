@@ -72,6 +72,7 @@ func defaultConfig() Config {
 		ARCFailurePolicy:              "accept",
 		SPFHeloPolicy:                 "advisory",
 		SPFMailFromPolicy:             "advisory",
+		DMARCPolicyMode:               "shadow",
 		DomainMaxConcurrentDefault:    8,
 		DomainMaxConcurrentRules:      "",
 		DomainThrottleBackend:         "memory",

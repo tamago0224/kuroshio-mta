@@ -507,6 +507,30 @@ func TestAuthMetricsByDMARCResultAndPolicy(t *testing.T) {
 	}
 }
 
+func TestMetricAuthResultRecordsDMARCBisComparison(t *testing.T) {
+	metrics := observability.NewMetrics()
+	s := &Server{metrics: metrics}
+	s.metricAuthResult(mailauth.Result{
+		Action: mailauth.ActionAccept,
+		DMARC: mailauth.DMARCResult{
+			Result:       "temperror",
+			Policy:       "none",
+			LegacyResult: "pass",
+			DMARCbis:     &mailauth.DMARCbisResult{Result: "temperror"},
+		},
+	})
+	snap := metrics.Snapshot()
+	for _, name := range []string{
+		"smtp_auth_dmarcbis_result_temperror_total",
+		"smtp_auth_dmarc_engine_mismatch_total",
+		"smtp_auth_dmarcbis_dns_error_total",
+	} {
+		if snap[name] != 1 {
+			t.Errorf("%s=%d want=1", name, snap[name])
+		}
+	}
+}
+
 func TestBuildReceivedHeaderSanitizesInput(t *testing.T) {
 	got := buildReceivedHeader(
 		"mx.example.test",

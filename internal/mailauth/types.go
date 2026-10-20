@@ -38,6 +38,9 @@ type DKIMResult struct {
 }
 
 type DMARCResult struct {
+	Engine          string
+	LegacyResult    string
+	LegacyPolicy    string
 	Domain          string
 	Result          string
 	Policy          string
@@ -49,7 +52,7 @@ type DMARCResult struct {
 	AggregateReport []string
 	FailureReport   []string
 	Reason          string
-	// DMARCbis is an observation-only evaluation; it never changes Action.
+	// DMARCbis retains the RFC 9989 evaluation for comparison and reporting.
 	DMARCbis *DMARCbisResult
 }
 
@@ -69,6 +72,7 @@ type DMARCbisResult struct {
 	SPFAligned      bool
 	DKIMAligned     bool
 	AggregateReport []string
+	FailureReport   []string
 	Discovery       string
 	Reason          string
 }

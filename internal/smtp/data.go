@@ -81,18 +81,10 @@ func (s *Server) handleDataCommand(
 			HeloMode:       s.cfg.SPFHeloPolicy,
 			MailFromMode:   s.cfg.SPFMailFromPolicy,
 			ARCFailureMode: s.cfg.ARCFailurePolicy,
+			DMARCMode:      s.cfg.DMARCPolicyMode,
 		},
 	)
 	s.metricAuthResult(authRes)
-	if s.dmarcReports != nil && !s.submission && authRes.DMARC.Domain != "" {
-		spf := authRes.SPF
-		if strings.TrimSpace(ss.mailFrom) == "" || strings.EqualFold(strings.TrimSpace(s.cfg.SPFMailFromPolicy), "off") {
-			spf = authRes.SPFHelo
-		}
-		shadowCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		authRes.DMARC.DMARCbis = ptrSMTPDMARCbis(mailauth.EvalDMARCbis(shadowCtx, authRes.DMARC.Domain, spf, authRes.DKIM))
-		cancel()
-	}
 	cmdSpan.SetAttributes(
 		attribute.String("smtp.auth.action", string(authRes.Action)),
 		attribute.String("smtp.auth.dmarc.result", authRes.DMARC.Result),

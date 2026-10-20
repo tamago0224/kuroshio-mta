@@ -107,6 +107,7 @@ type yamlConfig struct {
 	ARCFailurePolicy             *string  `yaml:"arc_failure_policy"`
 	SPFHeloPolicy                *string  `yaml:"spf_helo_policy"`
 	SPFMailFromPolicy            *string  `yaml:"spf_mailfrom_policy"`
+	DMARCPolicyMode              *string  `yaml:"dmarc_policy_mode"`
 	DomainMaxConcurrentDefault   *int     `yaml:"domain_max_concurrent_default"`
 	DomainMaxConcurrentRules     *string  `yaml:"domain_max_concurrent_rules"`
 	DomainThrottleBackend        *string  `yaml:"domain_throttle_backend"`
@@ -462,6 +463,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 	if raw.SPFMailFromPolicy != nil {
 		cfg.SPFMailFromPolicy = normalizeEnum(*raw.SPFMailFromPolicy, cfg.SPFMailFromPolicy, []string{"off", "advisory", "enforce"})
+	}
+	if raw.DMARCPolicyMode != nil {
+		cfg.DMARCPolicyMode = normalizeEnum(*raw.DMARCPolicyMode, cfg.DMARCPolicyMode, []string{"legacy", "shadow", "enforce"})
 	}
 	if raw.DomainMaxConcurrentDefault != nil {
 		cfg.DomainMaxConcurrentDefault = *raw.DomainMaxConcurrentDefault
