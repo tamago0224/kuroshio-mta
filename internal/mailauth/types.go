@@ -49,6 +49,18 @@ type DMARCResult struct {
 	AggregateReport []string
 	FailureReport   []string
 	Reason          string
+	// DMARCbis is an observation-only evaluation; it never changes Action.
+	DMARCbis *DMARCbisResult
+}
+
+type DMARCbisResult struct {
+	Result       string
+	AuthorDomain string
+	PolicyDomain string
+	OrgDomain    string
+	Policy       string
+	Discovery    string
+	Reason       string
 }
 
 type ARCResult struct {
