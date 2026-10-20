@@ -11,6 +11,7 @@ import (
 )
 
 type yamlConfig struct {
+	DeliveryPause *DeliveryPauseConfig `yaml:"delivery_pause"`
 	Quarantine    *QuarantineConfig    `yaml:"quarantine"`
 	SMTPLimits    *SMTPLimitsConfig    `yaml:"smtp_limits"`
 	ProxyProtocol *ProxyProtocolConfig `yaml:"proxy_protocol"`
@@ -156,6 +157,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 
 	cfg := base
+	if raw.DeliveryPause != nil {
+		cfg.DeliveryPause = *raw.DeliveryPause
+	}
 	if raw.Quarantine != nil {
 		cfg.Quarantine = *raw.Quarantine
 	}
