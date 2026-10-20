@@ -142,6 +142,7 @@ Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mod
 | `arc_failure_policy` | `MTA_ARC_FAILURE_POLICY` | `accept` | ARC 検証失敗時の扱いです。`accept` / `quarantine` / `reject` を使います |
 | `spf_helo_policy` | `MTA_SPF_HELO_POLICY` | `advisory` | HELO に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
 | `spf_mailfrom_policy` | `MTA_SPF_MAILFROM_POLICY` | `advisory` | `MAIL FROM` に対する SPF 判定ポリシーです。`off` / `advisory` / `enforce` を使います |
+| `dmarc_policy_mode` | `MTA_DMARC_POLICY_MODE` | `shadow` | DMARC評価エンジンです。`legacy` はRFC 7489互換のみ、`shadow` はRFC 9989を並行観測、`enforce` はRFC 9989結果を本判定に使います |
 
 `dkim_sign_domain` / `dkim_sign_selector` / `dkim_private_key_file` のいずれかを指定した場合は、
 DKIM と ARC の署名初期化が必須です。項目の不足、鍵の欠落・読込失敗・不正形式があれば

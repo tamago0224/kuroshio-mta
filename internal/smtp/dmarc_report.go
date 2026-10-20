@@ -18,13 +18,11 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/util"
 )
 
-func ptrSMTPDMARCbis(result mailauth.DMARCbisResult) *mailauth.DMARCbisResult { return &result }
-
 var dmarcReportOrganizationalDomain = mailauth.DMARCbisOrganizationalDomain
 var dmarcReportLookupTXT = net.DefaultResolver.LookupTXT
 
 func (s *Server) recordDMARCObservation(ctx context.Context, authRes mailauth.Result, mailFrom string, rcpts []string, remoteIP net.IP, raw []byte, now time.Time) {
-	if s.dmarcReports == nil || s.submission || authRes.DMARC.DMARCbis == nil || hasAggregateReportMarker(raw) {
+	if s.dmarcReports == nil || s.submission || s.cfg.DMARCPolicyMode != "enforce" || authRes.DMARC.DMARCbis == nil || hasAggregateReportMarker(raw) {
 		return
 	}
 	result := authRes.DMARC.DMARCbis

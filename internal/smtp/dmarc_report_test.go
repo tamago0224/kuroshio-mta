@@ -41,13 +41,19 @@ func TestRecordDMARCObservationStoresAuthorizedDomainOnlyData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	s := &Server{dmarcReports: store, metrics: observability.NewMetrics()}
+	s := &Server{cfg: config.Config{DMARCPolicyMode: "shadow"}, dmarcReports: store, metrics: observability.NewMetrics()}
 	now := time.Date(2026, 10, 19, 4, 0, 0, 0, time.UTC)
 	auth := mailauth.Result{SPF: mailauth.SPFResult{Domain: "bounce.example.test", Result: "pass"}, DMARC: mailauth.DMARCResult{DMARCbis: &mailauth.DMARCbisResult{
 		Result: "fail", AuthorDomain: "mail.example.test", PolicyDomain: "example.test", OrgDomain: "example.test", Policy: "reject", PublishedP: "reject", Discovery: "treewalk", AggregateReport: []string{"mailto:agg@reports.vendor.test"},
 	}}}
 	s.recordDMARCObservation(context.Background(), auth, "sender@example.test", []string{"user@recipient.test"}, net.ParseIP("192.0.2.8"), []byte("From: sender@example.test\r\n\r\nbody\r\n"), now)
 	rows, err := store.Snapshot(context.Background(), now)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("shadow observation stored: rows=%+v err=%v", rows, err)
+	}
+	s.cfg.DMARCPolicyMode = "enforce"
+	s.recordDMARCObservation(context.Background(), auth, "sender@example.test", []string{"user@recipient.test"}, net.ParseIP("192.0.2.8"), []byte("From: sender@example.test\r\n\r\nbody\r\n"), now)
+	rows, err = store.Snapshot(context.Background(), now)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("snapshot rows=%d err=%v", len(rows), err)
 	}

@@ -98,6 +98,7 @@ func applyEnvConfig(cfg Config) Config {
 	cfg.ARCFailurePolicy = envEnum("MTA_ARC_FAILURE_POLICY", cfg.ARCFailurePolicy, []string{"accept", "quarantine", "reject"})
 	cfg.SPFHeloPolicy = envEnum("MTA_SPF_HELO_POLICY", cfg.SPFHeloPolicy, []string{"off", "advisory", "enforce"})
 	cfg.SPFMailFromPolicy = envEnum("MTA_SPF_MAILFROM_POLICY", cfg.SPFMailFromPolicy, []string{"off", "advisory", "enforce"})
+	cfg.DMARCPolicyMode = envEnum("MTA_DMARC_POLICY_MODE", cfg.DMARCPolicyMode, []string{"legacy", "shadow", "enforce"})
 	cfg.DomainMaxConcurrentDefault = envInt("MTA_DOMAIN_MAX_CONCURRENT_DEFAULT", cfg.DomainMaxConcurrentDefault)
 	cfg.DomainMaxConcurrentRules = env("MTA_DOMAIN_MAX_CONCURRENT_RULES", cfg.DomainMaxConcurrentRules)
 	cfg.DomainThrottleBackend = envEnum("MTA_DOMAIN_THROTTLE_BACKEND", cfg.DomainThrottleBackend, []string{"memory", "redis"})

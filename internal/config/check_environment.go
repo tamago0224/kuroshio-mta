@@ -192,6 +192,9 @@ func validateCheckEnums(raw yamlConfig) error {
 	if raw.SPFMailFromPolicy != nil && !checkEnum(*raw.SPFMailFromPolicy, []string{"off", "advisory", "enforce"}) {
 		return fmt.Errorf("invalid enum in SPFMailFromPolicy")
 	}
+	if raw.DMARCPolicyMode != nil && !checkEnum(*raw.DMARCPolicyMode, []string{"legacy", "shadow", "enforce"}) {
+		return fmt.Errorf("invalid enum in DMARCPolicyMode")
+	}
 	if raw.DomainThrottleBackend != nil && !checkEnum(*raw.DomainThrottleBackend, []string{"memory", "redis"}) {
 		return fmt.Errorf("invalid enum in DomainThrottleBackend")
 	}

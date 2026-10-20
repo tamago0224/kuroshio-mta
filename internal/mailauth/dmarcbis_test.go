@@ -45,8 +45,68 @@ func TestDMARCBisTreeWalkLimitsQueriesToEight(t *testing.T) {
 	}
 }
 
+func TestDMARCBisTreeWalkTreatsNXDOMAINAndNODATAAsNoRecord(t *testing.T) {
+	tests := []struct {
+		name   string
+		lookup func(context.Context, string) ([]string, error)
+	}{
+		{name: "NODATA", lookup: func(context.Context, string) ([]string, error) { return nil, nil }},
+		{name: "NXDOMAIN", lookup: func(_ context.Context, name string) ([]string, error) {
+			return nil, &net.DNSError{Name: name, Err: "no such host", IsNotFound: true}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withDMARCBisDNS(t, tt.lookup)
+			got := EvalDMARCbis(context.Background(), "mail.example.test", SPFResult{}, DKIMResult{})
+			if got.Result != "none" {
+				t.Fatalf("result=%+v", got)
+			}
+		})
+	}
+}
+
+func TestDMARCBisUsesNPForNonexistentAuthorDomain(t *testing.T) {
+	oldExists := dmarcBisDomainExists
+	dmarcBisDomainExists = func(context.Context, string) (bool, error) { return false, nil }
+	t.Cleanup(func() { dmarcBisDomainExists = oldExists })
+	withDMARCBisDNS(t, func(_ context.Context, name string) ([]string, error) {
+		if name == "_dmarc.example.test" {
+			return []string{"v=DMARC1; p=none; sp=quarantine; np=reject; psd=n"}, nil
+		}
+		return nil, nil
+	})
+	got := EvalDMARCbis(context.Background(), "missing.example.test", SPFResult{}, DKIMResult{})
+	if got.Result != "fail" || got.Policy != "reject" || got.PolicyDomain != "example.test" {
+		t.Fatalf("result=%+v", got)
+	}
+}
+
+func TestDMARCBisStrictAndRelaxedAlignment(t *testing.T) {
+	for _, tt := range []struct {
+		name, mode, want string
+	}{
+		{name: "relaxed", mode: "r", want: "pass"},
+		{name: "strict", mode: "s", want: "fail"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			withDMARCBisDNS(t, func(_ context.Context, name string) ([]string, error) {
+				if name == "_dmarc.example.test" {
+					return []string{"v=DMARC1; p=reject; psd=n; adkim=" + tt.mode}, nil
+				}
+				return nil, nil
+			})
+			got := EvalDMARCbis(context.Background(), "example.test", SPFResult{}, DKIMResult{Sigs: []DKIMSigResult{{Result: "pass", Domain: "mail.example.test"}}})
+			if got.Result != tt.want {
+				t.Fatalf("result=%+v", got)
+			}
+		})
+	}
+}
+
 func TestDMARCBisRejectsMultipleAndMalformedRecords(t *testing.T) {
 	for _, value := range []string{
+		"; v=DMARC1; p=reject",
 		"p=reject; v=DMARC1",
 		"v=DMARC1; p=reject; p=none",
 		"v=DMARC2; p=reject",
@@ -66,10 +126,39 @@ func TestDMARCBisRejectsMultipleAndMalformedRecords(t *testing.T) {
 	}
 }
 
+func TestDMARCBisTestingReducesAssessmentPolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		record     string
+		wantPolicy string
+		wantTest   string
+	}{
+		{name: "default applies reject", record: "v=DMARC1; p=reject", wantPolicy: "reject", wantTest: "n"},
+		{name: "testing reduces reject", record: "v=DMARC1; p=reject; t=y", wantPolicy: "quarantine", wantTest: "y"},
+		{name: "testing reduces quarantine", record: "v=DMARC1; p=quarantine; t=y", wantPolicy: "none", wantTest: "y"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withDMARCBisDNS(t, func(context.Context, string) ([]string, error) { return []string{tt.record}, nil })
+			got := EvalDMARCbis(context.Background(), "example.test", SPFResult{Result: "fail"}, DKIMResult{})
+			if got.Result != "fail" || got.Policy != tt.wantPolicy || got.Testing != tt.wantTest {
+				t.Fatalf("result=%+v", got)
+			}
+		})
+	}
+}
+
 func TestDMARCBisPreservesUnknownExtensionTags(t *testing.T) {
 	got, ok := parseDMARCbisRecord("v=DMARC1; p=reject; x-vendor=opaque")
 	if !ok || got["x-vendor"] != "opaque" {
 		t.Fatalf("unknown extension was not preserved: tags=%v ok=%v", got, ok)
+	}
+}
+
+func TestDMARCBisDefaultsMissingPolicyToNone(t *testing.T) {
+	got, ok := parseDMARCbisRecord("v=DMARC1; rua=mailto:reports@example.test")
+	if !ok || got["p"] != "none" {
+		t.Fatalf("tags=%v ok=%v", got, ok)
 	}
 }
 

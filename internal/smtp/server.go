@@ -491,6 +491,19 @@ func (s *Server) metricAuthResult(res mailauth.Result) {
 	s.metricInc("smtp_auth_action_" + sanitizeMetricToken(string(res.Action)))
 	s.metricInc("smtp_auth_dmarc_result_" + sanitizeMetricToken(res.DMARC.Result))
 	s.metricInc("smtp_auth_dmarc_policy_" + sanitizeMetricToken(res.DMARC.Policy))
+	if res.DMARC.DMARCbis != nil {
+		s.metricInc("smtp_auth_dmarcbis_result_" + sanitizeMetricToken(res.DMARC.DMARCbis.Result))
+		legacyResult := res.DMARC.Result
+		if res.DMARC.LegacyResult != "" {
+			legacyResult = res.DMARC.LegacyResult
+		}
+		if !strings.EqualFold(legacyResult, res.DMARC.DMARCbis.Result) {
+			s.metricInc("smtp_auth_dmarc_engine_mismatch_total")
+		}
+		if strings.EqualFold(res.DMARC.DMARCbis.Result, "temperror") {
+			s.metricInc("smtp_auth_dmarcbis_dns_error_total")
+		}
+	}
 }
 
 type smtpCommandSpan struct {

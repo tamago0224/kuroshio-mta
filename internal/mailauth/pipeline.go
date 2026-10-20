@@ -13,6 +13,7 @@ type SPFPolicy struct {
 	HeloMode       string
 	MailFromMode   string
 	ARCFailureMode string
+	DMARCMode      string
 }
 
 func DefaultSPFPolicy() SPFPolicy {
@@ -20,6 +21,7 @@ func DefaultSPFPolicy() SPFPolicy {
 		HeloMode:       "advisory",
 		MailFromMode:   "advisory",
 		ARCFailureMode: "accept",
+		DMARCMode:      "legacy",
 	}
 }
 
@@ -86,6 +88,12 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 		DMARC:       dmarc,
 		Action:      ActionAccept,
 	}
+	dmarcMode := strings.ToLower(strings.TrimSpace(policy.DMARCMode))
+	if dmarcMode == "shadow" || dmarcMode == "enforce" {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		result.DMARC.DMARCbis = ptrDMARCbis(EvalDMARCbis(ctx, fromDomain, effectiveSPF, dkim))
+		cancel()
+	}
 	if heloMode == "enforce" && spfRejected(spfHelo.Result) {
 		result.Action = ActionReject
 		result.Reason = "spf helo policy"
@@ -94,6 +102,18 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 	if mailFromMode == "enforce" && strings.TrimSpace(mailFrom) != "" && spfRejected(spfMailFrom.Result) {
 		result.Action = ActionReject
 		result.Reason = "spf mailfrom policy"
+		return result
+	}
+	if dmarcMode == "enforce" && result.DMARC.DMARCbis != nil {
+		applyDMARCbisPolicy(&result)
+		if result.Action == ActionAccept && strings.EqualFold(strings.TrimSpace(arc.Result), "fail") {
+			switch arcFailureMode {
+			case "reject":
+				result.Action, result.Reason = ActionReject, "arc failure policy"
+			case "quarantine":
+				result.Action, result.Reason = ActionQuarantine, "arc failure policy"
+			}
+		}
 		return result
 	}
 	switch strings.ToLower(dmarc.Result) {
@@ -131,21 +151,38 @@ func EvaluateWithPolicy(remoteIP net.IP, helo, mailFrom string, raw []byte, poli
 	return result
 }
 
+func applyDMARCbisPolicy(result *Result) {
+	result.Action, result.Reason = ActionAccept, ""
+	shadow := result.DMARC.DMARCbis
+	if shadow == nil {
+		return
+	}
+	result.DMARC.LegacyResult, result.DMARC.LegacyPolicy = result.DMARC.Result, result.DMARC.Policy
+	result.DMARC.Engine = "treewalk"
+	result.DMARC.Result, result.DMARC.Policy = shadow.Result, shadow.Policy
+	result.DMARC.Domain = shadow.AuthorDomain
+	result.DMARC.SubdomainPolicy = shadow.PublishedSP
+	result.DMARC.Percent, result.DMARC.ReportInterval = 100, 86400
+	result.DMARC.FailureOptions = parseDMARCTokenList(shadow.FailureOptions, []string{"0"}, ":")
+	result.DMARC.ReportFormat = nil
+	result.DMARC.AggregateReport = append([]string(nil), shadow.AggregateReport...)
+	result.DMARC.FailureReport = append([]string(nil), shadow.FailureReport...)
+	if !strings.EqualFold(shadow.Result, "fail") {
+		return
+	}
+	switch strings.ToLower(shadow.Policy) {
+	case "reject":
+		result.Action, result.Reason = ActionReject, "dmarcbis reject policy"
+	case "quarantine":
+		result.Action, result.Reason = ActionQuarantine, "dmarcbis quarantine policy"
+	}
+}
+
 // EvaluateWithDMARCbis runs the legacy evaluator as the policy authority and
 // attaches RFC 9989 output for shadow comparison. The shadow result never changes Action.
 func EvaluateWithDMARCbis(remoteIP net.IP, helo, mailFrom string, raw []byte, policy SPFPolicy) Result {
-	result := EvaluateWithPolicy(remoteIP, helo, mailFrom, raw, policy)
-	if result.DMARC.Domain == "" {
-		return result
-	}
-	spf := result.SPF
-	if strings.TrimSpace(mailFrom) == "" || normalizeSPFMode(policy.MailFromMode, "advisory") == "off" {
-		spf = result.SPFHelo
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	result.DMARC.DMARCbis = ptrDMARCbis(EvalDMARCbis(ctx, result.DMARC.Domain, spf, result.DKIM))
-	return result
+	policy.DMARCMode = "shadow"
+	return EvaluateWithPolicy(remoteIP, helo, mailFrom, raw, policy)
 }
 
 func ptrDMARCbis(result DMARCbisResult) *DMARCbisResult { return &result }

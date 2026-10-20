@@ -82,6 +82,7 @@ dkim_sign_headers: from:to:subject:date:message-id
 arc_failure_policy: accept
 spf_helo_policy: advisory
 spf_mailfrom_policy: advisory
+dmarc_policy_mode: shadow
 domain_max_concurrent_default: 8
 domain_max_concurrent_rules: "gmail.com:2,yahoo.com:1"
 domain_throttle_backend: memory

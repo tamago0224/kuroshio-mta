@@ -16,14 +16,14 @@ var dmarcLookupTXT = func(ctx context.Context, name string) ([]string, error) {
 
 func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	if fromDomain == "" {
-		return DMARCResult{Result: "permerror", Reason: "missing From domain"}
+		return DMARCResult{Engine: "legacy", Result: "permerror", Reason: "missing From domain"}
 	}
 	rec, policyDomain, ok, err := lookupDMARC(fromDomain)
 	if err != nil {
-		return DMARCResult{Domain: fromDomain, Result: "temperror", Reason: err.Error()}
+		return DMARCResult{Engine: "legacy", Domain: fromDomain, Result: "temperror", Reason: err.Error()}
 	}
 	if !ok {
-		return DMARCResult{Domain: fromDomain, Result: "none", Policy: "none", SubdomainPolicy: "none", Percent: 100, ReportInterval: 86400, Reason: "no dmarc record"}
+		return DMARCResult{Engine: "legacy", Domain: fromDomain, Result: "none", Policy: "none", SubdomainPolicy: "none", Percent: 100, ReportInterval: 86400, Reason: "no dmarc record"}
 	}
 	pol := parseTagList(rec)
 	aspf := pol["aspf"]
@@ -63,6 +63,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 	}
 	if spfAligned || dkimAligned {
 		return DMARCResult{
+			Engine:          "legacy",
 			Domain:          fromDomain,
 			Result:          "pass",
 			Policy:          effectivePolicy,
@@ -76,6 +77,7 @@ func EvalDMARC(fromDomain string, spf SPFResult, dkim DKIMResult) DMARCResult {
 		}
 	}
 	return DMARCResult{
+		Engine:          "legacy",
 		Domain:          fromDomain,
 		Result:          "fail",
 		Policy:          effectivePolicy,

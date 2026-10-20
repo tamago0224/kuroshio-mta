@@ -181,6 +181,58 @@ func TestEvaluateWithPolicy_DMARCRejectPctHundredEnforced(t *testing.T) {
 	}
 }
 
+func TestApplyDMARCbisPolicy(t *testing.T) {
+	tests := []struct {
+		name, result, policy, wantReason string
+		wantAction                       Action
+	}{
+		{name: "aligned pass", result: "pass", policy: "reject", wantAction: ActionAccept},
+		{name: "reject failure", result: "fail", policy: "reject", wantAction: ActionReject, wantReason: "dmarcbis reject policy"},
+		{name: "quarantine failure", result: "fail", policy: "quarantine", wantAction: ActionQuarantine, wantReason: "dmarcbis quarantine policy"},
+		{name: "monitor failure", result: "fail", policy: "none", wantAction: ActionAccept},
+		{name: "temporary DNS failure", result: "temperror", policy: "reject", wantAction: ActionAccept},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Result{Action: ActionReject, Reason: "legacy", DMARC: DMARCResult{DMARCbis: &DMARCbisResult{Result: tt.result, Policy: tt.policy}}}
+			applyDMARCbisPolicy(&got)
+			if got.Action != tt.wantAction || got.Reason != tt.wantReason {
+				t.Fatalf("action=%s reason=%q", got.Action, got.Reason)
+			}
+		})
+	}
+}
+
+func TestEvaluateWithPolicyDMARCModes(t *testing.T) {
+	origLegacy, origBis, origExists := dmarcLookupTXT, dmarcBisLookupTXT, dmarcBisDomainExists
+	t.Cleanup(func() { dmarcLookupTXT, dmarcBisLookupTXT, dmarcBisDomainExists = origLegacy, origBis, origExists })
+	dmarcLookupTXT = func(context.Context, string) ([]string, error) { return []string{"v=DMARC1; p=none"}, nil }
+	dmarcBisLookupTXT = func(_ context.Context, name string) ([]string, error) {
+		if name == "_dmarc.example.test" {
+			return []string{"v=DMARC1; p=reject; psd=n"}, nil
+		}
+		return nil, nil
+	}
+	dmarcBisDomainExists = func(context.Context, string) (bool, error) { return true, nil }
+	raw := []byte("From: sender@example.test\r\nSubject: mode\r\n\r\nbody\r\n")
+	for _, tt := range []struct {
+		name, mode string
+		want       Action
+		shadow     bool
+	}{
+		{name: "legacy rollback", mode: "legacy", want: ActionAccept},
+		{name: "shadow observes only", mode: "shadow", want: ActionAccept, shadow: true},
+		{name: "enforce uses tree walk", mode: "enforce", want: ActionReject, shadow: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EvaluateWithPolicy(net.ParseIP("192.0.2.1"), "mx.sender.test", "sender@sender.test", raw, SPFPolicy{HeloMode: "off", MailFromMode: "off", ARCFailureMode: "accept", DMARCMode: tt.mode})
+			if got.Action != tt.want || (got.DMARC.DMARCbis != nil) != tt.shadow {
+				t.Fatalf("mode=%s action=%s shadow=%+v", tt.mode, got.Action, got.DMARC.DMARCbis)
+			}
+		})
+	}
+}
+
 func TestDMARCSamplingBucketDeterministic(t *testing.T) {
 	raw := []byte("From: sender@example.com\r\nTo: rcpt@example.net\r\n\r\nbody")
 	a := dmarcSamplingBucket("mx.example.net", "sender@example.com", raw)

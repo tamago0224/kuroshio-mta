@@ -1,6 +1,6 @@
 # DMARC aggregate reports
 
-受信SMTPは RFC 9989 shadow 評価の結果に `rua` がある場合、RFC 9990 aggregate report 用の観測値をローカルSQLiteへ保存します。配送判定は引き続き既存のポリシー評価に従います。外部の受信先へは、RFC 9990 のDNS認可を通った `mailto:` URI のみ送信します。
+受信SMTPは `dmarc_policy_mode: enforce` で使った RFC 9989 評価の結果に `rua` がある場合、RFC 9990 aggregate report 用の観測値をローカルSQLiteへ保存します。`shadow` は比較メトリクスだけを記録し、旧評価とRFC 9989評価を集計レポート内で混在させません。外部の受信先へは、RFC 9990 のDNS認可を通った `mailto:` URI のみ送信します。
 
 ## 有効化と保存先
 

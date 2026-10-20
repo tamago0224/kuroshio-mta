@@ -102,6 +102,7 @@ type Config struct {
 	ARCFailurePolicy             string
 	SPFHeloPolicy                string
 	SPFMailFromPolicy            string
+	DMARCPolicyMode              string
 	DomainMaxConcurrentDefault   int
 	DomainMaxConcurrentRules     string
 	DomainThrottleBackend        string

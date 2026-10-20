@@ -91,14 +91,24 @@ func EvalDMARCbis(ctx context.Context, author string, spf SPFResult, dkim DKIMRe
 	if spfAligned || dkimAligned {
 		result, reason = "pass", ""
 	}
-	if rec.tags["t"] == "n" {
-		policy, reason = "none", "assessment policy disabled by t=n"
+	testing := rec.tags["t"]
+	if testing == "" {
+		testing = "n"
+	}
+	if testing == "y" && result == "fail" {
+		switch policy {
+		case "reject":
+			policy = "quarantine"
+		case "quarantine":
+			policy = "none"
+		}
+		reason = "assessment policy reduced by t=y"
 	}
 	return DMARCbisResult{
 		Result: result, AuthorDomain: author, PolicyDomain: rec.domain, OrgDomain: org, Policy: policy,
 		PublishedP: rec.tags["p"], PublishedSP: rec.tags["sp"], PublishedNP: rec.tags["np"],
-		FailureOptions: rec.tags["fo"], DKIMMode: rec.tags["adkim"], SPFMode: rec.tags["aspf"], Testing: rec.tags["t"],
-		SPFAligned: spfAligned, DKIMAligned: dkimAligned, AggregateReport: parseDMARCList(rec.tags["rua"], nil),
+		FailureOptions: rec.tags["fo"], DKIMMode: rec.tags["adkim"], SPFMode: rec.tags["aspf"], Testing: testing,
+		SPFAligned: spfAligned, DKIMAligned: dkimAligned, AggregateReport: parseDMARCList(rec.tags["rua"], nil), FailureReport: parseDMARCList(rec.tags["ruf"], nil),
 		Discovery: "treewalk", Reason: reason,
 	}
 }
@@ -202,9 +212,13 @@ func dmarcBisTreeWalk(ctx context.Context, domain string) ([]dmarcbisRecord, err
 func parseDMARCbisRecord(raw string) (map[string]string, bool) {
 	parts := strings.Split(raw, ";")
 	tags := make(map[string]string, len(parts))
+	firstTag := true
 	for i, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
+			if i == 0 {
+				return nil, false
+			}
 			continue
 		}
 		key, value, ok := strings.Cut(part, "=")
@@ -215,16 +229,19 @@ func parseDMARCbisRecord(raw string) (map[string]string, bool) {
 		if _, exists := tags[key]; exists {
 			return nil, false
 		}
-		if i == 0 && key != "v" {
+		if firstTag && key != "v" {
 			return nil, false
 		}
 		tags[key] = value
+		firstTag = false
 	}
 	if tags["v"] != "dmarc1" {
 		return nil, false
 	}
 	validPolicy := func(v string) bool { return v == "none" || v == "quarantine" || v == "reject" }
-	if !validPolicy(tags["p"]) {
+	if tags["p"] == "" {
+		tags["p"] = "none"
+	} else if !validPolicy(tags["p"]) {
 		return nil, false
 	}
 	for _, key := range []string{"sp", "np"} {
