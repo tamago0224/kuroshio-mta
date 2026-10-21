@@ -70,6 +70,10 @@ type Config struct {
 	RateLimitRedisKeyPrefix      string
 	DNSBLZones                   []string
 	DNSBLCacheTTL                time.Duration
+	DNSCacheEnabled              bool
+	DNSCachePositiveTTL          time.Duration
+	DNSCacheNegativeTTL          time.Duration
+	DNSCacheCapacity             int
 	DANEDNSSECTrustModel         string
 	MTASTSCacheTTL               time.Duration
 	MTASTSFetchTimeout           time.Duration
@@ -163,6 +167,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 	if err := cfg.MXShaping.Validate(); err != nil {
 		return Config{}, err
 	}
+	if err := cfg.validateDNSCache(); err != nil {
+		return Config{}, err
+	}
 	if cfg.DKIMProfilesFile != "" && (cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "") {
 		return Config{}, fmt.Errorf("dkim_profiles_file cannot be combined with legacy signing settings")
 	}
@@ -188,4 +195,14 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func (cfg Config) validateDNSCache() error {
+	if cfg.DNSCachePositiveTTL < 0 || cfg.DNSCachePositiveTTL > 24*time.Hour || cfg.DNSCacheNegativeTTL < 0 || cfg.DNSCacheNegativeTTL > time.Hour || cfg.DNSCacheCapacity < 0 || cfg.DNSCacheCapacity > 1000000 {
+		return fmt.Errorf("DNS cache TTL or capacity is out of range")
+	}
+	if cfg.DNSCacheEnabled && (cfg.DNSCachePositiveTTL == 0 || cfg.DNSCacheNegativeTTL == 0 || cfg.DNSCacheCapacity == 0) {
+		return fmt.Errorf("enabled DNS cache requires positive TTLs and capacity")
+	}
+	return nil
 }

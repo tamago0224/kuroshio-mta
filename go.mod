@@ -1,6 +1,6 @@
 module github.com/tamago0224/kuroshio-mta
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.14

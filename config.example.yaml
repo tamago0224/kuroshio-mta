@@ -42,6 +42,12 @@ rate_limit_redis_key_prefix: kuroshio:ratelimit
 dnsbl_zones:
   - zen.spamhaus.org
 dnsbl_cache_ttl: 5m
+# Optional process-local MX/address cache. TTLs are operator-defined because
+# Go's system resolver does not expose authoritative DNS TTLs.
+dns_cache_enabled: false
+dns_cache_positive_ttl: 1m
+dns_cache_negative_ttl: 30s
+dns_cache_capacity: 10000
 dane_dnssec_trust_model: ad_required
 mta_sts_cache_ttl: 1h
 mta_sts_fetch_timeout: 5s

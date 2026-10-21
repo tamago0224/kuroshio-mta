@@ -75,6 +75,10 @@ type yamlConfig struct {
 	RateLimitRedisKeyPrefix      *string  `yaml:"rate_limit_redis_key_prefix"`
 	DNSBLZones                   []string `yaml:"dnsbl_zones"`
 	DNSBLCacheTTL                *string  `yaml:"dnsbl_cache_ttl"`
+	DNSCacheEnabled              *bool    `yaml:"dns_cache_enabled"`
+	DNSCachePositiveTTL          *string  `yaml:"dns_cache_positive_ttl"`
+	DNSCacheNegativeTTL          *string  `yaml:"dns_cache_negative_ttl"`
+	DNSCacheCapacity             *int     `yaml:"dns_cache_capacity"`
 	DANEDNSSECTrustModel         *string  `yaml:"dane_dnssec_trust_model"`
 	MTASTSCacheTTL               *string  `yaml:"mta_sts_cache_ttl"`
 	MTASTSFetchTimeout           *string  `yaml:"mta_sts_fetch_timeout"`
@@ -350,6 +354,24 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
+	}
+	if raw.DNSCacheEnabled != nil {
+		cfg.DNSCacheEnabled = *raw.DNSCacheEnabled
+	}
+	if raw.DNSCachePositiveTTL != nil {
+		cfg.DNSCachePositiveTTL, err = parseYAMLDuration(*raw.DNSCachePositiveTTL, "dns_cache_positive_ttl")
+		if err != nil {
+			return Config{}, err
+		}
+	}
+	if raw.DNSCacheNegativeTTL != nil {
+		cfg.DNSCacheNegativeTTL, err = parseYAMLDuration(*raw.DNSCacheNegativeTTL, "dns_cache_negative_ttl")
+		if err != nil {
+			return Config{}, err
+		}
+	}
+	if raw.DNSCacheCapacity != nil {
+		cfg.DNSCacheCapacity = *raw.DNSCacheCapacity
 	}
 	if raw.DANEDNSSECTrustModel != nil {
 		cfg.DANEDNSSECTrustModel = normalizeEnum(*raw.DANEDNSSECTrustModel, cfg.DANEDNSSECTrustModel, []string{"ad_required", "insecure_allow_unsigned"})

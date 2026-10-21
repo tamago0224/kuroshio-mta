@@ -1,4 +1,4 @@
-FROM golang:1.26.9-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 WORKDIR /src
 COPY main.go .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/dnsmock ./main.go
