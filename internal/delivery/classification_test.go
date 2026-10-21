@@ -134,3 +134,15 @@ func TestRequiredTLSRejectionHasPolicyStage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeliverHostAddressLookupFailureHasDNSStage(t *testing.T) {
+	client := NewClient(config.Config{DialTimeout: time.Second})
+	client.resolveHostFn = func(context.Context, string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: "missing.example.test", IsNotFound: true}
+	}
+	err := client.deliverHost(context.Background(), "missing.example.test", 25, &model.Message{}, "recipient@example.test", false, nil)
+	got := ClassifyFailure(err)
+	if got.Category != FailureDNS || got.Stage != StageDNS || got.Suppress {
+		t.Fatalf("address lookup classification = %+v", got)
+	}
+}

@@ -57,6 +57,7 @@ type Client struct {
 	signer                         messageSigner
 	arcSigner                      messageSigner
 	resolveMXFn                    func(string, time.Duration) ([]router.MXHost, error)
+	resolveHostFn                  func(context.Context, string) ([]string, error)
 	deliverHostFn                  func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error
 	deliverLMTPFn                  func(context.Context, string, *model.Message, []string) map[string]error
 	tlsConfigFn                    func(string) *tls.Config
@@ -83,6 +84,14 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 		mtaSTS:      NewMTASTSResolver(cfg.MTASTSCacheTTL, cfg.MTASTSFetchTimeout, nil),
 		resolveMXFn: router.LookupWithTimeout,
 		metrics:     metrics,
+	}
+	if cfg.DNSCacheEnabled {
+		resolver := router.NewCachedResolver(router.DNSCacheConfig{
+			Enabled: true, PositiveTTL: cfg.DNSCachePositiveTTL,
+			NegativeTTL: cfg.DNSCacheNegativeTTL, Capacity: cfg.DNSCacheCapacity,
+		}, metrics)
+		c.resolveMXFn = resolver.LookupWithTimeout
+		c.resolveHostFn = resolver.LookupHost
 	}
 	c.routes, c.routingErr = loadDeliveryRoutes(cfg.DeliveryRoutes)
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
@@ -527,7 +536,25 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		defer release()
 	}
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	addresses := []string{host}
+	if c.resolveHostFn != nil && net.ParseIP(host) == nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, c.cfg.DialTimeout)
+		addresses, err = c.resolveHostFn(lookupCtx, host)
+		cancel()
+		if err != nil || len(addresses) == 0 {
+			if err == nil {
+				err = errors.New("address lookup returned no results")
+			}
+			return atStage(StageDNS, err)
+		}
+	}
+	var conn net.Conn
+	for _, address := range addresses {
+		conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", port)))
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return atStage(StageConnect, err)
 	}

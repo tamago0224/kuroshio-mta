@@ -196,9 +196,31 @@ go test -tags=integration ./integration -run '^TestLMTPMailstore$' -v
 | --- | --- | --- | --- |
 | `dnsbl_zones` | `MTA_DNSBL_ZONES` | unset | 参照する DNSBL zone 一覧です |
 | `dnsbl_cache_ttl` | `MTA_DNSBL_CACHE_TTL` | `5m` | DNSBL 判定結果のキャッシュ期間です |
+| `dns_cache_enabled` | `MTA_DNS_CACHE_ENABLED` | `false` | プロセス内のMX・配送先アドレスキャッシュを有効にします |
+| `dns_cache_positive_ttl` | `MTA_DNS_CACHE_POSITIVE_TTL` | `1m` | 成功したMX・アドレス結果を保持する運用TTLです |
+| `dns_cache_negative_ttl` | `MTA_DNS_CACHE_NEGATIVE_TTL` | `30s` | 失敗したMX・アドレス結果を保持する運用TTLです |
+| `dns_cache_capacity` | `MTA_DNS_CACHE_CAPACITY` | `10000` | MXとアドレスの各キャッシュに保持する最大名数です |
 | `dane_dnssec_trust_model` | `MTA_DANE_DNSSEC_TRUST_MODEL` | `ad_required` | DANE の DNSSEC 信頼モデルです。`ad_required` / `insecure_allow_unsigned` を使います |
 | `mta_sts_cache_ttl` | `MTA_MTA_STS_CACHE_TTL` | `1h` | MTA-STS policy のキャッシュ期間です |
 | `mta_sts_fetch_timeout` | `MTA_MTA_STS_FETCH_TIMEOUT` | `5s` | MTA-STS policy の取得タイムアウトです |
+
+### MX・配送先アドレスキャッシュ
+
+`dns_cache_enabled: true` は、同じ宛先へのMX検索と、SMTP接続前のA/AAAA検索をプロセス内で共有します。
+同じ名前への同時missは1回の問い合わせへまとめ、成功と失敗を別々のTTLで保持します。容量到達時は
+期限切れまたは最終利用時刻が古い項目を削除します。期限切れ情報を障害時に返すstale fallbackは行いません。
+
+Goのsystem resolverは応答レコードのTTLを公開しないため、ここで指定するTTLはDNS authoritative TTLではなく
+運用上の上限です。MX切替を短時間で反映する必要がある環境では短い値を使うか、この機能を無効にして
+TTLを扱える外部キャッシュresolverを利用してください。キャッシュは再起動時に空になり、永続化しません。
+
+DANEのTLSA検索とDNSSEC AD判定はこのキャッシュを通らず、既存の信頼モデルを維持します。MX/A/AAAAの
+キャッシュ結果からDANEの検証済み状態を推測しません。
+
+`dns_cache_mx_{hit,miss,coalesced,error}_total` と
+`dns_cache_address_{hit,miss,coalesced,error}_total` が要求数と結果を示します。
+`dns_cache_{mx,address}_lookup_milliseconds_total` は実問い合わせ時間の累計で、miss件数と組み合わせて
+平均レイテンシを比較できます。外部resolver側のrequest/latencyも併せて確認して有効化を判断してください。
 | `dkim_profiles_file` | `MTA_DKIM_PROFILES_FILE` | unset | 複数ドメイン用の署名 profile JSON。従来の domain/selector/key 設定と併用不可 |
 | `dkim_sign_domain` | `MTA_DKIM_SIGN_DOMAIN` | unset | 送信時 DKIM/ARC 署名に使うドメインです |
 | `dkim_sign_selector` | `MTA_DKIM_SIGN_SELECTOR` | unset | 送信時 DKIM/ARC 署名に使う selector です |
