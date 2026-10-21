@@ -23,7 +23,7 @@ services:
         ipv4_address: 172.28.0.80
 
   tester:
-    image: golang:1.26.9
+    image: golang:1.26.10
     container_name: kuroshio-integration-tester
     working_dir: /workspace
     volumes:
