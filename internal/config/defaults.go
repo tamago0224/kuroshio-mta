@@ -4,6 +4,7 @@ import "time"
 
 func defaultConfig() Config {
 	return Config{
+		ResponseThrottle:              ResponseThrottleConfig{DryRun: true},
 		ListenAddr:                    ":2525",
 		SubmissionAddr:                "",
 		SubmissionAuth:                true,

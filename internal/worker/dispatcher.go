@@ -26,14 +26,15 @@ import (
 )
 
 type Dispatcher struct {
-	pauses   deliverypause.Store
-	cfg      config.Config
-	queue    queue.Backend
-	cl       *delivery.Client
-	sup      *bounce.SuppressionStore
-	m        *observability.Metrics
-	throttle domainThrottle
-	rep      *reputation.Tracker
+	pauses    deliverypause.Store
+	cfg       config.Config
+	queue     queue.Backend
+	cl        *delivery.Client
+	sup       *bounce.SuppressionStore
+	m         *observability.Metrics
+	throttle  domainThrottle
+	rep       *reputation.Tracker
+	responses *responseThrottle
 }
 
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
@@ -144,6 +145,18 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				smtpCode = smtpErr.Code
 			}
 			classification := delivery.ClassifyFailure(err)
+			if d.responses != nil {
+				ruleID, triggered, responseErr := d.responses.observe(ctx, domain, err)
+				if ruleID != "" {
+					d.metricInc("worker_response_throttle_match_" + ruleID)
+				}
+				if triggered {
+					d.metricInc("worker_response_throttle_trigger_" + ruleID)
+				}
+				if responseErr != nil {
+					d.metricInc("worker_response_throttle_error")
+				}
+			}
 			d.metricInc("worker_bounce_class_" + string(classification.Category))
 			d.metricInc("worker_bounce_rule_" + classification.Rule)
 			slog.InfoContext(ctx, "delivery failure classified",
@@ -511,7 +524,10 @@ func (d *Dispatcher) metricAdd(name string, value uint64) {
 }
 
 // SetDeliveryPauses must be called before starting the dispatcher.
-func (d *Dispatcher) SetDeliveryPauses(store deliverypause.Store) { d.pauses = store }
+func (d *Dispatcher) SetDeliveryPauses(store deliverypause.Store) {
+	d.pauses = store
+	d.responses = newResponseThrottle(d.cfg.ResponseThrottle, d.pauses)
+}
 
 func (d *Dispatcher) refreshPauseStats(ctx context.Context) {
 	if d.pauses == nil || d.m == nil {
