@@ -206,6 +206,10 @@ func (s *Server) enqueue(ctx context.Context, ss *session, id string) error {
 
 		SigningIdentity: ss.signing,
 	}
+	if ss.authOK {
+		msg.Tenant = strings.ToLower(strings.TrimSpace(ss.auth.Username))
+		msg.TrafficClass = "transactional"
+	}
 	observability.InjectTraceContext(ctx, msg)
 	return s.queue.Enqueue(msg)
 }

@@ -11,6 +11,7 @@ import (
 )
 
 type yamlConfig struct {
+	QueueFairness    *QueueFairnessConfig    `yaml:"queue_fairness"`
 	ResponseThrottle *ResponseThrottleConfig `yaml:"response_throttle"`
 	DeliveryRoutes   []DeliveryRoute         `yaml:"delivery_routes"`
 	DeliveryPause    *DeliveryPauseConfig    `yaml:"delivery_pause"`
@@ -173,6 +174,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 	if raw.DeliveryPause != nil {
 		cfg.DeliveryPause = *raw.DeliveryPause
+	}
+	if raw.QueueFairness != nil {
+		cfg.QueueFairness = *raw.QueueFairness
 	}
 	if raw.ResponseThrottle != nil {
 		cfg.ResponseThrottle = *raw.ResponseThrottle

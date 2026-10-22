@@ -338,7 +338,7 @@ func (s *Store) enqueueChunk(ctx context.Context, backend queue.Backend, receive
 	}
 	filename := fmt.Sprintf("%s!%s!%d!%d!%s.xml.gz", receiver, group.policyDomain, period.Unix(), period.Add(24*time.Hour).Unix()-1, suffix)
 	messageID := hex.EncodeToString(digest[:16])
-	message := &model.Message{ID: messageID, RemoteAddr: receiver, Helo: receiver, MailFrom: "", RcptTo: []string{group.to}, SigningIdentity: &model.SigningIdentity{Domain: receiver}, Data: buildAggregateMessage("postmaster@"+receiver, group.to, group.policyDomain, receiver, reportID, filename, compressed, period, messageID)}
+	message := &model.Message{ID: messageID, RemoteAddr: receiver, Helo: receiver, MailFrom: "", RcptTo: []string{group.to}, Tenant: "system", TrafficClass: "system", SigningIdentity: &model.SigningIdentity{Domain: receiver}, Data: buildAggregateMessage("postmaster@"+receiver, group.to, group.policyDomain, receiver, reportID, filename, compressed, period, messageID)}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
