@@ -11,14 +11,17 @@ import (
 )
 
 type yamlConfig struct {
-	QueueFairness    *QueueFairnessConfig    `yaml:"queue_fairness"`
-	ResponseThrottle *ResponseThrottleConfig `yaml:"response_throttle"`
-	DeliveryRoutes   []DeliveryRoute         `yaml:"delivery_routes"`
-	DeliveryPause    *DeliveryPauseConfig    `yaml:"delivery_pause"`
-	Quarantine       *QuarantineConfig       `yaml:"quarantine"`
-	SMTPLimits       *SMTPLimitsConfig       `yaml:"smtp_limits"`
-	ProxyProtocol    *ProxyProtocolConfig    `yaml:"proxy_protocol"`
-	InboundPolicy    *InboundPolicyConfig    `yaml:"inbound_policy"`
+	EgressSources     []EgressSource          `yaml:"egress_sources"`
+	EgressPools       []EgressPool            `yaml:"egress_pools"`
+	EgressTenantPools map[string]string       `yaml:"egress_tenant_pools"`
+	QueueFairness     *QueueFairnessConfig    `yaml:"queue_fairness"`
+	ResponseThrottle  *ResponseThrottleConfig `yaml:"response_throttle"`
+	DeliveryRoutes    []DeliveryRoute         `yaml:"delivery_routes"`
+	DeliveryPause     *DeliveryPauseConfig    `yaml:"delivery_pause"`
+	Quarantine        *QuarantineConfig       `yaml:"quarantine"`
+	SMTPLimits        *SMTPLimitsConfig       `yaml:"smtp_limits"`
+	ProxyProtocol     *ProxyProtocolConfig    `yaml:"proxy_protocol"`
+	InboundPolicy     *InboundPolicyConfig    `yaml:"inbound_policy"`
 
 	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
 	MXShaping                *MXShapingConfig  `yaml:"mx_shaping"`
@@ -168,6 +171,15 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	cfg := base
 	if raw.DeliveryRoutes != nil {
 		cfg.DeliveryRoutes = append([]DeliveryRoute(nil), raw.DeliveryRoutes...)
+	}
+	if raw.EgressSources != nil {
+		cfg.EgressSources = append([]EgressSource(nil), raw.EgressSources...)
+	}
+	if raw.EgressPools != nil {
+		cfg.EgressPools = append([]EgressPool(nil), raw.EgressPools...)
+	}
+	if raw.EgressTenantPools != nil {
+		cfg.EgressTenantPools = raw.EgressTenantPools
 	}
 	if raw.DKIMProfilesFile != nil {
 		cfg.DKIMProfilesFile = *raw.DKIMProfilesFile

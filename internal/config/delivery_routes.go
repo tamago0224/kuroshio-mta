@@ -18,6 +18,7 @@ type DeliveryRoute struct {
 	RelayUsername     string   `yaml:"relay_username,omitempty"`
 	RelayPasswordFile string   `yaml:"relay_password_file,omitempty"`
 	LMTPUnixSocket    string   `yaml:"lmtp_unix_socket,omitempty"`
+	EgressPool        string   `yaml:"egress_pool,omitempty"`
 }
 
 func (c Config) validateDeliveryRoutes() error {
@@ -31,6 +32,18 @@ func (c Config) validateDeliveryRoutes() error {
 			return fmt.Errorf("duplicate delivery route %q", name)
 		}
 		names[name] = struct{}{}
+		if route.EgressPool != "" {
+			found := false
+			for _, pool := range c.EgressPools {
+				if pool.Name == route.EgressPool {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("delivery route %q references unknown egress pool", name)
+			}
+		}
 		if len(route.Domains) == 0 {
 			return fmt.Errorf("delivery route %q requires domains", name)
 		}
@@ -44,6 +57,9 @@ func (c Config) validateDeliveryRoutes() error {
 		case "mx", "local_spool":
 			if route.RelayHost != "" || route.RelayPort != 0 || route.RelayRequireTLS || route.RelayUsername != "" || route.RelayPasswordFile != "" || route.LMTPUnixSocket != "" {
 				return fmt.Errorf("delivery route %q has transport settings for incompatible mode", name)
+			}
+			if strings.EqualFold(route.Mode, "local_spool") && route.EgressPool != "" {
+				return fmt.Errorf("delivery route %q has egress pool for local spool", name)
 			}
 		case "relay":
 			if strings.TrimSpace(route.RelayHost) == "" {
@@ -68,6 +84,9 @@ func (c Config) validateDeliveryRoutes() error {
 			}
 			if route.RelayHost != "" || route.RelayPort != 0 || route.RelayRequireTLS || route.RelayUsername != "" || route.RelayPasswordFile != "" {
 				return fmt.Errorf("delivery route %q has relay settings for LMTP mode", name)
+			}
+			if route.EgressPool != "" {
+				return fmt.Errorf("delivery route %q has egress pool for LMTP", name)
 			}
 		default:
 			return fmt.Errorf("delivery route %q has invalid mode", name)

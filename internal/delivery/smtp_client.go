@@ -66,6 +66,7 @@ type Client struct {
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
 	metrics                        *observability.Metrics
 	routes                         []deliveryRoute
+	egress                         *egressManager
 }
 
 func NewClient(cfg config.Config) *Client {
@@ -94,6 +95,11 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 		c.resolveHostFn = resolver.LookupHost
 	}
 	c.routes, c.routingErr = loadDeliveryRoutes(cfg.DeliveryRoutes)
+	if manager, err := newEgressManager(cfg); err != nil {
+		c.routingErr = errors.Join(c.routingErr, err)
+	} else {
+		c.egress = manager
+	}
 	if cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "" {
 		if signer, err := dkim.NewFileSigner(cfg.DKIMSignDomain, cfg.DKIMSignSelector, cfg.DKIMPrivateKeyFile, cfg.DKIMSignHeaders); err == nil {
 			c.signer = signer
@@ -160,6 +166,22 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	}
 	if mode == "" {
 		mode = "mx"
+	}
+	if mode == "mx" || mode == "relay" {
+		pool := route.EgressPool
+		if c.egress != nil {
+			pool = c.egress.poolFor(pool, msg.Tenant)
+		}
+		selection, selectErr := c.egress.selectSource(pool)
+		if selectErr != nil {
+			return selectErr
+		}
+		if selection.name != "" {
+			ctx = context.WithValue(ctx, egressContextKey{}, selection)
+			if c.metrics != nil {
+				c.metrics.Counter("egress_source_" + selection.name + "_selected").Inc()
+			}
+		}
 	}
 	ctx, span := deliveryTracer.Start(ctx, "delivery.deliver")
 	span.SetAttributes(
@@ -536,6 +558,14 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		defer release()
 	}
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
+	ehlo := c.cfg.Hostname
+	selection, hasSource := ctx.Value(egressContextKey{}).(egressSelection)
+	if hasSource {
+		ip := net.ParseIP(selection.ip)
+		dialer.LocalAddr = &net.TCPAddr{IP: ip}
+		ehlo = selection.ehlo
+		span.SetAttributes(attribute.String("delivery.egress_source", selection.name))
+	}
 	addresses := []string{host}
 	if c.resolveHostFn != nil && net.ParseIP(host) == nil {
 		lookupCtx, cancel := context.WithTimeout(ctx, c.cfg.DialTimeout)
@@ -550,10 +580,17 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	}
 	var conn net.Conn
 	for _, address := range addresses {
+		destinationIP := net.ParseIP(address)
+		if hasSource && destinationIP != nil && (net.ParseIP(selection.ip).To4() == nil) != (destinationIP.To4() == nil) {
+			continue
+		}
 		conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", port)))
 		if err == nil {
 			break
 		}
+	}
+	if conn == nil && err == nil && hasSource {
+		err = errors.New("egress source and destination address families do not match")
 	}
 	if err != nil {
 		return atStage(StageConnect, err)
@@ -567,7 +604,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		return atStage(StageGreeting, err)
 	}
 
-	if err := writeLine(w, "EHLO "+c.cfg.Hostname); err != nil {
+	if err := writeLine(w, "EHLO "+ehlo); err != nil {
 		return atStage(StageEHLO, err)
 	}
 	ehloLines, err := readLines(r)
@@ -611,7 +648,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 			tlsActive = true
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
-			if err := writeLine(w, "EHLO "+c.cfg.Hostname); err != nil {
+			if err := writeLine(w, "EHLO "+ehlo); err != nil {
 				return atStage(StageEHLO, err)
 			}
 			ehloLines, err = readLines(r)
