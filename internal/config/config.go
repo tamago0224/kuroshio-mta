@@ -8,6 +8,9 @@ import (
 )
 
 type Config struct {
+	EgressSources                    []EgressSource
+	EgressPools                      []EgressPool
+	EgressTenantPools                map[string]string
 	QueueFairness                    QueueFairnessConfig
 	ResponseThrottle                 ResponseThrottleConfig
 	DeliveryRoutes                   []DeliveryRoute
@@ -203,6 +206,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.validateDeliveryRoutes(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validateEgress(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

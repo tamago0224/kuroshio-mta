@@ -103,6 +103,9 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `relay_port` | `MTA_RELAY_PORT` | `25` | `relay` 配送時の中継先ポートです |
 | `relay_require_tls` | `MTA_RELAY_REQUIRE_TLS` | `false` | リレー配送で TLS を必須にします |
 | `delivery_routes` | YAML only | unset | 宛先ドメイン別の名前付き配送ルートです。配列順で最初に一致したルートを使います |
+| `egress_sources` | YAML only | unset | 送信元IP、EHLO名、選択weight、日次上限、停止状態を定義します |
+| `egress_pools` | YAML only | unset | 名前付き送信元poolと所属sourceを定義します |
+| `egress_tenant_pools` | YAML only | unset | 正規化済みtenantから送信元poolへの上書きmappingです |
 | `worker_count` | `MTA_WORKER_COUNT` | `4` | 配送ワーカー数です |
 | `max_attempts` | `MTA_MAX_ATTEMPTS` | `12` | 最大再試行回数です |
 | `max_retry_age` | `MTA_MAX_RETRY_AGE` | `120h` | 再試行を続ける最大期間です |
@@ -163,6 +166,7 @@ delivery_routes:
     relay_require_tls: true
     relay_username: kuroshio
     relay_password_file: /run/secrets/internal-relay-password
+    egress_pool: transactional
   - name: archive-spool
     domains: [archive.example]
     mode: local_spool
@@ -181,6 +185,43 @@ route の `mode` は `mx` / `local_spool` / `relay` / `lmtp` です。認証付�
 ルート設定と資格情報は起動時のスナップショットです。SIGHUP の限定的な再読込対象ではないため、
 変更後はプロセスを再起動します。キュー内のメッセージはルート名を固定保存せず、各配送試行時の
 設定で選び直します。このため、再起動後の retry は新しいルート定義を使います。
+
+### 送信元IP・EHLO poolとWarm-up上限
+
+`egress_sources` と `egress_pools` は、`mx` / `relay` 配送で使うローカル送信元を選択します。
+route の `egress_pool` を基準にし、メッセージにtenantがある場合は `egress_tenant_pools` の完全一致を優先します。
+どちらにもpool指定がない既存設定は、従来どおりOSが選ぶ送信元IPとトップレベルの `hostname` を使います。
+
+```yaml
+egress_sources:
+  - name: primary
+    ip: 192.0.2.10
+    ehlo: mail.example.com
+    weight: 4
+    daily_limit: 10000
+  - name: warmup
+    ip: 192.0.2.11
+    ehlo: warmup.example.com
+    weight: 1
+    daily_limit: 1000
+    stopped: false
+egress_pools:
+  - name: transactional
+    sources: [primary, warmup]
+egress_tenant_pools:
+  alice@example.com: transactional
+```
+
+weightはpool内の相対的な選択比率で1〜100、`daily_limit` はsourceごとの配送試行予約数です。
+0は上限なしを表し、UTCの日付変更で集計をリセットします。選ばれたsourceが上限到達または
+`stopped: true` の場合、その配送を翌UTC日まで保留します。同じ試行で別sourceへ切り替えて制限を
+迂回しません。予約数は `queue_dir/egress-source-usage.json` に0600で同期保存し、再起動後も復元します。
+同じファイルを複数プロセスから共有しないでください。queue backup / restore の対象に含まれます。
+
+設定したIPが起動時にローカルinterfaceへ割り当てられていない場合は起動に失敗します。配送先の
+IPv4/IPv6とsourceのfamilyが一致しない場合も配送を開始せずretryにします。各sourceのIPには正逆DNS、
+EHLO、SPF、DKIMの整合を用意し、段階的な上限を本番投入前に設定してください。選択数は
+`egress_source_<source>_selected` counterで確認できます。source名はmetric名向けに正規化されます。
 
 名前付きルートの選択は `delivery_route_selected` 監査イベントに、メッセージID、マスク済み宛先、
 ルート名、配送方式を記録します。OpenTelemetry の `delivery.deliver` span には

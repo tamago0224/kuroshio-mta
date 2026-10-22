@@ -18,6 +18,7 @@ Issue: #34
   - `sent`
   - `suppression.json`
   - `reputation.json`
+  - `egress-source-usage.json`
 
 Kafka の topic・offset、外部 spool、認証 DB はこのバックアップの対象外です。別途バックアップ・復旧手順を用意してください。
 
