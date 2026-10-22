@@ -11,12 +11,13 @@ import (
 )
 
 type yamlConfig struct {
-	DeliveryRoutes []DeliveryRoute      `yaml:"delivery_routes"`
-	DeliveryPause  *DeliveryPauseConfig `yaml:"delivery_pause"`
-	Quarantine     *QuarantineConfig    `yaml:"quarantine"`
-	SMTPLimits     *SMTPLimitsConfig    `yaml:"smtp_limits"`
-	ProxyProtocol  *ProxyProtocolConfig `yaml:"proxy_protocol"`
-	InboundPolicy  *InboundPolicyConfig `yaml:"inbound_policy"`
+	ResponseThrottle *ResponseThrottleConfig `yaml:"response_throttle"`
+	DeliveryRoutes   []DeliveryRoute         `yaml:"delivery_routes"`
+	DeliveryPause    *DeliveryPauseConfig    `yaml:"delivery_pause"`
+	Quarantine       *QuarantineConfig       `yaml:"quarantine"`
+	SMTPLimits       *SMTPLimitsConfig       `yaml:"smtp_limits"`
+	ProxyProtocol    *ProxyProtocolConfig    `yaml:"proxy_protocol"`
+	InboundPolicy    *InboundPolicyConfig    `yaml:"inbound_policy"`
 
 	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
 	MXShaping                *MXShapingConfig  `yaml:"mx_shaping"`
@@ -172,6 +173,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 	if raw.DeliveryPause != nil {
 		cfg.DeliveryPause = *raw.DeliveryPause
+	}
+	if raw.ResponseThrottle != nil {
+		cfg.ResponseThrottle = *raw.ResponseThrottle
 	}
 	if raw.Quarantine != nil {
 		cfg.Quarantine = *raw.Quarantine

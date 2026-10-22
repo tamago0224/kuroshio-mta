@@ -120,6 +120,20 @@ domain_throttle_redis_key_prefix: kuroshio:domainthrottle
 domain_adaptive_throttle: true
 domain_tempfail_threshold: 0.3
 domain_penalty_max: 5s
+# SMTP response-based automatic holds. Start in dry-run and use narrowly
+# scoped, provider-confirmed response rules.
+response_throttle:
+  enabled: false
+  dry_run: true
+  rules:
+    - id: example-rate-limit
+      domains: ["example.net"]
+      smtp_code: 421
+      enhanced_status: "4.7.0"
+      stage: greeting
+      threshold: 5
+      window: 1m
+      pause: 10m
 data_retention_sent: 720h
 data_retention_dlq: 2160h
 data_retention_poison: 4320h

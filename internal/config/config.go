@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	ResponseThrottle                 ResponseThrottleConfig
 	DeliveryRoutes                   []DeliveryRoute
 	DeliveryPause                    DeliveryPauseConfig
 	Quarantine                       QuarantineConfig
@@ -169,6 +170,12 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 	}
 	if err := cfg.validateDNSCache(); err != nil {
 		return Config{}, err
+	}
+	if err := cfg.ResponseThrottle.Validate(); err != nil {
+		return Config{}, err
+	}
+	if cfg.ResponseThrottle.Enabled && !cfg.ResponseThrottle.DryRun && !cfg.DeliveryPause.Enabled {
+		return Config{}, fmt.Errorf("response_throttle enforcement requires delivery_pause.enabled")
 	}
 	if cfg.DKIMProfilesFile != "" && (cfg.DKIMSignDomain != "" || cfg.DKIMSignSelector != "" || cfg.DKIMPrivateKeyFile != "") {
 		return Config{}, fmt.Errorf("dkim_profiles_file cannot be combined with legacy signing settings")

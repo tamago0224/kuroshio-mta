@@ -270,6 +270,38 @@ worker 初期化で起動を停止します。未署名での配送には切り�
 - adaptive throttle の sample / tempfail 集計
 - penalty 状態
 
+### SMTP応答による期限付き自動停止
+
+`response_throttle` は、明示した一時応答だけを時間窓内で数え、閾値到達時に宛先domainを期限付きで停止します。
+既定は無効です。有効化する場合も最初は `dry_run: true` でmatch/triggerメトリクスを確認してください。
+
+```yaml
+response_throttle:
+  enabled: true
+  dry_run: true
+  rules:
+    - id: provider-rate-limit
+      domains: ["example.net"] # `*` は全domain。外部提供者の確認済み応答に限定する
+      smtp_code: 421
+      enhanced_status: "4.7.0" # 省略時はcodeとstageだけで照合
+      stage: greeting
+      threshold: 5
+      window: 1m
+      pause: 10m
+```
+
+rule IDは一意、SMTP codeは一時失敗の400〜499、thresholdは1〜10000、window/pauseは24時間以内です。
+複数ruleは記載順に照合し、最初に一致したruleだけで集計します。
+match数はプロセス内の移動時間窓で保持され、再起動時に空になります。発火後の停止状態は
+`delivery_pause` のlocal/Redis backendへ保存されるため再起動後も維持され、Redis利用時は全nodeから同じ停止を参照します。
+複数nodeで厳密な合計閾値が必要な場合は外部集計を使い、この機能はdry-runのまま運用してください。
+
+自動停止のactorは `auto:response-throttle:<rule-id>`、reasonはrule IDを含みます。既存の手動停止を
+上書きせず、自動解除も行いません。operatorは既存の配送停止APIで一覧・解除できます。
+`dry_run: false` には `delivery_pause.enabled: true` が必要です。
+`worker_response_throttle_match_<rule-id>_total`、`worker_response_throttle_trigger_<rule-id>_total`、
+`worker_response_throttle_error_total` を監視します。この判定はSMTP応答の恒久/一時分類を書き換えません。
+
 実行中の Redis / Valkey エラーは、現在の実装では fail-open で扱います。
 
 ## データ保持と reputation
