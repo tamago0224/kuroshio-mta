@@ -16,6 +16,9 @@ type Message struct {
 	Attempts    int       `json:"attempts"`
 	NextAttempt time.Time `json:"next_attempt"`
 	LastError   string    `json:"last_error"`
+	// Tenant and TrafficClass are trusted queue metadata assigned by authenticated ingress or the system.
+	Tenant       string `json:"tenant,omitempty"`
+	TrafficClass string `json:"traffic_class,omitempty"`
 	// Quarantine is trusted queue metadata, never inferred from message headers.
 	Quarantine *Quarantine `json:"quarantine,omitempty"`
 

@@ -35,6 +35,7 @@ type Dispatcher struct {
 	throttle  domainThrottle
 	rep       *reputation.Tracker
 	responses *responseThrottle
+	fair      *fairQueue
 }
 
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
@@ -55,6 +56,7 @@ func New(cfg config.Config, q queue.Backend, cl *delivery.Client, sup *bounce.Su
 		m:        metrics,
 		throttle: throttle,
 		rep:      rep,
+		fair:     newFairQueue(cfg.QueueFairness),
 	}, nil
 }
 
@@ -76,12 +78,35 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 
 func (d *Dispatcher) processBatch(ctx context.Context) error {
 	d.refreshPauseStats(ctx)
-	msgs, err := d.queue.Due(d.cfg.WorkerCount * 4)
+	limit := d.cfg.WorkerCount * 4
+	var msgs []*model.Message
+	var err error
+	if d.fair != nil {
+		msgs, err = d.fair.due(d.queue, limit)
+	} else {
+		msgs, err = d.queue.Due(limit)
+	}
 	if err != nil {
 		return err
 	}
 	if len(msgs) == 0 {
 		return nil
+	}
+	if d.fair != nil && d.m != nil {
+		classes, tenants, maxTenantDepth, oldest := d.fair.stats(time.Now())
+		d.m.SetGauge("queue_fairness_buffered_messages", int64(d.fair.depth()))
+		d.m.SetGauge("queue_fairness_active_tenants", tenants)
+		d.m.SetGauge("queue_fairness_max_tenant_depth", maxTenantDepth)
+		d.m.SetGauge("queue_fairness_oldest_age_seconds", oldest)
+		for class := range d.cfg.QueueFairness.ClassWeights {
+			d.m.SetGauge("queue_fairness_class_"+class+"_depth", 0)
+		}
+		for class, depth := range classes {
+			d.m.SetGauge("queue_fairness_class_"+class+"_depth", depth)
+		}
+		for _, msg := range msgs {
+			d.metricInc("queue_fairness_selected_class_" + msg.TrafficClass)
+		}
 	}
 
 	sem := make(chan struct{}, d.cfg.WorkerCount)

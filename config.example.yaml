@@ -88,6 +88,14 @@ relay_require_tls: true
 #     lmtp_unix_socket: /run/dovecot/lmtp
 max_message_bytes: 10485760
 worker_count: 4
+queue_fairness:
+  enabled: false
+  prefetch_factor: 8
+  max_tenants: 1024
+  tenant_max_per_batch: 0
+  class_weights: {transactional: 4, bulk: 1, system: 1, default: 1}
+  class_max_per_batch: {}
+  tenant_classes: {}
 max_attempts: 12
 max_retry_age: 120h
 retry_schedule:

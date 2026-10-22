@@ -111,6 +111,37 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `dial_timeout` | `MTA_DIAL_TIMEOUT` | `8s` | 配送先への接続タイムアウトです |
 | `send_timeout` | `MTA_SEND_TIMEOUT` | `20s` | SMTP 送信全体のタイムアウトです |
 
+### traffic class・tenant公平配送
+
+`queue_fairness.enabled: true` は、最大 `worker_count * 4 * prefetch_factor` 件を先読みし、
+class weightとtenant単位のround-robinで各batchを選びます。既定は無効です。
+
+```yaml
+queue_fairness:
+  enabled: true
+  prefetch_factor: 8
+  max_tenants: 1024
+  tenant_max_per_batch: 2 # 0はbatch単位のhard capなし
+  class_weights: {transactional: 4, bulk: 1, system: 1, default: 1}
+  class_max_per_batch: {bulk: 4}
+  tenant_classes: {newsletter@example.test: bulk}
+```
+
+認証済みSubmissionだけが正規化済み認証usernameをtenantとして取得し、既定で`transactional`になります。
+`tenant_classes` は管理者がtrusted tenantをclassへ割り当てます。SMTPヘッダからtenant/classを読み取りません。
+未認証SMTPと属性のない旧JSONは`default`、内部生成するDSN/DMARC集約reportは`system`です。
+未知classは`default`へfallbackし、`max_tenants`到達後の未知tenantも`default`へ集約します。
+
+classは最大16、tenant mappingは`max_tenants`以下、weightは1〜100、prefetch factorは2〜64です。
+weightは相対比率で、`tenant_max_per_batch`と`class_max_per_batch`は1回のscanに対するhard capです。
+低優先classをweight 0で停止する設定は許可しません。Local/Kafkaとも同じmessage JSON属性を使い、retryと
+再起動後も保持します。再起動時のscheduler cursorは初期化されますが、message属性は失われません。
+
+`queue_fairness_buffered_messages`、`queue_fairness_active_tenants`、`queue_fairness_max_tenant_depth`、
+`queue_fairness_oldest_age_seconds`、`queue_fairness_class_<class>_depth`で先読みbufferを監視します。
+`queue_fairness_selected_class_<class>_total`で実際のbatch選択数を確認します。
+tenant名はPII/cardinalityを避けるためmetric labelや名前へ出しません。
+
 Kafka バックエンドを使う場合の設定項目と例は [kafka_queue_mode.md](./kafka_queue_mode.md) にまとめています。
 
 ### 宛先別の名前付き配送ルート

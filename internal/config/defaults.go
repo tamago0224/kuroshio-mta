@@ -4,6 +4,7 @@ import "time"
 
 func defaultConfig() Config {
 	return Config{
+		QueueFairness:                 QueueFairnessConfig{PrefetchFactor: 8, MaxTenants: 1024, ClassWeights: map[string]int{"transactional": 4, "bulk": 1, "system": 1, "default": 1}},
 		ResponseThrottle:              ResponseThrottleConfig{DryRun: true},
 		ListenAddr:                    ":2525",
 		SubmissionAddr:                "",

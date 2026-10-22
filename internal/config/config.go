@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	QueueFairness                    QueueFairnessConfig
 	ResponseThrottle                 ResponseThrottleConfig
 	DeliveryRoutes                   []DeliveryRoute
 	DeliveryPause                    DeliveryPauseConfig
@@ -172,6 +173,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.ResponseThrottle.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.QueueFairness.Validate(); err != nil {
 		return Config{}, err
 	}
 	if cfg.ResponseThrottle.Enabled && !cfg.ResponseThrottle.DryRun && !cfg.DeliveryPause.Enabled {

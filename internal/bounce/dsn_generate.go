@@ -80,14 +80,16 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 	}, "\r\n")
 
 	return &model.Message{
-		ID:          fmt.Sprintf("dsn-%d", now.UTC().UnixNano()),
-		CreatedAt:   now.UTC(),
-		UpdatedAt:   now.UTC(),
-		MailFrom:    "",
-		RcptTo:      []string{mailFrom},
-		Data:        []byte(data),
-		Attempts:    0,
-		NextAttempt: now.UTC(),
+		ID:           fmt.Sprintf("dsn-%d", now.UTC().UnixNano()),
+		CreatedAt:    now.UTC(),
+		UpdatedAt:    now.UTC(),
+		MailFrom:     "",
+		RcptTo:       []string{mailFrom},
+		Data:         []byte(data),
+		Attempts:     0,
+		NextAttempt:  now.UTC(),
+		Tenant:       "system",
+		TrafficClass: "system",
 	}, nil
 }
 
