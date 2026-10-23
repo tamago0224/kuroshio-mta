@@ -5,6 +5,7 @@
 - `MTA_SUBMISSION_USERS` は平文環境変数の代わりに `MTA_SUBMISSION_USERS_FILE` を利用可能
 - `_FILE` 方式では、指定ファイルの内容を読み込んでシークレット値として利用
 - ログ出力ではメールアドレス等のPII（Personally Identifiable Information）をマスキング
+- 配送イベント Webhook の HMAC secret は `event_webhook.secret_file` から起動時に読み込み、設定値・ログ・eventへ含めない
 
 ## CI Vulnerability Scanning
 

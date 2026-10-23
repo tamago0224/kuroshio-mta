@@ -57,6 +57,9 @@ func NewBackend(cfg config.Config) (Backend, error) {
 // LocalStore returns the local administration surface through tracing wrappers.
 // Kafka has no local state administration and returns nil.
 func LocalStore(b Backend) *Store {
+	if events, ok := b.(*eventBackend); ok {
+		return LocalStore(events.next)
+	}
 	if observed, ok := b.(*observedBackend); ok {
 		return LocalStore(observed.next)
 	}

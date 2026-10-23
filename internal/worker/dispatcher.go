@@ -12,6 +12,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
+	"github.com/tamago0224/kuroshio-mta/internal/eventwebhook"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -36,7 +37,10 @@ type Dispatcher struct {
 	rep       *reputation.Tracker
 	responses *responseThrottle
 	fair      *fairQueue
+	events    *eventwebhook.Outbox
 }
+
+func (d *Dispatcher) SetEventOutbox(outbox *eventwebhook.Outbox) { d.events = outbox }
 
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
 
@@ -165,6 +169,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 			var unknown *delivery.DeliveryStatusUnknownError
 			if errors.As(err, &unknown) {
+				d.publishEvent(msg, rcpt, "delivery_unknown", "transport")
 				reasons = append(reasons, rcpt+": "+err.Error())
 				errs = append(errs, err)
 				failedRecipients[rcpt] = err.Error()
@@ -201,6 +206,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				"stage", classification.Stage, "enhanced_status", classification.EnhancedStatus,
 				"suppression_eligible", classification.Suppress)
 			if errors.As(err, &smtpErr) && smtpErr.Permanent() {
+				d.publishEvent(msg, rcpt, "permanent_failure", string(classification.Category))
 				if d.rep != nil {
 					d.rep.ObserveDelivery(domain, false, true)
 				}
@@ -224,6 +230,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				return
 			}
 			d.metricInc("worker_temporary_failure")
+			d.publishEvent(msg, rcpt, "temporary_failure", string(classification.Category))
 			if d.rep != nil {
 				d.rep.ObserveDelivery(domain, true, false)
 			}
@@ -253,6 +260,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			))
 		}
 		d.metricInc("worker_delivery_success")
+		d.publishEvent(msg, rcpt, "delivered", "")
 	}
 	for _, rcpt := range msg.RcptTo {
 		if ctx.Err() != nil && (d.cfg.MXShaping.Enabled || d.pauses != nil) {
@@ -347,6 +355,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 			if d.rep != nil {
 				if ok, reason := d.rep.Admit(domain, time.Now().UTC()); !ok {
+					d.publishEvent(msg, rcpt, "temporary_failure", "policy")
 					reasons = append(reasons, rcpt+": reputation "+reason)
 					d.metricInc("worker_reputation_block")
 					switch reason {
@@ -364,6 +373,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 			}
 			if d.sup != nil && d.sup.IsSuppressed(rcpt) {
+				d.publishEvent(msg, rcpt, "permanent_failure", "invalid_recipient")
 				reasons = append(reasons, rcpt+": suppressed")
 				d.metricInc("worker_suppressed_recipient")
 				return
@@ -463,6 +473,20 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		slog.ErrorContext(ctx, "retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
+}
+
+func (d *Dispatcher) publishEvent(msg *model.Message, rcpt, result, category string) {
+	if d.events == nil {
+		return
+	}
+	event, err := eventwebhook.NewEvent(msg, rcpt, result, category, time.Now())
+	if err == nil {
+		err = d.events.Enqueue(event)
+	}
+	if err != nil {
+		d.metricInc("event_webhook_dropped")
+		slog.Error("delivery event persistence failed; mail processing continues", "component", "event_webhook", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "result", result, "error", err)
+	}
 }
 
 func (d *Dispatcher) emitHardBounceDSN(ctx context.Context, msg *model.Message, rcpt, diagnostic string) {
