@@ -23,12 +23,13 @@ type yamlConfig struct {
 	ProxyProtocol     *ProxyProtocolConfig    `yaml:"proxy_protocol"`
 	InboundPolicy     *InboundPolicyConfig    `yaml:"inbound_policy"`
 
-	PolicyHook               *PolicyHookConfig `yaml:"policy_hook"`
-	MXShaping                *MXShapingConfig  `yaml:"mx_shaping"`
-	QueueMaxMessages         *int64            `yaml:"queue_max_messages"`
-	QueueMaxBytes            *int64            `yaml:"queue_max_bytes"`
-	QueueLowWatermarkPercent *int64            `yaml:"queue_low_watermark_percent"`
-	QueueMinFreeBytes        *int64            `yaml:"queue_min_free_bytes"`
+	PolicyHook               *PolicyHookConfig         `yaml:"policy_hook"`
+	MXShaping                *MXShapingConfig          `yaml:"mx_shaping"`
+	SMTPConnectionPool       *SMTPConnectionPoolConfig `yaml:"smtp_connection_pool"`
+	QueueMaxMessages         *int64                    `yaml:"queue_max_messages"`
+	QueueMaxBytes            *int64                    `yaml:"queue_max_bytes"`
+	QueueLowWatermarkPercent *int64                    `yaml:"queue_low_watermark_percent"`
+	QueueMinFreeBytes        *int64                    `yaml:"queue_min_free_bytes"`
 
 	ListenAddr                       *string `yaml:"listen_addr"`
 	SubmissionAddr                   *string `yaml:"submission_addr"`
@@ -169,6 +170,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 
 	cfg := base
+	if raw.SMTPConnectionPool != nil {
+		cfg.SMTPConnectionPool = *raw.SMTPConnectionPool
+	}
 	if raw.DeliveryRoutes != nil {
 		cfg.DeliveryRoutes = append([]DeliveryRoute(nil), raw.DeliveryRoutes...)
 	}
