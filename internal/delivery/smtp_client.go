@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/textproto"
@@ -67,6 +68,7 @@ type Client struct {
 	metrics                        *observability.Metrics
 	routes                         []deliveryRoute
 	egress                         *egressManager
+	smtpPool                       *smtpConnectionPool
 }
 
 func NewClient(cfg config.Config) *Client {
@@ -125,6 +127,7 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 		}
 	}
 	c.shaper, c.shapingErr = shaping.New(cfg, metrics)
+	c.smtpPool = newSMTPConnectionPool(cfg.SMTPConnectionPool, metrics)
 	c.deliverHostFn = c.deliverHost
 	c.deliverLMTPFn = c.deliverLMTP
 	c.tlsConfigFn = func(host string) *tls.Config {
@@ -142,7 +145,7 @@ func NewClientWithContext(ctx context.Context, cfg config.Config, metrics *obser
 }
 
 func (c *Client) InitError() error { return errors.Join(c.shapingErr, c.signingErr, c.routingErr) }
-func (c *Client) Close() error     { return c.shaper.Close() }
+func (c *Client) Close() error     { return errors.Join(c.smtpPool.Close(), c.shaper.Close()) }
 
 type shapingContextKey struct{}
 type shapingAttempt struct {
@@ -557,59 +560,97 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		attempt.messageReserved = true
 		defer release()
 	}
-	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
-	ehlo := c.cfg.Hostname
-	selection, hasSource := ctx.Value(egressContextKey{}).(egressSelection)
-	if hasSource {
-		ip := net.ParseIP(selection.ip)
-		dialer.LocalAddr = &net.TCPAddr{IP: ip}
-		ehlo = selection.ehlo
-		span.SetAttributes(attribute.String("delivery.egress_source", selection.name))
+	selection, _ := ctx.Value(egressContextKey{}).(egressSelection)
+	auth, _ := ctx.Value(relayAuthContextKey{}).(relayAuth)
+	key := smtpPoolKey{host: strings.ToLower(strings.TrimSuffix(host, ".")), port: port, sourceIP: selection.ip, ehlo: selection.ehlo, authIdentity: auth.username, tlsPolicy: fmt.Sprintf("require=%t,dane=%v", requireTLS, daneRes)}
+	if key.ehlo == "" {
+		key.ehlo = c.cfg.Hostname
 	}
-	addresses := []string{host}
-	if c.resolveHostFn != nil && net.ParseIP(host) == nil {
+
+	dial := func() (*smtpSession, error) { return c.openSMTPSession(ctx, key, auth, requireTLS, daneRes, span) }
+	var session *smtpSession
+	if c.smtpPool != nil {
+		session, err = c.smtpPool.get(ctx, key, dial)
+	} else {
+		session, err = dial()
+	}
+	if err != nil {
+		return err
+	}
+	reusable := false
+	defer func() {
+		if c.smtpPool != nil {
+			c.smtpPool.put(session, reusable)
+		} else {
+			_ = writeLine(session.w, "QUIT")
+			_, _, _ = readCode(session.r)
+			_ = session.conn.Close()
+		}
+	}()
+	_ = session.conn.SetDeadline(time.Now().Add(c.cfg.SendTimeout))
+	reusable, err = c.deliverTransaction(ctx, session, msg, rcpt)
+	return err
+}
+
+func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth relayAuth, requireTLS bool, daneRes *DANEResult, span trace.Span) (*smtpSession, error) {
+	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
+	ehlo := key.ehlo
+	if key.sourceIP != "" {
+		ip := net.ParseIP(key.sourceIP)
+		dialer.LocalAddr = &net.TCPAddr{IP: ip}
+		span.SetAttributes(attribute.String("delivery.egress_source", key.sourceIP))
+	}
+	addresses := []string{key.host}
+	if c.resolveHostFn != nil && net.ParseIP(key.host) == nil {
 		lookupCtx, cancel := context.WithTimeout(ctx, c.cfg.DialTimeout)
-		addresses, err = c.resolveHostFn(lookupCtx, host)
+		var err error
+		addresses, err = c.resolveHostFn(lookupCtx, key.host)
 		cancel()
 		if err != nil || len(addresses) == 0 {
 			if err == nil {
 				err = errors.New("address lookup returned no results")
 			}
-			return atStage(StageDNS, err)
+			return nil, atStage(StageDNS, err)
 		}
 	}
 	var conn net.Conn
+	var err error
 	for _, address := range addresses {
 		destinationIP := net.ParseIP(address)
-		if hasSource && destinationIP != nil && (net.ParseIP(selection.ip).To4() == nil) != (destinationIP.To4() == nil) {
+		if key.sourceIP != "" && destinationIP != nil && (net.ParseIP(key.sourceIP).To4() == nil) != (destinationIP.To4() == nil) {
 			continue
 		}
-		conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", port)))
+		conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, fmt.Sprintf("%d", key.port)))
 		if err == nil {
 			break
 		}
 	}
-	if conn == nil && err == nil && hasSource {
+	if conn == nil && err == nil && key.sourceIP != "" {
 		err = errors.New("egress source and destination address families do not match")
 	}
 	if err != nil {
-		return atStage(StageConnect, err)
+		return nil, atStage(StageConnect, err)
 	}
-	defer conn.Close()
+	failed := true
+	defer func() {
+		if failed {
+			_ = conn.Close()
+		}
+	}()
 	_ = conn.SetDeadline(time.Now().Add(c.cfg.SendTimeout))
 
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 	if err := expectCode(r, 220); err != nil {
-		return atStage(StageGreeting, err)
+		return nil, atStage(StageGreeting, err)
 	}
 
 	if err := writeLine(w, "EHLO "+ehlo); err != nil {
-		return atStage(StageEHLO, err)
+		return nil, atStage(StageEHLO, err)
 	}
 	ehloLines, err := readLines(r)
 	if err != nil {
-		return atStage(StageEHLO, err)
+		return nil, atStage(StageEHLO, err)
 	}
 	startTLS, tlsActive := false, false
 	for _, l := range ehloLines {
@@ -621,27 +662,28 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 
 	if startTLS {
 		if err := writeLine(w, "STARTTLS"); err != nil {
-			return atStage(StageTLS, err)
+			return nil, atStage(StageTLS, err)
 		}
 		code, line, err := readCode(r)
 		if err != nil {
-			return atStage(StageTLS, err)
+			return nil, atStage(StageTLS, err)
 		}
 		if code != 220 && requireTLS {
-			return atStage(StageTLS, &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)})
+			return nil, atStage(StageTLS, &SMTPResponseError{Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)})
 		}
 		if code == 220 {
-			tlsConn := tls.Client(conn, c.tlsConfigFn(host))
+			c.metricInc("smtp_pool_tls_handshakes")
+			tlsConn := tls.Client(conn, c.tlsConfigFn(key.host))
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				if requireTLS {
-					return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "starttls handshake failed"}
+					return nil, &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "starttls handshake failed"}
 				}
-				return atStage(StageTLS, err)
+				return nil, atStage(StageTLS, err)
 			}
 			if daneRes != nil {
 				state := tlsConn.ConnectionState()
-				if err := verifyPeerCertificatesWithTLSA(host, state.PeerCertificates, daneRes.Records); err != nil {
-					return &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "dane authentication failed"}
+				if err := verifyPeerCertificatesWithTLSA(key.host, state.PeerCertificates, daneRes.Records); err != nil {
+					return nil, &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "dane authentication failed"}
 				}
 			}
 			conn = tlsConn
@@ -649,78 +691,99 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
 			if err := writeLine(w, "EHLO "+ehlo); err != nil {
-				return atStage(StageEHLO, err)
+				return nil, atStage(StageEHLO, err)
 			}
 			ehloLines, err = readLines(r)
 			if err != nil {
-				return atStage(StageEHLO, err)
+				return nil, atStage(StageEHLO, err)
 			}
 		}
 	} else if requireTLS {
-		return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts enforce requires starttls"}
+		return nil, &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts enforce requires starttls"}
 	}
 
-	if auth, ok := ctx.Value(relayAuthContextKey{}).(relayAuth); ok {
+	if auth.username != "" {
 		if !tlsActive {
-			return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "relay authentication requires verified TLS"}
+			return nil, &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "relay authentication requires verified TLS"}
 		}
 		if !supportsAuthPlain(ehloLines) {
-			return &SMTPResponseError{Stage: StageAUTH, Code: 504, Line: "relay does not advertise AUTH PLAIN"}
+			return nil, &SMTPResponseError{Stage: StageAUTH, Code: 504, Line: "relay does not advertise AUTH PLAIN"}
 		}
 		payload := base64.StdEncoding.EncodeToString([]byte("\x00" + auth.username + "\x00" + auth.password))
 		if err := writeLine(w, "AUTH PLAIN "+payload); err != nil {
-			return atStage(StageAUTH, err)
+			return nil, atStage(StageAUTH, err)
 		}
 		code, line, err := readCode(r)
 		if err != nil {
-			return atStage(StageAUTH, err)
+			return nil, atStage(StageAUTH, err)
 		}
 		if code != 235 {
-			return &SMTPResponseError{Stage: StageAUTH, Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
+			return nil, &SMTPResponseError{Stage: StageAUTH, Code: code, Line: line, EnhancedStatus: responseEnhancedStatus(code, line)}
 		}
 	}
+	failed = false
+	return &smtpSession{conn: conn, r: r, w: w, createdAt: time.Now()}, nil
+}
 
+func (c *Client) deliverTransaction(ctx context.Context, session *smtpSession, msg *model.Message, rcpt string) (bool, error) {
+	r, w := session.r, session.w
 	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
-		return atStage(StageMAIL, err)
+		return false, atStage(StageMAIL, err)
 	}
 	if err := expect2xx(r); err != nil {
-		return fmt.Errorf("mail from rejected: %w", atStage(StageMAIL, err))
+		return c.reusableAfterReject(session, err), fmt.Errorf("mail from rejected: %w", atStage(StageMAIL, err))
 	}
 
 	if err := writeLine(w, fmt.Sprintf("RCPT TO:<%s>", rcpt)); err != nil {
-		return atStage(StageRCPT, err)
+		return false, atStage(StageRCPT, err)
 	}
 	if err := expect2xx3xx(r); err != nil {
-		return fmt.Errorf("rcpt rejected: %w", atStage(StageRCPT, err))
+		return c.reusableAfterReject(session, err), fmt.Errorf("rcpt rejected: %w", atStage(StageRCPT, err))
 	}
 
 	if err := writeLine(w, "DATA"); err != nil {
-		return atStage(StageDATA, err)
+		return false, atStage(StageDATA, err)
 	}
 	if err := expectCode(r, 354); err != nil {
-		return fmt.Errorf("data not accepted: %w", atStage(StageDATA, err))
+		return c.reusableAfterReject(session, err), fmt.Errorf("data not accepted: %w", atStage(StageDATA, err))
 	}
 
 	payload, err := c.prepareOutboundMessage(ctx, msg)
 	if err != nil {
-		return err
+		return c.resetSession(session), err
 	}
 	data := dotStuff(payload)
 	if _, err := w.Write(data); err != nil {
-		return atStage(StageDATA, err)
+		return false, atStage(StageDATA, err)
 	}
 	if _, err := w.WriteString("\r\n.\r\n"); err != nil {
-		return atStage(StageDATA, err)
+		return false, atStage(StageDATA, err)
 	}
 	if err := w.Flush(); err != nil {
-		return atStage(StageDATA, err)
+		return false, atStage(StageDATA, err)
 	}
 	if err := expect2xx(r); err != nil {
-		return fmt.Errorf("final delivery reject: %w", atStage(StageDATA, err))
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(net.Error)) {
+			return false, &DeliveryStatusUnknownError{Err: atStage(StageDATA, err)}
+		}
+		return false, fmt.Errorf("final delivery reject: %w", atStage(StageDATA, err))
 	}
-	_ = writeLine(w, "QUIT")
-	_, _, _ = readCode(r)
-	return nil
+	return true, nil
+}
+
+func (c *Client) resetSession(session *smtpSession) bool {
+	if err := writeLine(session.w, "RSET"); err != nil {
+		return false
+	}
+	return expect2xx(session.r) == nil
+}
+
+func (c *Client) reusableAfterReject(session *smtpSession, err error) bool {
+	var response *SMTPResponseError
+	if errors.As(err, &response) && response.Code == 421 {
+		return false
+	}
+	return c.resetSession(session)
 }
 
 func supportsAuthPlain(lines []string) bool {

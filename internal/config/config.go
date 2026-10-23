@@ -21,6 +21,7 @@ type Config struct {
 	InboundPolicy                    InboundPolicyConfig
 	PolicyHook                       PolicyHookConfig
 	MXShaping                        MXShapingConfig
+	SMTPConnectionPool               SMTPConnectionPoolConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
 	SubmissionTLSAddr                string
@@ -209,6 +210,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.validateEgress(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.SMTPConnectionPool.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

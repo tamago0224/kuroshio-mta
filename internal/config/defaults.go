@@ -72,6 +72,7 @@ func defaultConfig() Config {
 		ScanInterval:                  5 * time.Second,
 		DialTimeout:                   8 * time.Second,
 		SendTimeout:                   20 * time.Second,
+		SMTPConnectionPool:            defaultSMTPConnectionPoolConfig(),
 		DKIMSignDomain:                "",
 		DKIMSignSelector:              "",
 		DKIMPrivateKeyFile:            "",

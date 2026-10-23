@@ -43,6 +43,7 @@ func TestShouldFailBySMTPClassAndPolicy(t *testing.T) {
 		&delivery.SMTPResponseError{Code: 421, Line: "421 service not available"},
 	}
 	unknown := []error{errors.New("dial timeout")}
+	unknownAfterData := []error{&delivery.DeliveryStatusUnknownError{Err: errors.New("EOF")}}
 
 	if !shouldFail(msg, permanent, cfg, time.Now()) {
 		t.Fatal("permanent-only SMTP errors should fail")
@@ -55,6 +56,9 @@ func TestShouldFailBySMTPClassAndPolicy(t *testing.T) {
 	}
 	if shouldFail(msg, unknown, cfg, time.Now()) {
 		t.Fatal("unknown/network errors should retry")
+	}
+	if !shouldFail(msg, unknownAfterData, cfg, time.Now()) {
+		t.Fatal("unknown delivery status after DATA should not retry automatically")
 	}
 }
 

@@ -163,6 +163,16 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				d.metricInc("worker_shaping_deferred")
 				return
 			}
+			var unknown *delivery.DeliveryStatusUnknownError
+			if errors.As(err, &unknown) {
+				reasons = append(reasons, rcpt+": "+err.Error())
+				errs = append(errs, err)
+				failedRecipients[rcpt] = err.Error()
+				remaining = append(remaining, rcpt)
+				d.metricInc("worker_delivery_status_unknown")
+				slog.ErrorContext(ctx, "delivery status unknown; automatic retry suppressed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+				return
+			}
 			reasons = append(reasons, rcpt+": "+err.Error())
 			var smtpErr *delivery.SMTPResponseError
 			smtpCode := 0
@@ -513,6 +523,10 @@ func shouldFail(msg *model.Message, errs []error, cfg config.Config, now time.Ti
 	hasTemporary := false
 	hasPermanent := false
 	for _, err := range errs {
+		var unknown *delivery.DeliveryStatusUnknownError
+		if errors.As(err, &unknown) {
+			return true
+		}
 		var smtpErr *delivery.SMTPResponseError
 		if errors.As(err, &smtpErr) {
 			if smtpErr.Temporary() {

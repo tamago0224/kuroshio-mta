@@ -114,6 +114,25 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `dial_timeout` | `MTA_DIAL_TIMEOUT` | `8s` | 配送先への接続タイムアウトです |
 | `send_timeout` | `MTA_SEND_TIMEOUT` | `20s` | SMTP 送信全体のタイムアウトです |
 
+### SMTP 接続プール
+
+`smtp_connection_pool` は送信側 SMTP 接続の再利用を制御する YAML 専用設定です。既定では無効で、無効時は従来どおり配送ごとに接続して QUIT します。
+
+| property | default | 説明 |
+| --- | --- | --- |
+| `enabled` | `false` | 接続再利用を有効化 |
+| `max_connections` | `64` | pool 全体の接続上限（使用中と idle の合計） |
+| `max_connections_per_key` | `4` | 接続キーごとの上限 |
+| `max_idle` | `32` | pool 全体で保持する idle 接続上限。0 は保持しない |
+| `max_idle_per_key` | `2` | 接続キーごとの idle 上限。0 は保持しない |
+| `idle_timeout` | `30s` | 再利用可能な idle 時間（最大1時間） |
+| `max_lifetime` | `5m` | 接続の最大寿命（最大24時間） |
+| `max_deliveries` | `100` | 1接続で完了できる配送数 |
+
+接続キーには接続先 host/port、送信元 IP、EHLO 名、relay 認証 identity、TLS 必須条件と DANE TLSA 条件が含まれます。異なるキー間では接続を共有しません。接続は1配送が排他的に借用し、421、EOF、通信エラー、RSET 失敗、期限・回数超過では破棄します。DATA を送信し終えた後に最終応答を読めない場合は、重複配送の可能性を表す `SMTP delivery status unknown after DATA` として DLQ に移し、自動再送を抑止します。
+
+監視には `smtp_pool_dialed_total`、`smtp_pool_reused_total`、`smtp_pool_closed_total`、`smtp_pool_tls_handshakes_total` と `smtp_pool_open_connections` / `smtp_pool_idle_connections` を使います。再利用率は `reused / (dialed + reused)` で計算できます。設定判断と計測方法は [SMTP connection pool](./architecture/smtp_connection_pool.md) を参照してください。
+
 ### traffic class・tenant公平配送
 
 `queue_fairness.enabled: true` は、最大 `worker_count * 4 * prefetch_factor` 件を先読みし、
