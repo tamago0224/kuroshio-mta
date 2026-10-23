@@ -26,6 +26,7 @@ type yamlConfig struct {
 	PolicyHook               *PolicyHookConfig         `yaml:"policy_hook"`
 	MXShaping                *MXShapingConfig          `yaml:"mx_shaping"`
 	SMTPConnectionPool       *SMTPConnectionPoolConfig `yaml:"smtp_connection_pool"`
+	EventWebhook             *EventWebhookConfig       `yaml:"event_webhook"`
 	QueueMaxMessages         *int64                    `yaml:"queue_max_messages"`
 	QueueMaxBytes            *int64                    `yaml:"queue_max_bytes"`
 	QueueLowWatermarkPercent *int64                    `yaml:"queue_low_watermark_percent"`
@@ -172,6 +173,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	cfg := base
 	if raw.SMTPConnectionPool != nil {
 		cfg.SMTPConnectionPool = *raw.SMTPConnectionPool
+	}
+	if raw.EventWebhook != nil {
+		cfg.EventWebhook = *raw.EventWebhook
 	}
 	if raw.DeliveryRoutes != nil {
 		cfg.DeliveryRoutes = append([]DeliveryRoute(nil), raw.DeliveryRoutes...)

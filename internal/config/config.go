@@ -22,6 +22,7 @@ type Config struct {
 	PolicyHook                       PolicyHookConfig
 	MXShaping                        MXShapingConfig
 	SMTPConnectionPool               SMTPConnectionPoolConfig
+	EventWebhook                     EventWebhookConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
 	SubmissionTLSAddr                string
@@ -213,6 +214,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.SMTPConnectionPool.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.EventWebhook.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

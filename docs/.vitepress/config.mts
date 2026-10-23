@@ -67,6 +67,7 @@ export default defineConfig({
           { text: "SMTP AUTH Modern Auth", link: "/architecture/smtp_auth_modern_auth" },
           { text: "Domain Throttle Externalization", link: "/architecture/domain_throttle_externalization" },
           { text: "SMTP Connection Pool", link: "/architecture/smtp_connection_pool" },
+          { text: "Delivery Event Webhooks", link: "/architecture/delivery_event_webhooks" },
           { text: "HA Reference", link: "/architecture/ha_reference" },
           { text: "Spec", link: "/spec" }
         ]

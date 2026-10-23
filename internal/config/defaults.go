@@ -73,6 +73,7 @@ func defaultConfig() Config {
 		DialTimeout:                   8 * time.Second,
 		SendTimeout:                   20 * time.Second,
 		SMTPConnectionPool:            defaultSMTPConnectionPoolConfig(),
+		EventWebhook:                  defaultEventWebhookConfig(),
 		DKIMSignDomain:                "",
 		DKIMSignSelector:              "",
 		DKIMPrivateKeyFile:            "",

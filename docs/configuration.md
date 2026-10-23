@@ -133,6 +133,25 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 監視には `smtp_pool_dialed_total`、`smtp_pool_reused_total`、`smtp_pool_closed_total`、`smtp_pool_tls_handshakes_total` と `smtp_pool_open_connections` / `smtp_pool_idle_connections` を使います。再利用率は `reused / (dialed + reused)` で計算できます。設定判断と計測方法は [SMTP connection pool](./architecture/smtp_connection_pool.md) を参照してください。
 
+### 配送イベント Webhook
+
+`event_webhook` は受理・配送結果を永続 outbox から単一 endpoint へ通知する YAML 専用設定です。既定では無効です。
+
+| property | default | 説明 |
+| --- | --- | --- |
+| `enabled` | `false` | 永続イベント通知を有効化 |
+| `url` | unset | HTTPS endpoint。userinfo、query、fragment、redirect は許可しない |
+| `secret_file` | unset | HMAC-SHA256 用の32〜4096 byteの単一行 secret |
+| `allow_http_loopback` | `false` | テスト時のみ literal loopback IP への HTTP を許可 |
+| `timeout` | `10s` | 1回の HTTP request 上限（最大30秒） |
+| `scan_interval` | `1s` | outbox scan 間隔（最大1分） |
+| `max_pending` | `100000` | pending event 上限（最大100万） |
+| `max_attempts` | `12` | DLQ 移動までの試行上限（最大100） |
+| `max_retry_delay` | `1h` | exponential backoff 上限（最大24時間） |
+| `retention` | `168h` | pending / DLQ 保持期限（最大365日） |
+
+署名、schema、HTTP status ごとの再送判断、クラッシュ境界、PII、secret rotation、監視方法は [Delivery Event Webhooks](./architecture/delivery_event_webhooks.md) を参照してください。
+
 ### traffic class・tenant公平配送
 
 `queue_fairness.enabled: true` は、最大 `worker_count * 4 * prefetch_factor` 件を先読みし、

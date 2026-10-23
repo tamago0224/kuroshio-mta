@@ -138,6 +138,20 @@ smtp_connection_pool:
   idle_timeout: 30s
   max_lifetime: 5m
   max_deliveries: 100
+
+# Optional persistent at-least-once delivery event webhook. The secret file
+# contains one 32..4096 byte line and is never included in events or logs.
+event_webhook:
+  enabled: false
+  url: https://events.example.com/v1/delivery
+  secret_file: /run/secrets/kuroshio-event-webhook
+  allow_http_loopback: false
+  timeout: 10s
+  scan_interval: 1s
+  max_pending: 100000
+  max_attempts: 12
+  max_retry_delay: 1h
+  retention: 168h
 # Multi-domain profiles are an alternative to the following three legacy settings.
 # dkim_profiles_file: /etc/kuroshio/signing-profiles.json
 dkim_sign_domain: example.com

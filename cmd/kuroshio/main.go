@@ -19,6 +19,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
+	"github.com/tamago0224/kuroshio-mta/internal/eventwebhook"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -93,6 +94,20 @@ func main() {
 	}
 	metrics := observability.NewMetrics()
 	queue.SetMetrics(q, metrics)
+	var eventDispatcher *eventwebhook.Dispatcher
+	var eventOutbox *eventwebhook.Outbox
+	if cfg.EventWebhook.Enabled {
+		eventOutbox, err = eventwebhook.Open(filepath.Join(cfg.QueueDir, "events"), cfg.EventWebhook.MaxPending, metrics)
+		if err != nil {
+			fatal("event webhook outbox init failed", "error", err)
+		}
+		eventDispatcher, err = eventwebhook.NewDispatcher(cfg.EventWebhook, eventOutbox, metrics)
+		if err != nil {
+			fatal("event webhook dispatcher init failed", "error", err)
+		}
+		defer eventDispatcher.Close()
+		q = queue.WithAcceptedEvents(q, eventOutbox, metrics)
+	}
 	rep, err := reputation.NewPersistent(reputation.Config{
 		StartDate:          reputation.ParseStartDate(cfg.ReputationStartDate),
 		WarmupRules:        reputation.ParseWarmupRules(cfg.ReputationWarmupRules),
@@ -126,6 +141,7 @@ func main() {
 		fatal("worker init failed", "error", err)
 	}
 	d.SetDeliveryPauses(pauses)
+	d.SetEventOutbox(eventOutbox)
 	s := smtp.NewServer(cfg, q, metrics)
 	s.SetDMARCReportStore(dmarcReports)
 	var submissionServers []*smtp.Server
@@ -178,12 +194,18 @@ func main() {
 		workers++
 	}
 	workers++
+	if eventDispatcher != nil {
+		workers++
+	}
 	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
 	for _, submissionServer := range submissionServers {
 		go func() { errCh <- submissionServer.Run(ctx) }()
 	}
 	go func() { errCh <- d.Run(ctx) }()
+	if eventDispatcher != nil {
+		go func() { errCh <- eventDispatcher.Run(ctx) }()
+	}
 	go func() { errCh <- runDMARCReports(ctx, dmarcReports, q, cfg.Hostname, metrics) }()
 	go func() { errCh <- rep.RunPersistence(ctx, 5*time.Second) }()
 	go func() { errCh <- observability.RunServerWithReputation(ctx, cfg.ObservabilityAddr, metrics, rep) }()
