@@ -101,7 +101,8 @@ export default defineConfig({
         items: [
           { text: "RFC 1870: SMTP SIZE", link: "/rfc_1870_gap" },
           { text: "RFC 3207: SMTP STARTTLS", link: "/rfc_3207_gap" },
-          { text: "RFC 3464: DSN", link: "/rfc_3464_gap" },
+          { text: "RFC 3461 / RFC 3464: DSN", link: "/rfc_3464_gap" },
+          { text: "RFC 8689: REQUIRETLS", link: "/rfc_8689_gap" },
           { text: "RFC 4954: SMTP AUTH", link: "/rfc_4954_gap" },
           { text: "RFC 6152: 8BITMIME", link: "/rfc_6152_gap" },
           { text: "RFC 6376: DKIM", link: "/rfc_6376_gap" },

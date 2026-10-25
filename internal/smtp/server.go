@@ -383,7 +383,7 @@ func (s *Server) handleConnWithContext(ctx context.Context, conn net.Conn) {
 			}
 			ss.acceptGreeting(true)
 			methods := s.authMechanisms(ss.tls)
-			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, len(methods) > 0, methods...)
+			writeEHLOResponse(w, s.cfg.Hostname, s.cfg.MaxMessageBytes, s.tlsConfig != nil && !ss.tls, len(methods) > 0, s.requireTLSAvailable(), methods...)
 		case "HELO":
 			if arg == "" {
 				writeResp(w, 501, "HELO requires domain")
@@ -589,12 +589,15 @@ func ipString(ip net.IP) string {
 	return ip.String()
 }
 
-func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool, mechanisms ...string) {
+func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, advertiseStartTLS bool, advertiseAuth bool, advertiseRequireTLS bool, mechanisms ...string) {
 	_ = writeLine(w, "250-"+hostname)
 	_ = writeLine(w, "250-PIPELINING")
 	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
 	_ = writeLine(w, "250-8BITMIME")
 	_ = writeLine(w, "250-DSN")
+	if advertiseRequireTLS {
+		_ = writeLine(w, "250-REQUIRETLS")
+	}
 	if advertiseAuth {
 		if len(mechanisms) == 0 {
 			mechanisms = []string{"PLAIN", "LOGIN"}

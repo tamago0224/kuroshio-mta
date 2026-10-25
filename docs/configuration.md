@@ -39,6 +39,8 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 ## SMTP 受信と Submission
 
+認証必須 Submission と SMTP 配送だけで構成された環境では RFC 8689 `REQUIRETLS` を広告します。受理した要求はキューと再送で保持され、STARTTLS と REQUIRETLS の両方を提供する next hop にだけ配送します。詳細と対象外経路は [RFC 8689 Gap Note](./rfc_8689_gap.md) を参照してください。
+
 | YAML property | 環境変数 | default | 説明 |
 | --- | --- | --- | --- |
 | `listen_addr` | `MTA_LISTEN_ADDR` | `:2525` | SMTP 受信サーバーの待受アドレスです |

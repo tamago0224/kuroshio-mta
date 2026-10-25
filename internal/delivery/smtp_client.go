@@ -219,6 +219,10 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	case "mx":
 		err = c.deliverByMX(ctx, msg, rcpt)
 	case "local_spool":
+		if msg.RequireTLS {
+			err = &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "5.7.30 REQUIRETLS is not supported by local spool delivery"}
+			break
+		}
 		if c.spoolStoreErr != nil {
 			err = c.spoolStoreErr
 			break
@@ -249,6 +253,10 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 		}
 		err = c.deliverHostFn(ctx, host, port, msg, rcpt, requireTLS, nil)
 	case "lmtp":
+		if msg.RequireTLS {
+			err = &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "5.7.30 REQUIRETLS is not supported by LMTP delivery"}
+			break
+		}
 		if !routed {
 			err = errors.New("LMTP requires a named delivery route")
 			break
@@ -277,6 +285,13 @@ func (c *Client) BatchKey(rcpt string) (string, bool) {
 func (c *Client) DeliverBatch(ctx context.Context, msg *model.Message, recipients []string) map[string]error {
 	results := make(map[string]error, len(recipients))
 	if len(recipients) == 0 {
+		return results
+	}
+	if msg.RequireTLS {
+		err := &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "5.7.30 REQUIRETLS is not supported by LMTP delivery"}
+		for _, rcpt := range recipients {
+			results[rcpt] = err
+		}
 		return results
 	}
 	if err := c.InitError(); err != nil {
@@ -570,6 +585,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	if port <= 0 {
 		port = 25
 	}
+	requireTLS = requireTLS || msg.RequireTLS
 	if c.shaper != nil {
 		attempt, ok := ctx.Value(shapingContextKey{}).(*shapingAttempt)
 		if !ok {
@@ -767,17 +783,25 @@ func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth rela
 	}
 	failed = false
 	return &smtpSession{
-		conn:      conn,
-		r:         r,
-		w:         w,
-		createdAt: time.Now(),
-		dsn:       supportsExtension(ehloLines, "DSN"),
+		conn:       conn,
+		r:          r,
+		w:          w,
+		createdAt:  time.Now(),
+		dsn:        supportsExtension(ehloLines, "DSN"),
+		tls:        tlsActive,
+		requireTLS: supportsExtension(ehloLines, "REQUIRETLS"),
 	}, nil
 }
 
 func (c *Client) deliverTransaction(ctx context.Context, session *smtpSession, msg *model.Message, rcpt string) (bool, error) {
 	r, w := session.r, session.w
+	if msg.RequireTLS && (!session.tls || !session.requireTLS) {
+		return false, &SMTPResponseError{Stage: StageTLS, Code: 550, Line: "5.7.30 REQUIRETLS support unavailable"}
+	}
 	mailCommand := fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)
+	if msg.RequireTLS {
+		mailCommand += " REQUIRETLS"
+	}
 	if session.dsn && msg.DSN != nil {
 		if msg.DSN.Return != "" {
 			mailCommand += " RET=" + msg.DSN.Return

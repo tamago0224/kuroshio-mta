@@ -103,7 +103,7 @@ func TestDSNParametersAreQueued(t *testing.T) {
 func TestEHLOAdvertisesDSN(t *testing.T) {
 	var output strings.Builder
 	w := bufio.NewWriter(&output)
-	writeEHLOResponse(w, "mx.test", 1024, false, false)
+	writeEHLOResponse(w, "mx.test", 1024, false, false, false)
 	if !strings.Contains(output.String(), "250-DSN\r\n") {
 		t.Fatalf("EHLO = %q", output.String())
 	}
