@@ -28,6 +28,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
 	"github.com/tamago0224/kuroshio-mta/internal/retention"
 	"github.com/tamago0224/kuroshio-mta/internal/smtp"
+	"github.com/tamago0224/kuroshio-mta/internal/tlsreport"
 	"github.com/tamago0224/kuroshio-mta/internal/userauth"
 	"github.com/tamago0224/kuroshio-mta/internal/worker"
 )
@@ -135,6 +136,14 @@ func main() {
 	}
 	deliveryClient := delivery.NewClientWithContext(ctx, cfg, metrics)
 	defer deliveryClient.Close()
+	var tlsReports *tlsreport.Manager
+	if cfg.TLSReport.Enabled {
+		tlsReports, err = tlsreport.Open(cfg.TLSReport, cfg.QueueDir, metrics)
+		if err != nil {
+			fatal("TLS report store init failed", "error", err)
+		}
+		deliveryClient.SetTLSObserver(tlsReports.Observe)
+	}
 	stopReload := startConfigReload(ctx, *configPath, cfg, metrics, func() (bool, error) { return deliveryClient.ReloadSigning(ctx) })
 	defer stopReload()
 	d, err := worker.New(cfg, q, deliveryClient, sup, metrics, rep)
@@ -203,6 +212,9 @@ func main() {
 	if eventDispatcher != nil {
 		workers++
 	}
+	if tlsReports != nil {
+		workers++
+	}
 	errCh := make(chan error, workers)
 	go func() { errCh <- s.Run(ctx) }()
 	for _, submissionServer := range submissionServers {
@@ -211,6 +223,9 @@ func main() {
 	go func() { errCh <- d.Run(ctx) }()
 	if eventDispatcher != nil {
 		go func() { errCh <- eventDispatcher.Run(ctx) }()
+	}
+	if tlsReports != nil {
+		go func() { errCh <- tlsReports.Run(ctx) }()
 	}
 	go func() { errCh <- runDMARCReports(ctx, dmarcReports, q, cfg.Hostname, metrics) }()
 	go func() { errCh <- rep.RunPersistence(ctx, 5*time.Second) }()

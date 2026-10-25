@@ -19,6 +19,7 @@
 - Kafka queue mode、Redis / Valkey ベースの rate limit、S3-compatible spool backend を選択可能
 - SMTP Submission と認証・sender scope を共有する、冪等性付き HTTPS メール投入 API
 - 永続 outbox と HMAC 署名を使う at-least-once 配送イベント Webhook を opt-in で提供
+- MTA-STS / DANE 配送結果を RFC 8460 HTTPS report として日次集約する TLS-RPT sender
 
 ## ドキュメント
 

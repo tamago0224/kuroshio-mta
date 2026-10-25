@@ -28,6 +28,7 @@ type yamlConfig struct {
 	SMTPConnectionPool       *SMTPConnectionPoolConfig `yaml:"smtp_connection_pool"`
 	EventWebhook             *EventWebhookConfig       `yaml:"event_webhook"`
 	HTTPInjection            *HTTPInjectionConfig      `yaml:"http_injection"`
+	TLSReport                *TLSReportConfig          `yaml:"tls_report"`
 	QueueMaxMessages         *int64                    `yaml:"queue_max_messages"`
 	QueueMaxBytes            *int64                    `yaml:"queue_max_bytes"`
 	QueueLowWatermarkPercent *int64                    `yaml:"queue_low_watermark_percent"`
@@ -180,6 +181,18 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 	if raw.HTTPInjection != nil {
 		cfg.HTTPInjection = *raw.HTTPInjection
+	}
+	if raw.TLSReport != nil {
+		cfg.TLSReport = *raw.TLSReport
+		if cfg.TLSReport.FlushInterval == 0 {
+			cfg.TLSReport.FlushInterval = defaultTLSReportConfig().FlushInterval
+		}
+		if cfg.TLSReport.MaxRecords == 0 {
+			cfg.TLSReport.MaxRecords = defaultTLSReportConfig().MaxRecords
+		}
+		if cfg.TLSReport.MaxReportBytes == 0 {
+			cfg.TLSReport.MaxReportBytes = defaultTLSReportConfig().MaxReportBytes
+		}
 	}
 	if raw.DeliveryRoutes != nil {
 		cfg.DeliveryRoutes = append([]DeliveryRoute(nil), raw.DeliveryRoutes...)
