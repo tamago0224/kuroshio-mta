@@ -25,17 +25,18 @@ const (
 
 // Limits bounds work performed on untrusted DKIM2 input.
 type Limits struct {
-	MaxMessageBytes int
-	MaxChain        int
-	MaxRecipeBytes  int
-	MaxRecipeDepth  int
-	MaxDNSQueries   int
-	DNSTimeout      time.Duration
+	MaxMessageBytes     int
+	MaxChain            int
+	MaxRecipeBytes      int
+	MaxRecipeDepth      int
+	MaxDNSQueries       int
+	MaxDNSResponseBytes int
+	DNSTimeout          time.Duration
 }
 
 // DefaultLimits returns conservative limits for the observation-only verifier.
 func DefaultLimits() Limits {
-	return Limits{MaxMessageBytes: 10 << 20, MaxChain: 16, MaxRecipeBytes: 64 << 10, MaxRecipeDepth: 16, MaxDNSQueries: 8, DNSTimeout: 2 * time.Second}
+	return Limits{MaxMessageBytes: 10 << 20, MaxChain: 16, MaxRecipeBytes: 64 << 10, MaxRecipeDepth: 16, MaxDNSQueries: 8, MaxDNSResponseBytes: 64 << 10, DNSTimeout: 2 * time.Second}
 }
 
 // Result describes an observation without affecting message acceptance.
@@ -125,7 +126,7 @@ func Evaluate(raw []byte, mailFrom string, recipients []string, limits Limits) R
 }
 
 func validateLimits(l Limits) error {
-	if l.MaxMessageBytes < 1 || l.MaxChain < 1 || l.MaxRecipeBytes < 1 || l.MaxRecipeDepth < 1 || l.MaxDNSQueries < 1 || l.DNSTimeout <= 0 {
+	if l.MaxMessageBytes < 1 || l.MaxChain < 1 || l.MaxRecipeBytes < 1 || l.MaxRecipeDepth < 1 || l.MaxDNSQueries < 1 || l.MaxDNSResponseBytes < 1 || l.DNSTimeout <= 0 {
 		return errors.New("invalid DKIM2 resource limits")
 	}
 	return nil
@@ -315,7 +316,8 @@ func validateRecipe(encoded string, limits Limits) error {
 	if !ok || (object["h"] == nil && object["b"] == nil) {
 		return errors.New("recipe requires h or b")
 	}
-	return nil
+	_, _, err = decodeRecipe(encoded, limits)
+	return err
 }
 
 func depth(value any) int {

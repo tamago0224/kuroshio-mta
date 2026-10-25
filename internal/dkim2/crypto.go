@@ -40,13 +40,21 @@ func Verify(ctx context.Context, raw []byte, mailFrom string, recipients []strin
 	if err != nil {
 		return failed(result, "permerror", err)
 	}
-	for _, instance := range instances {
-		if instance.tags["r"] != "" {
-			return failed(result, "neutral", errors.New("recipe reconstruction not implemented"))
+	stateHeaders, stateBody := headers, body
+	for index := len(instances) - 1; index >= 0; index-- {
+		if err := verifyMessageHashes(stateHeaders, stateBody, instances[index].tags["h"]); err != nil {
+			return failed(result, "fail", err)
 		}
-	}
-	if err := verifyMessageHashes(headers, body, instances[len(instances)-1].tags["h"]); err != nil {
-		return failed(result, "fail", err)
+		if index == 0 {
+			break
+		}
+		if instances[index].tags["r"] == "" {
+			return failed(result, "permerror", errors.New("Message-Instance recipe missing"))
+		}
+		stateHeaders, stateBody, err = reconstructPrevious(stateHeaders, stateBody, instances[index].tags["r"], limits)
+		if err != nil {
+			return failed(result, "permerror", err)
+		}
 	}
 
 	verifyCtx, cancel := context.WithTimeout(ctx, limits.DNSTimeout)
@@ -71,6 +79,13 @@ func Verify(ctx context.Context, raw []byte, mailFrom string, recipients []strin
 			}
 			if len(records) != 1 {
 				return failed(result, "permerror", fmt.Errorf("public key %s requires exactly one record", set.selector))
+			}
+			responseBytes := 0
+			for _, record := range records {
+				responseBytes += len(record)
+			}
+			if responseBytes > limits.MaxDNSResponseBytes {
+				return failed(result, "permerror", fmt.Errorf("public key %s response size limit exceeded", set.selector))
 			}
 			if err := verifySignature(canonical, set, records[0]); err != nil {
 				state := "permerror"

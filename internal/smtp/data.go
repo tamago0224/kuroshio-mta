@@ -84,11 +84,13 @@ func (s *Server) handleDataCommand(
 			DMARCMode:      s.cfg.DMARCPolicyMode,
 		},
 	)
+	authRes.DKIM2 = mailauth.EvaluateDKIM2(ctx, ss.data, ss.mailFrom, ss.rcptTo)
 	s.metricAuthResult(authRes)
 	cmdSpan.SetAttributes(
 		attribute.String("smtp.auth.action", string(authRes.Action)),
 		attribute.String("smtp.auth.dmarc.result", authRes.DMARC.Result),
 		attribute.String("smtp.auth.dmarc.policy", authRes.DMARC.Policy),
+		attribute.String("smtp.auth.dkim2.result", authRes.DKIM2.Result),
 	)
 	if authRes.Action == mailauth.ActionReject {
 		s.recordDMARCObservation(ctx, authRes, ss.mailFrom, ss.rcptTo, msgRemoteIP, ss.data, time.Now().UTC())

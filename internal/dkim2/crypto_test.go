@@ -82,6 +82,16 @@ func TestVerifyDNSQueryLimit(t *testing.T) {
 	}
 }
 
+func TestVerifyDNSResponseSizeLimit(t *testing.T) {
+	raw, resolver := signedEd25519Message(t)
+	limits := DefaultLimits()
+	limits.MaxDNSResponseBytes = 8
+	result := Verify(context.Background(), raw, "sender@example.test", []string{"user@recipient.test"}, limits, resolver)
+	if result.Result != "permerror" || !strings.Contains(result.Reason, "response size limit") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestVerifyRSASignature(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
