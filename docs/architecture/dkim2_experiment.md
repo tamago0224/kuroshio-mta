@@ -22,11 +22,11 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 - Message-Instance の hash tag、signature algorithm と Base64 表現を構文検査する
 - 最新 signature の `mf=` / `rt=` と SMTP envelope を照合する
 - recipe の Base64、JSON、サイズ、深さを検査する
-- message、chain、recipe、将来の DNS 照会数・timeout に明示的な上限を持つ
-- recipe がない現在の message について SHA-256 / SHA-512 の header・body hash を検証する
+- message、chain、recipe、DNS 照会数・応答サイズ・timeout に明示的な上限を持つ
+- recipe を逆適用し、各 message instance の SHA-256 / SHA-512 header・body hash を検証する
 - 制限付き resolver で DNS key record を取得し、RSA-SHA256 / Ed25519-SHA256 署名を検証する
 
-`Evaluate` の構造検査を通過しても結果は `neutral` です。`Verify` は recipe を逆適用した各 instance の hash、DNS 鍵、対応する暗号署名をすべて検証した場合だけ `pass` を返します。body が再構成不能と明示された recipe は検証不能です。
+`Evaluate` の構造検査を通過しても結果は `neutral` です。`Verify` は recipe を逆適用した各 instance の hash、DNS 鍵、対応する暗号署名をすべて検証した場合だけ `pass` を返します。`{"b":null}` で body が再構成不能と明示された recipe は構文上有効ですが、過去 instance を検証できないため `permerror` になります。
 
 SMTP 受信では DKIM1 / ARC / DMARC の評価後に `mailauth.DKIM2` へ独立して格納し、`smtp_auth_dkim2_result_<result>` metric と `smtp.auth.dkim2.result` trace attribute で観測します。DKIM2 の結果は `Action`、Authentication-Results header、DMARC alignment、SMTP 応答、queue 保存形式へ入力しません。
 
@@ -59,7 +59,7 @@ SMTP 受信では DKIM1 / ARC / DMARC の評価後に `mailauth.DKIM2` へ独立
 - RSA、Ed25519 を検証する（複合 algorithm は未実装）
 - SMTP の受理判断から分離した result、metric、trace attribute で観測する
 - 有効署名、改変署名、期限切れ、欠落・重複 chain、不正鍵、不正 recipe、DNS timeout のベクトルを用意する
-- DKIM2 結果を独立した metric/log として記録し、DKIM1/ARC/DMARC の結果構造や受理判断へ入力しない
+- DKIM2 結果を独立した metric / trace attribute として記録し、DKIM1 / ARC / DMARC の結果や受理判断へ入力しない
 
 ### Phase 3: forwarding and signing experiment
 

@@ -27,6 +27,7 @@ func TestEvaluateStructuralVectors(t *testing.T) {
 		{name: "valid structure", raw: valid, mailFrom: "sender@example.test", recipients: []string{"user@recipient.test"}, want: "neutral", reason: "cryptographic verification not performed"},
 		{name: "missing chain", raw: message(fmt.Sprintf("DKIM2-Signature: i=1; m=1; t=%d; mf=%s; rt=%s; d=example.test; s=sel:ed25519-sha256:AAAA", now, mf, rt)), want: "permerror", reason: "incomplete"},
 		{name: "duplicate sequence", raw: message("Message-Instance: m=1; h=sha256:AAAA:BBBB", "Message-Instance: m=1; h=sha256:AAAA:BBBB", fmt.Sprintf("DKIM2-Signature: i=1; m=1; t=%d; mf=%s; rt=%s; d=example.test; s=sel:ed25519-sha256:AAAA", now, mf, rt)), want: "permerror", reason: "gap or duplicate"},
+		{name: "expired signature", raw: message("Message-Instance: m=1; h=sha256:AAAA:BBBB", fmt.Sprintf("DKIM2-Signature: i=1; m=1; t=%d; mf=%s; rt=%s; d=example.test; s=sel:ed25519-sha256:AAAA", time.Now().Add(-15*24*time.Hour).Unix(), mf, rt)), want: "permerror", reason: "timestamp outside"},
 		{name: "envelope mismatch", raw: valid, mailFrom: "sender@example.test", recipients: []string{"other@recipient.test"}, want: "fail", reason: "RCPT TO"},
 		{name: "invalid key syntax", raw: message("Message-Instance: m=1; h=sha256:AAAA:BBBB", fmt.Sprintf("DKIM2-Signature: i=1; m=1; t=%d; mf=%s; rt=%s; d=example.test; s=", now, mf, rt)), want: "permerror", reason: "missing s"},
 	}
@@ -49,11 +50,13 @@ func TestEvaluateRecipeAndResourceLimits(t *testing.T) {
 		name   string
 		recipe string
 		mutate func(*Limits)
+		want   string
 		reason string
 	}{
-		{name: "invalid recipe", recipe: "not-base64", reason: "recipe base64"},
-		{name: "oversized recipe", recipe: base64.StdEncoding.EncodeToString([]byte(`{"b":[{"d":["line"]}]}`)), mutate: func(l *Limits) { l.MaxRecipeBytes = 4 }, reason: "size limit"},
-		{name: "deep recipe", recipe: base64.StdEncoding.EncodeToString([]byte(`{"b":[[[[[{"d":["line"]}]]]]]}`)), mutate: func(l *Limits) { l.MaxRecipeDepth = 3 }, reason: "depth limit"},
+		{name: "invalid recipe", recipe: "not-base64", want: "permerror", reason: "recipe base64"},
+		{name: "oversized recipe", recipe: base64.StdEncoding.EncodeToString([]byte(`{"b":[{"d":["line"]}]}`)), mutate: func(l *Limits) { l.MaxRecipeBytes = 4 }, want: "permerror", reason: "size limit"},
+		{name: "deep recipe", recipe: base64.StdEncoding.EncodeToString([]byte(`{"b":[[[[[{"d":["line"]}]]]]]}`)), mutate: func(l *Limits) { l.MaxRecipeDepth = 3 }, want: "permerror", reason: "depth limit"},
+		{name: "unrecoverable body is structurally valid", recipe: base64.StdEncoding.EncodeToString([]byte(`{"b":null}`)), want: "neutral"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -62,7 +65,7 @@ func TestEvaluateRecipeAndResourceLimits(t *testing.T) {
 				tt.mutate(&limits)
 			}
 			got := Evaluate(message("Message-Instance: m=1; h=sha256:AAAA:BBBB; r="+tt.recipe, sig), "", []string{"user@recipient.test"}, limits)
-			if got.Result != "permerror" || !strings.Contains(got.Reason, tt.reason) {
+			if got.Result != tt.want || !strings.Contains(got.Reason, tt.reason) {
 				t.Fatalf("result=%+v", got)
 			}
 		})
