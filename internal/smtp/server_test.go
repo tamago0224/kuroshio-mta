@@ -512,6 +512,7 @@ func TestMetricAuthResultRecordsDMARCBisComparison(t *testing.T) {
 	s := &Server{metrics: metrics}
 	s.metricAuthResult(mailauth.Result{
 		Action: mailauth.ActionAccept,
+		DKIM2:  mailauth.DKIM2Result{Result: "pass"},
 		DMARC: mailauth.DMARCResult{
 			Result:       "temperror",
 			Policy:       "none",
@@ -521,6 +522,7 @@ func TestMetricAuthResultRecordsDMARCBisComparison(t *testing.T) {
 	})
 	snap := metrics.Snapshot()
 	for _, name := range []string{
+		"smtp_auth_dkim2_result_pass_total",
 		"smtp_auth_dmarcbis_result_temperror_total",
 		"smtp_auth_dmarc_engine_mismatch_total",
 		"smtp_auth_dmarcbis_dns_error_total",

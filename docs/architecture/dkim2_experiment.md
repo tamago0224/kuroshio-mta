@@ -26,7 +26,9 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 - recipe がない現在の message について SHA-256 / SHA-512 の header・body hash を検証する
 - 制限付き resolver で DNS key record を取得し、RSA-SHA256 / Ed25519-SHA256 署名を検証する
 
-`Evaluate` の構造検査を通過しても結果は `neutral` です。`Verify` は hash、DNS 鍵、対応する暗号署名をすべて検証した場合だけ `pass` を返します。recipe を含む chain は再構成が未実装のため `neutral` です。パッケージはまだ SMTP 受信パイプラインから呼ばれておらず、認証結果 header、DMARC alignment、SMTP 応答、queue 保存を変更しません。
+`Evaluate` の構造検査を通過しても結果は `neutral` です。`Verify` は recipe を逆適用した各 instance の hash、DNS 鍵、対応する暗号署名をすべて検証した場合だけ `pass` を返します。body が再構成不能と明示された recipe は検証不能です。
+
+SMTP 受信では DKIM1 / ARC / DMARC の評価後に `mailauth.DKIM2` へ独立して格納し、`smtp_auth_dkim2_result_<result>` metric と `smtp.auth.dkim2.result` trace attribute で観測します。DKIM2 の結果は `Action`、Authentication-Results header、DMARC alignment、SMTP 応答、queue 保存形式へ入力しません。
 
 `mldsa44-ed25519-sha512` は Go 標準ライブラリに公開 API がないため未実装です。対象 draft は verifier にこの algorithm を要求しているため、この制約が残る実験を標準準拠とは扱いません。
 
@@ -39,6 +41,7 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 | decoded recipe | 64 KiB |
 | recipe JSON depth | 16 |
 | DNS queries | 8 |
+| DNS TXT response | 64 KiB |
 | DNS timeout | 2秒 |
 
 入力サイズ、chain 深さ、recipe サイズ・深さの超過は `permerror` として観測します。DNS timeout と照会上限の超過は `temperror` として観測します。
@@ -49,11 +52,12 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 
 完了済みです。外部 I/O を行わず、構造、chain、envelope、recipe と資源上限をテストベクトルで固定します。
 
-### Phase 2: cryptographic shadow verification（進行中）
+### Phase 2: cryptographic shadow verification（PoC 完了）
 
-- Message-Instance の header/body hash を検証する（recipe 再構成は未実装）
-- `selector._domainkey.domain` の鍵を DNS から取得し、照会数と timeout を制限する（応答サイズ制限は resolver 統合時に追加する）
+- Message-Instance の header/body hash と recipe 再構成を検証する
+- `selector._domainkey.domain` の鍵を DNS から取得し、照会数・応答サイズ・timeout を制限する
 - RSA、Ed25519 を検証する（複合 algorithm は未実装）
+- SMTP の受理判断から分離した result、metric、trace attribute で観測する
 - 有効署名、改変署名、期限切れ、欠落・重複 chain、不正鍵、不正 recipe、DNS timeout のベクトルを用意する
 - DKIM2 結果を独立した metric/log として記録し、DKIM1/ARC/DMARC の結果構造や受理判断へ入力しない
 

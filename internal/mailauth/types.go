@@ -15,8 +15,19 @@ type Result struct {
 	DKIM        DKIMResult
 	DMARC       DMARCResult
 	ARC         ARCResult
-	Action      Action
-	Reason      string
+	// DKIM2 is an experimental shadow result and never changes Action.
+	DKIM2  DKIM2Result
+	Action Action
+	Reason string
+}
+
+type DKIM2Result struct {
+	Revision  string
+	Result    string
+	Reason    string
+	Instances int
+	Chain     int
+	Queries   int
 }
 
 type SPFResult struct {

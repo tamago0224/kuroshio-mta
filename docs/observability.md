@@ -158,3 +158,4 @@ tutorial から試すなら次を入口にしてください。
 - [SLO Delivery](/runbooks/slo_delivery)
 - [SLO Retry](/runbooks/slo_retry)
 - [HA Reference](/architecture/ha_reference)
+- DKIM2 の実験的 shadow 検証は `smtp_auth_dkim2_result_<result>` counter と `smtp.auth.dkim2.result` trace attribute で観測します。受理判断には使用しません。設計と制約は [DKIM2 Experiment](/architecture/dkim2_experiment) を参照してください。
