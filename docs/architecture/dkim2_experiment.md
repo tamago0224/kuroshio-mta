@@ -16,15 +16,19 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 
 ## 現在の実装範囲
 
-`internal/dkim2` は、ネットワークアクセスを行わない観測専用の構造検証器です。
+`internal/dkim2` は、既定の受理判断から独立した観測専用の検証器です。
 
 - Message-Instance と DKIM2-Signature の組、連続した `m=` / `i=`、必須 tag、重複 tag を検査する
 - Message-Instance の hash tag、signature algorithm と Base64 表現を構文検査する
 - 最新 signature の `mf=` / `rt=` と SMTP envelope を照合する
 - recipe の Base64、JSON、サイズ、深さを検査する
 - message、chain、recipe、将来の DNS 照会数・timeout に明示的な上限を持つ
+- recipe がない現在の message について SHA-256 / SHA-512 の header・body hash を検証する
+- 制限付き resolver で DNS key record を取得し、RSA-SHA256 / Ed25519-SHA256 署名を検証する
 
-構造検査を通過しても結果は `neutral` です。hash、DNS 鍵、暗号署名をまだ検証していないため `pass` を返しません。パッケージは SMTP 受信パイプラインから呼ばれておらず、認証結果 header、DMARC alignment、SMTP 応答、queue 保存を変更しません。
+`Evaluate` の構造検査を通過しても結果は `neutral` です。`Verify` は hash、DNS 鍵、対応する暗号署名をすべて検証した場合だけ `pass` を返します。recipe を含む chain は再構成が未実装のため `neutral` です。パッケージはまだ SMTP 受信パイプラインから呼ばれておらず、認証結果 header、DMARC alignment、SMTP 応答、queue 保存を変更しません。
+
+`mldsa44-ed25519-sha512` は Go 標準ライブラリに公開 API がないため未実装です。対象 draft は verifier にこの algorithm を要求しているため、この制約が残る実験を標準準拠とは扱いません。
 
 既定上限は次のとおりです。
 
@@ -34,22 +38,22 @@ Issue 作成時の `spec-06` / `dns-00` から更新されています。実装�
 | chain | 16 instances / signatures |
 | decoded recipe | 64 KiB |
 | recipe JSON depth | 16 |
-| DNS queries | 8（暗号検証フェーズ用） |
-| DNS timeout | 2秒（暗号検証フェーズ用） |
+| DNS queries | 8 |
+| DNS timeout | 2秒 |
 
-入力サイズ、chain 深さ、recipe サイズ・深さの超過は `permerror` として観測します。DNS 上限は鍵検証を追加するまで消費されません。
+入力サイズ、chain 深さ、recipe サイズ・深さの超過は `permerror` として観測します。DNS timeout と照会上限の超過は `temperror` として観測します。
 
 ## 段階導入
 
 ### Phase 1: bounded parser
 
-現在の段階です。外部 I/O を行わず、構造、chain、envelope、recipe と資源上限をテストベクトルで固定します。
+完了済みです。外部 I/O を行わず、構造、chain、envelope、recipe と資源上限をテストベクトルで固定します。
 
-### Phase 2: cryptographic shadow verification
+### Phase 2: cryptographic shadow verification（進行中）
 
-- Message-Instance の header/body hash と recipe 再構成を検証する
-- `selector._domainkey.domain` の鍵を DNS から取得し、照会数・応答サイズ・timeout を制限する
-- RSA、Ed25519 と、利用可能な実装がある場合の複合 algorithm を revision ごとに検証する
+- Message-Instance の header/body hash を検証する（recipe 再構成は未実装）
+- `selector._domainkey.domain` の鍵を DNS から取得し、照会数と timeout を制限する（応答サイズ制限は resolver 統合時に追加する）
+- RSA、Ed25519 を検証する（複合 algorithm は未実装）
 - 有効署名、改変署名、期限切れ、欠落・重複 chain、不正鍵、不正 recipe、DNS timeout のベクトルを用意する
 - DKIM2 結果を独立した metric/log として記録し、DKIM1/ARC/DMARC の結果構造や受理判断へ入力しない
 
