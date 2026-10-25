@@ -16,6 +16,7 @@ type session struct {
 	helo            string
 	mailFrom        string
 	bodyMode        string
+	dsn             *model.DSN
 	rcptTo          []string
 	data            []byte
 	seenHelo        bool
@@ -34,6 +35,7 @@ func (ss *session) finishData() {
 	ss.data = nil
 	ss.quarantine = nil
 	ss.signing = nil
+	ss.dsn = nil
 }
 
 // resetTransaction preserves the greeting, authentication and connection state.
@@ -45,6 +47,7 @@ func (ss *session) resetTransaction() {
 func (ss *session) beginTransaction(args mailFromArgs) {
 	ss.resetTransaction()
 	ss.mailFrom = args.Address
+	ss.dsn = args.DSN
 	if args.Body != "" {
 		ss.bodyMode = args.Body
 	}

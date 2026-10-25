@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
+	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/util"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -21,11 +22,17 @@ type mailFromArgs struct {
 	Size    int64
 	HasSize bool
 	Body    string
+	DSN     *model.DSN
+}
+
+type rcptToArgs struct {
+	Address string
+	DSN     model.DSNRecipientOptions
 }
 
 var (
 	errMailParamUnsupported = errors.New("unsupported MAIL parameter")
-	errRcptParamUnsupported = errors.New("RCPT parameters are not supported")
+	errRcptParamUnsupported = errors.New("unsupported RCPT parameter")
 	errSMTPUTF8Param        = errors.New("unsupported SMTPUTF8 parameter")
 	errSMTPUTF8Address      = errors.New("smtputf8 address is not supported")
 )
@@ -80,7 +87,7 @@ func (s *Server) handleMailCommand(
 	if mailArgs.HasSize {
 		cmdSpan.SetAttributes(attribute.Int64("smtp.mail.size", mailArgs.Size))
 	}
-	if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "") {
+	if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "" || mailArgs.DSN != nil) {
 		cmdSpan.reject("mail_params_require_ehlo", 555, "MAIL parameters require EHLO")
 		writeResp(w, 555, "MAIL parameters require EHLO")
 		return false
@@ -174,7 +181,7 @@ func (s *Server) handleRcptCommand(
 		writeResp(w, 452, "4.5.3 too many recipients")
 		return
 	}
-	addr, err := parseRcptTo(arg, s.cfg.Hostname)
+	rcptArgs, err := parseRcptToArgs(arg, s.cfg.Hostname)
 	if err != nil {
 		cmdSpan.recordError(err)
 		if errors.Is(err, errSMTPUTF8Address) {
@@ -191,6 +198,12 @@ func (s *Server) handleRcptCommand(
 		writeResp(w, 501, err.Error())
 		return
 	}
+	if !ss.extended && (len(rcptArgs.DSN.Notify) > 0 || rcptArgs.DSN.OriginalRecipient != "") {
+		cmdSpan.reject("rcpt_params_require_ehlo", 555, "RCPT parameters require EHLO")
+		writeResp(w, 555, "RCPT parameters require EHLO")
+		return
+	}
+	addr := rcptArgs.Address
 	cmdSpan.SetAttributes(attribute.String("smtp.rcpt_to", logging.MaskEmail(addr)))
 	policy := s.recipientPolicy
 	if policy == nil {
@@ -220,6 +233,15 @@ func (s *Server) handleRcptCommand(
 		return
 	}
 	ss.rcptTo = append(ss.rcptTo, addr)
+	if len(rcptArgs.DSN.Notify) > 0 || rcptArgs.DSN.OriginalRecipient != "" {
+		if ss.dsn == nil {
+			ss.dsn = &model.DSN{}
+		}
+		if ss.dsn.Recipients == nil {
+			ss.dsn.Recipients = make(map[string]model.DSNRecipientOptions)
+		}
+		ss.dsn.Recipients[addr] = rcptArgs.DSN
+	}
 	cmdSpan.setResponse(250, "recipient ok")
 	writeResp(w, 250, "recipient ok")
 }
@@ -262,6 +284,29 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 				return mailFromArgs{}, errors.New("invalid BODY parameter")
 			}
 			out.Body = v
+		case "RET":
+			if out.DSN != nil && out.DSN.Return != "" {
+				return mailFromArgs{}, errors.New("duplicate RET parameter")
+			}
+			v := strings.ToUpper(val)
+			if v != "FULL" && v != "HDRS" {
+				return mailFromArgs{}, errors.New("invalid RET parameter")
+			}
+			if out.DSN == nil {
+				out.DSN = &model.DSN{}
+			}
+			out.DSN.Return = v
+		case "ENVID":
+			if out.DSN != nil && out.DSN.EnvelopeID != "" {
+				return mailFromArgs{}, errors.New("duplicate ENVID parameter")
+			}
+			if err := validateXText(val, 100); err != nil {
+				return mailFromArgs{}, fmt.Errorf("invalid ENVID parameter: %w", err)
+			}
+			if out.DSN == nil {
+				out.DSN = &model.DSN{}
+			}
+			out.DSN.EnvelopeID = val
 		default:
 			return mailFromArgs{}, fmt.Errorf("%w: %s", errMailParamUnsupported, key)
 		}
@@ -270,35 +315,112 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 }
 
 func parseRcptTo(arg string, hostname string) (string, error) {
+	parsed, err := parseRcptToArgs(arg, hostname)
+	return parsed.Address, err
+}
+
+func parseRcptToArgs(arg string, hostname string) (rcptToArgs, error) {
 	if !strings.HasPrefix(strings.ToUpper(arg), "TO:") {
-		return "", errors.New("RCPT must be RCPT TO:<addr>")
+		return rcptToArgs{}, errors.New("RCPT must be RCPT TO:<addr>")
 	}
 	path, params, err := splitPathAndParams(strings.TrimSpace(arg[3:]))
 	if err != nil {
-		return "", err
-	}
-	if len(params) > 0 {
-		return "", errRcptParamUnsupported
+		return rcptToArgs{}, err
 	}
 	unwrapped := unwrapPath(path)
+	var addr string
 	if strings.EqualFold(unwrapped, "postmaster") {
 		host := strings.ToLower(strings.TrimSpace(hostname))
 		if host == "" {
 			host = "localhost"
 		}
-		return "postmaster@" + host, nil
-	}
-	addr, err := util.NormalizePath(path)
-	if err != nil {
-		return "", err
+		addr = "postmaster@" + host
+	} else {
+		addr, err = util.NormalizePath(path)
+		if err != nil {
+			return rcptToArgs{}, err
+		}
 	}
 	if addr == "" {
-		return "", errors.New("recipient is empty")
+		return rcptToArgs{}, errors.New("recipient is empty")
 	}
 	if !isASCII(addr) {
-		return "", errSMTPUTF8Address
+		return rcptToArgs{}, errSMTPUTF8Address
 	}
-	return addr, nil
+	out := rcptToArgs{Address: addr}
+	seen := make(map[string]bool, len(params))
+	for _, p := range params {
+		key, val, ok := splitParamKV(p)
+		if !ok {
+			return rcptToArgs{}, fmt.Errorf("invalid RCPT parameter: %s", p)
+		}
+		if seen[key] {
+			return rcptToArgs{}, fmt.Errorf("duplicate RCPT parameter: %s", key)
+		}
+		seen[key] = true
+		switch key {
+		case "NOTIFY":
+			notify, err := parseNotify(val)
+			if err != nil {
+				return rcptToArgs{}, err
+			}
+			out.DSN.Notify = notify
+		case "ORCPT":
+			parts := strings.SplitN(val, ";", 2)
+			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
+				return rcptToArgs{}, errors.New("invalid ORCPT parameter")
+			}
+			if err := validateXText(parts[1], 500); err != nil {
+				return rcptToArgs{}, fmt.Errorf("invalid ORCPT parameter: %w", err)
+			}
+			out.DSN.OriginalRecipient = strings.ToLower(parts[0]) + ";" + parts[1]
+		default:
+			return rcptToArgs{}, fmt.Errorf("%w: %s", errRcptParamUnsupported, key)
+		}
+	}
+	return out, nil
+}
+
+func parseNotify(value string) ([]string, error) {
+	parts := strings.Split(strings.ToUpper(value), ",")
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		if part != "SUCCESS" && part != "FAILURE" && part != "DELAY" && part != "NEVER" {
+			return nil, errors.New("invalid NOTIFY parameter")
+		}
+		if seen[part] {
+			return nil, errors.New("duplicate NOTIFY value")
+		}
+		seen[part] = true
+	}
+	if seen["NEVER"] && len(parts) != 1 {
+		return nil, errors.New("NOTIFY NEVER cannot be combined")
+	}
+	return parts, nil
+}
+
+func validateXText(value string, maxLen int) error {
+	if value == "" || len(value) > maxLen {
+		return errors.New("xtext length is invalid")
+	}
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if b == '+' {
+			if i+2 >= len(value) || !isHex(value[i+1]) || !isHex(value[i+2]) {
+				return errors.New("malformed xtext escape")
+			}
+			i += 2
+			continue
+		}
+		if b < '!' || b > '~' || b == '=' {
+			return errors.New("invalid xtext character")
+		}
+	}
+	return nil
+}
+
+func isHex(b byte) bool {
+	return b >= '0' && b <= '9' || b >= 'A' && b <= 'F' || b >= 'a' && b <= 'f'
 }
 
 func splitPathAndParams(raw string) (string, []string, error) {

@@ -594,6 +594,7 @@ func writeEHLOResponse(w *bufio.Writer, hostname string, maxMessageBytes int64, 
 	_ = writeLine(w, "250-PIPELINING")
 	_ = writeLine(w, fmt.Sprintf("250-SIZE %d", maxMessageBytes))
 	_ = writeLine(w, "250-8BITMIME")
+	_ = writeLine(w, "250-DSN")
 	if advertiseAuth {
 		if len(mechanisms) == 0 {
 			mechanisms = []string{"PLAIN", "LOGIN"}

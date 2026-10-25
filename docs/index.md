@@ -114,7 +114,7 @@ features:
 
 - [RFC 1870: SMTP SIZE](/rfc_1870_gap)
 - [RFC 3207: SMTP STARTTLS](/rfc_3207_gap)
-- [RFC 3464: DSN](/rfc_3464_gap)
+- [RFC 3461 / RFC 3464: DSN](/rfc_3464_gap)
 - [RFC 4954: SMTP AUTH](/rfc_4954_gap)
 - [RFC 6152: 8BITMIME](/rfc_6152_gap)
 - [RFC 6376: DKIM](/rfc_6376_gap)

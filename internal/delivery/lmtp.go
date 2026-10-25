@@ -37,10 +37,21 @@ func (c *Client) deliverLMTP(ctx context.Context, socket string, msg *model.Mess
 	if err := writeLine(w, "LHLO "+c.cfg.Hostname); err != nil {
 		return setAll(atStage(StageEHLO, err))
 	}
-	if _, err := readLines(r); err != nil {
+	ehloLines, err := readLines(r)
+	if err != nil {
 		return setAll(atStage(StageEHLO, err))
 	}
-	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
+	dsnSupported := supportsExtension(ehloLines, "DSN")
+	mailCommand := fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)
+	if dsnSupported && msg.DSN != nil {
+		if msg.DSN.Return != "" {
+			mailCommand += " RET=" + msg.DSN.Return
+		}
+		if msg.DSN.EnvelopeID != "" {
+			mailCommand += " ENVID=" + msg.DSN.EnvelopeID
+		}
+	}
+	if err := writeLine(w, mailCommand); err != nil {
 		return setAll(atStage(StageMAIL, err))
 	}
 	if err := expect2xx(r); err != nil {
@@ -48,7 +59,18 @@ func (c *Client) deliverLMTP(ctx context.Context, socket string, msg *model.Mess
 	}
 	accepted := make([]string, 0, len(recipients))
 	for _, rcpt := range recipients {
-		if err := writeLine(w, fmt.Sprintf("RCPT TO:<%s>", rcpt)); err != nil {
+		rcptCommand := fmt.Sprintf("RCPT TO:<%s>", rcpt)
+		if dsnSupported && msg.DSN != nil {
+			if options, ok := msg.DSN.Recipients[rcpt]; ok {
+				if len(options.Notify) > 0 {
+					rcptCommand += " NOTIFY=" + strings.Join(options.Notify, ",")
+				}
+				if options.OriginalRecipient != "" {
+					rcptCommand += " ORCPT=" + options.OriginalRecipient
+				}
+			}
+		}
+		if err := writeLine(w, rcptCommand); err != nil {
 			return setAll(atStage(StageRCPT, err))
 		}
 		if err := expect2xx3xx(r); err != nil {

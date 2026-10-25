@@ -28,8 +28,8 @@ func TestEnvelopeCommandsPreserveTransactionOnRejection(t *testing.T) {
 			code: 501, dataCode: 354,
 		},
 		{
-			name: "recipient parameters preserve accepted recipient", command: "RCPT TO:<other@example.net> NOTIFY=SUCCESS",
-			code: 555, dataCode: 354,
+			name: "recipient DSN parameters add recipient", command: "RCPT TO:<other@example.net> NOTIFY=SUCCESS",
+			code: 250, dataCode: 354,
 		},
 	}
 	for _, tt := range tests {
