@@ -21,8 +21,8 @@ type TXTResolver interface {
 	LookupTXT(ctx context.Context, name string) ([]string, error)
 }
 
-// Verify performs bounded hash, DNS key, and cryptographic verification for
-// messages without recipes. Recipe reconstruction is intentionally deferred.
+// Verify performs bounded recipe reconstruction, message hash validation, DNS
+// key lookup, and cryptographic verification for the supported algorithms.
 func Verify(ctx context.Context, raw []byte, mailFrom string, recipients []string, limits Limits, resolver TXTResolver) Result {
 	result := Evaluate(raw, mailFrom, recipients, limits)
 	if result.Result != "neutral" {

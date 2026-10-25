@@ -21,6 +21,13 @@ type staticResolver struct {
 	err     error
 }
 
+type timeoutResolver struct{}
+
+func (timeoutResolver) LookupTXT(ctx context.Context, _ string) ([]string, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (resolver staticResolver) LookupTXT(_ context.Context, name string) ([]string, error) {
 	if resolver.err != nil {
 		return nil, resolver.err
@@ -88,6 +95,23 @@ func TestVerifyDNSResponseSizeLimit(t *testing.T) {
 	limits.MaxDNSResponseBytes = 8
 	result := Verify(context.Background(), raw, "sender@example.test", []string{"user@recipient.test"}, limits, resolver)
 	if result.Result != "permerror" || !strings.Contains(result.Reason, "response size limit") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestVerifyDNSTimeout(t *testing.T) {
+	raw, _ := signedEd25519Message(t)
+	limits := DefaultLimits()
+	limits.DNSTimeout = time.Millisecond
+	result := Verify(
+		context.Background(),
+		raw,
+		"sender@example.test",
+		[]string{"user@recipient.test"},
+		limits,
+		timeoutResolver{},
+	)
+	if result.Result != "temperror" || !strings.Contains(result.Reason, "deadline exceeded") {
 		t.Fatalf("result=%+v", result)
 	}
 }

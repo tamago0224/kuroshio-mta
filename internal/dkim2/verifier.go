@@ -36,7 +36,15 @@ type Limits struct {
 
 // DefaultLimits returns conservative limits for the observation-only verifier.
 func DefaultLimits() Limits {
-	return Limits{MaxMessageBytes: 10 << 20, MaxChain: 16, MaxRecipeBytes: 64 << 10, MaxRecipeDepth: 16, MaxDNSQueries: 8, MaxDNSResponseBytes: 64 << 10, DNSTimeout: 2 * time.Second}
+	return Limits{
+		MaxMessageBytes:     10 << 20,
+		MaxChain:            16,
+		MaxRecipeBytes:      64 << 10,
+		MaxRecipeDepth:      16,
+		MaxDNSQueries:       8,
+		MaxDNSResponseBytes: 64 << 10,
+		DNSTimeout:          2 * time.Second,
+	}
 }
 
 // Result describes an observation without affecting message acceptance.
@@ -313,7 +321,12 @@ func validateRecipe(encoded string, limits Limits) error {
 		return errors.New("recipe depth limit exceeded")
 	}
 	object, ok := value.(map[string]any)
-	if !ok || (object["h"] == nil && object["b"] == nil) {
+	if !ok {
+		return errors.New("recipe must be a JSON object")
+	}
+	_, hasHeaders := object["h"]
+	_, hasBody := object["b"]
+	if !hasHeaders && !hasBody {
 		return errors.New("recipe requires h or b")
 	}
 	_, _, err = decodeRecipe(encoded, limits)
