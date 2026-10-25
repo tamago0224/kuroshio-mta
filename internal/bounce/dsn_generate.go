@@ -19,6 +19,29 @@ func BuildDelayDSN(original *model.Message, failedRcpt, diagnostic, hostname str
 	return buildDSN(original, failedRcpt, "delayed", "4.0.0", diagnostic, hostname, now)
 }
 
+func BuildSuccessDSN(original *model.Message, deliveredRcpt, diagnostic, hostname string, now time.Time) (*model.Message, error) {
+	return buildDSN(original, deliveredRcpt, "delivered", "2.0.0", diagnostic, hostname, now)
+}
+
+func ShouldNotify(original *model.Message, rcpt, event string) bool {
+	if original == nil || original.DSN == nil {
+		return event == "FAILURE" || event == "DELAY"
+	}
+	options, ok := original.DSN.Recipients[strings.ToLower(strings.TrimSpace(rcpt))]
+	if !ok || len(options.Notify) == 0 {
+		return event == "FAILURE" || event == "DELAY"
+	}
+	for _, requested := range options.Notify {
+		if requested == "NEVER" {
+			return false
+		}
+		if strings.EqualFold(requested, event) {
+			return true
+		}
+	}
+	return false
+}
+
 func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagnostic, hostname string, now time.Time) (*model.Message, error) {
 	if original == nil {
 		return nil, fmt.Errorf("original message is nil")
@@ -50,8 +73,10 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 	human := "Your message could not be delivered."
 	if action == "delayed" {
 		human = "Your message delivery is delayed and will be retried."
+	} else if action == "delivered" {
+		human = "Your message was delivered successfully."
 	}
-	data := strings.Join([]string{
+	lines := []string{
 		fmt.Sprintf("From: MAILER-DAEMON@%s", host),
 		fmt.Sprintf("To: %s", mailFrom),
 		fmt.Sprintf("Subject: Delivery Status Notification (%s)", strings.ToUpper(action)),
@@ -69,15 +94,44 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 		"",
 		fmt.Sprintf("Reporting-MTA: dns; %s", host),
 		fmt.Sprintf("Arrival-Date: %s", now.UTC().Format(time.RFC1123Z)),
-		"",
+	}
+	if original.DSN != nil && original.DSN.EnvelopeID != "" {
+		lines = append(lines, "Original-Envelope-Id: "+original.DSN.EnvelopeID)
+	}
+	lines = append(lines, "")
+	if original.DSN != nil {
+		if options, ok := original.DSN.Recipients[recipient]; ok && options.OriginalRecipient != "" {
+			lines = append(lines, "Original-Recipient: "+options.OriginalRecipient)
+		}
+	}
+	lines = append(lines,
 		fmt.Sprintf("Final-Recipient: rfc822; %s", recipient),
 		fmt.Sprintf("Action: %s", action),
 		fmt.Sprintf("Status: %s", status),
 		fmt.Sprintf("Diagnostic-Code: smtp; %s", strings.TrimSpace(diagnostic)),
 		"",
-		fmt.Sprintf("--%s--", boundary),
-		"",
-	}, "\r\n")
+	)
+	if original.DSN != nil {
+		returnMode := original.DSN.Return
+		if returnMode == "" {
+			returnMode = "FULL"
+		}
+		contentType := "message/rfc822"
+		content := original.Data
+		if returnMode == "HDRS" {
+			contentType = "text/rfc822-headers"
+			content = messageHeaders(original.Data)
+		}
+		lines = append(lines,
+			fmt.Sprintf("--%s", boundary),
+			"Content-Type: "+contentType,
+			"",
+			strings.TrimRight(string(content), "\r\n"),
+			"",
+		)
+	}
+	lines = append(lines, fmt.Sprintf("--%s--", boundary), "")
+	data := strings.Join(lines, "\r\n")
 
 	return &model.Message{
 		ID:           fmt.Sprintf("dsn-%d", now.UTC().UnixNano()),
@@ -91,6 +145,16 @@ func buildDSN(original *model.Message, failedRcpt, action, defaultStatus, diagno
 		Tenant:       "system",
 		TrafficClass: "system",
 	}, nil
+}
+
+func messageHeaders(raw []byte) []byte {
+	if idx := strings.Index(string(raw), "\r\n\r\n"); idx >= 0 {
+		return raw[:idx]
+	}
+	if idx := strings.Index(string(raw), "\n\n"); idx >= 0 {
+		return raw[:idx]
+	}
+	return raw
 }
 
 func extractEnhancedStatus(v string) (string, bool) {

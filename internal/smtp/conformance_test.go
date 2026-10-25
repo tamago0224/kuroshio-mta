@@ -95,7 +95,7 @@ func TestSMTPConformance(t *testing.T) {
 
 		mustWriteSMTPLine(t, w, "MAIL FROM:<alice@invalid.invalid> RET=FULL")
 		_, code := readSMTPResponse(t, r)
-		expectRFCCode(t, "RFC 5321 4.1.1.2", "unsupported MAIL parameter", code, 555)
+		expectRFCCode(t, "RFC 3461 4.3", "RET parameter", code, 250)
 	})
 
 	t.Run("RFC5321-4.1.1.2-invalid-MAIL-syntax-must-fail-501", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestSMTPConformance(t *testing.T) {
 
 		mustWriteSMTPLine(t, w, "RCPT TO:<bob@invalid.invalid> NOTIFY=SUCCESS")
 		_, code := readSMTPResponse(t, r)
-		expectRFCCode(t, "RFC 5321 4.1.1.3", "unsupported RCPT parameter", code, 555)
+		expectRFCCode(t, "RFC 3461 4.1", "NOTIFY parameter", code, 250)
 	})
 
 	t.Run("RFC5321-4.1.1.3-postmaster-must-be-accepted", func(t *testing.T) {

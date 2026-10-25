@@ -766,19 +766,45 @@ func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth rela
 		}
 	}
 	failed = false
-	return &smtpSession{conn: conn, r: r, w: w, createdAt: time.Now()}, nil
+	return &smtpSession{
+		conn:      conn,
+		r:         r,
+		w:         w,
+		createdAt: time.Now(),
+		dsn:       supportsExtension(ehloLines, "DSN"),
+	}, nil
 }
 
 func (c *Client) deliverTransaction(ctx context.Context, session *smtpSession, msg *model.Message, rcpt string) (bool, error) {
 	r, w := session.r, session.w
-	if err := writeLine(w, fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)); err != nil {
+	mailCommand := fmt.Sprintf("MAIL FROM:<%s>", msg.MailFrom)
+	if session.dsn && msg.DSN != nil {
+		if msg.DSN.Return != "" {
+			mailCommand += " RET=" + msg.DSN.Return
+		}
+		if msg.DSN.EnvelopeID != "" {
+			mailCommand += " ENVID=" + msg.DSN.EnvelopeID
+		}
+	}
+	if err := writeLine(w, mailCommand); err != nil {
 		return false, atStage(StageMAIL, err)
 	}
 	if err := expect2xx(r); err != nil {
 		return c.reusableAfterReject(session, err), fmt.Errorf("mail from rejected: %w", atStage(StageMAIL, err))
 	}
 
-	if err := writeLine(w, fmt.Sprintf("RCPT TO:<%s>", rcpt)); err != nil {
+	rcptCommand := fmt.Sprintf("RCPT TO:<%s>", rcpt)
+	if session.dsn && msg.DSN != nil {
+		if options, ok := msg.DSN.Recipients[rcpt]; ok {
+			if len(options.Notify) > 0 {
+				rcptCommand += " NOTIFY=" + strings.Join(options.Notify, ",")
+			}
+			if options.OriginalRecipient != "" {
+				rcptCommand += " ORCPT=" + options.OriginalRecipient
+			}
+		}
+	}
+	if err := writeLine(w, rcptCommand); err != nil {
 		return false, atStage(StageRCPT, err)
 	}
 	if err := expect2xx3xx(r); err != nil {
@@ -847,6 +873,21 @@ func supportsAuthPlain(lines []string) bool {
 			if strings.EqualFold(mechanism, "PLAIN") {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func supportsExtension(lines []string, extension string) bool {
+	want := strings.ToUpper(strings.TrimSpace(extension))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) >= 4 && line[0] >= '0' && line[0] <= '9' && line[1] >= '0' && line[1] <= '9' && line[2] >= '0' && line[2] <= '9' && (line[3] == ' ' || line[3] == '-') {
+			line = line[4:]
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.EqualFold(fields[0], want) {
+			return true
 		}
 	}
 	return false

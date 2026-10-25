@@ -261,6 +261,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		}
 		d.metricInc("worker_delivery_success")
 		d.publishEvent(msg, rcpt, "delivered", "")
+		d.emitSuccessDSN(ctx, msg, rcpt)
 	}
 	for _, rcpt := range msg.RcptTo {
 		if ctx.Err() != nil && (d.cfg.MXShaping.Enabled || d.pauses != nil) {
@@ -493,6 +494,9 @@ func (d *Dispatcher) emitHardBounceDSN(ctx context.Context, msg *model.Message, 
 	if d.queue == nil {
 		return
 	}
+	if !bounce.ShouldNotify(msg, rcpt, "FAILURE") {
+		return
+	}
 	dsnMsg, err := bounce.BuildFailureDSN(msg, rcpt, diagnostic, d.cfg.Hostname, time.Now().UTC())
 	if err != nil {
 		return
@@ -511,6 +515,9 @@ func (d *Dispatcher) emitSoftBounceDSN(ctx context.Context, msg *model.Message, 
 	if msg.Attempts > 0 {
 		return
 	}
+	if !bounce.ShouldNotify(msg, rcpt, "DELAY") {
+		return
+	}
 	dsnMsg, err := bounce.BuildDelayDSN(msg, rcpt, diagnostic, d.cfg.Hostname, time.Now().UTC())
 	if err != nil {
 		return
@@ -518,6 +525,20 @@ func (d *Dispatcher) emitSoftBounceDSN(ctx context.Context, msg *model.Message, 
 	observability.InjectTraceContext(ctx, dsnMsg)
 	if err := d.queue.Enqueue(dsnMsg); err != nil {
 		slog.ErrorContext(ctx, "enqueue soft dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
+	}
+}
+
+func (d *Dispatcher) emitSuccessDSN(ctx context.Context, msg *model.Message, rcpt string) {
+	if d.queue == nil || !bounce.ShouldNotify(msg, rcpt, "SUCCESS") {
+		return
+	}
+	dsnMsg, err := bounce.BuildSuccessDSN(msg, rcpt, "250 2.0.0 delivered", d.cfg.Hostname, time.Now().UTC())
+	if err != nil {
+		return
+	}
+	observability.InjectTraceContext(ctx, dsnMsg)
+	if err := d.queue.Enqueue(dsnMsg); err != nil {
+		slog.ErrorContext(ctx, "enqueue success dsn failed", "component", "worker", "msg_id", msg.ID, "rcpt", logging.MaskEmail(rcpt), "error", err)
 	}
 }
 

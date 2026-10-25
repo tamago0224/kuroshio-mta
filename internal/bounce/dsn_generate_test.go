@@ -49,6 +49,50 @@ func TestBuildDelayDSN(t *testing.T) {
 	}
 }
 
+func TestBuildDSNHonorsRFC3461Metadata(t *testing.T) {
+	now := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
+	orig := &model.Message{
+		MailFrom: "sender@example.com",
+		Data:     []byte("Subject: original\r\nX-Test: yes\r\n\r\nsecret body\r\n"),
+		DSN: &model.DSN{
+			Return:     "HDRS",
+			EnvelopeID: "id+2B1",
+			Recipients: map[string]model.DSNRecipientOptions{
+				"user@example.net": {Notify: []string{"FAILURE"}, OriginalRecipient: "rfc822;old+40example.net"},
+			},
+		},
+	}
+	dsn, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(dsn.Data)
+	for _, want := range []string{"Original-Envelope-Id: id+2B1", "Original-Recipient: rfc822;old+40example.net", "Content-Type: text/rfc822-headers", "Subject: original"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("DSN missing %q: %q", want, body)
+		}
+	}
+	if strings.Contains(body, "secret body") {
+		t.Fatalf("RET=HDRS included body: %q", body)
+	}
+}
+
+func TestShouldNotify(t *testing.T) {
+	msg := &model.Message{DSN: &model.DSN{Recipients: map[string]model.DSNRecipientOptions{
+		"success@example.net": {Notify: []string{"SUCCESS"}},
+		"never@example.net":   {Notify: []string{"NEVER"}},
+	}}}
+	if !ShouldNotify(msg, "success@example.net", "SUCCESS") || ShouldNotify(msg, "success@example.net", "FAILURE") {
+		t.Fatal("SUCCESS selection was not honored")
+	}
+	if ShouldNotify(msg, "never@example.net", "FAILURE") {
+		t.Fatal("NEVER selection was not honored")
+	}
+	if !ShouldNotify(&model.Message{}, "legacy@example.net", "FAILURE") {
+		t.Fatal("legacy failure default changed")
+	}
+}
+
 func TestBuildDSNRejectsEmptySender(t *testing.T) {
 	orig := &model.Message{MailFrom: ""}
 	if _, err := BuildFailureDSN(orig, "user@example.net", "550 failed", "mx.example.com", time.Now()); err == nil {
