@@ -184,13 +184,17 @@ func parseField(input field, numberTag string) (field, error) {
 }
 
 func validateInstanceTags(tags map[string]string) error {
-	value := strings.Split(tags["h"], ":")
-	if len(value) != 3 || value[0] != "sha256" {
-		return errors.New("invalid Message-Instance h tag")
-	}
-	for _, digest := range value[1:] {
-		if _, err := base64.StdEncoding.DecodeString(digest); err != nil {
+	seen := map[string]bool{}
+	for _, hashSet := range strings.Split(tags["h"], ",") {
+		value := strings.Split(strings.TrimSpace(hashSet), ":")
+		if len(value) != 3 || seen[value[0]] || (value[0] != "sha256" && value[0] != "sha512") {
 			return errors.New("invalid Message-Instance h tag")
+		}
+		seen[value[0]] = true
+		for _, digest := range value[1:] {
+			if decoded, err := base64.StdEncoding.DecodeString(digest); err != nil || len(decoded) == 0 {
+				return errors.New("invalid Message-Instance h tag")
+			}
 		}
 	}
 	return nil
@@ -222,17 +226,21 @@ func validateSignatureTags(tags map[string]string, instances int) error {
 	if len(tags["n"]) > 64 {
 		return errors.New("DKIM2 nonce too long")
 	}
-	signature := strings.Split(tags["s"], ":")
-	if len(signature) != 3 || signature[0] == "" || signature[2] == "" {
-		return errors.New("invalid DKIM2-Signature s tag")
+	signatures, err := parseSignatureSets(tags["s"])
+	if err != nil {
+		return err
 	}
-	switch signature[1] {
-	case "rsa-sha256", "ed25519-sha256", "mldsa44-ed25519-sha512":
-	default:
-		return errors.New("unsupported DKIM2 signature algorithm")
-	}
-	if _, err := base64.StdEncoding.DecodeString(signature[2]); err != nil {
-		return errors.New("invalid DKIM2 signature encoding")
+	algorithms := map[string]int{}
+	for _, signature := range signatures {
+		switch signature.algorithm {
+		case "rsa-sha256", "ed25519-sha256", "mldsa44-ed25519-sha512":
+		default:
+			return errors.New("unsupported DKIM2 signature algorithm")
+		}
+		algorithms[signature.algorithm]++
+		if algorithms[signature.algorithm] > 2 {
+			return errors.New("too many DKIM2 signatures for algorithm")
+		}
 	}
 	return nil
 }
