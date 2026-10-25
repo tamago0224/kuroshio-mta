@@ -640,6 +640,7 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 		metadata.sendingIP = addressIP(session.conn.LocalAddr())
 		metadata.receivingIP = addressIP(session.conn.RemoteAddr())
 	}
+	observeTLS(ctx, session.tls)
 	reusable := false
 	defer func() {
 		if c.smtpPool != nil {
@@ -769,6 +770,7 @@ func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth rela
 			}
 			conn = tlsConn
 			tlsActive = true
+			observeTLS(ctx, true)
 			r = bufio.NewReader(conn)
 			w = bufio.NewWriter(conn)
 			if err := writeLine(w, "EHLO "+ehlo); err != nil {

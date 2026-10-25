@@ -75,11 +75,16 @@ func TestRelayAuthenticationFailureAfterVerifiedTLS(t *testing.T) {
 		return &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
 	ctx := context.WithValue(context.Background(), relayAuthContextKey{}, relayAuth{username: "sender", password: "secret"})
+	observation := &AttemptObservation{}
+	ctx = WithAttemptObservation(ctx, observation)
 	port := listener.Addr().(*net.TCPAddr).Port
 	err = client.deliverHost(ctx, "localhost", port, &model.Message{}, "recipient@example.test", true, nil)
 	var response *SMTPResponseError
 	if !errors.As(err, &response) || response.Stage != StageAUTH || response.Code != 535 {
 		t.Fatalf("authentication error = %v", err)
+	}
+	if !observation.TLSApplied {
+		t.Fatal("verified STARTTLS was not observed")
 	}
 	if err := <-serverResult; err != nil {
 		t.Fatal(err)
