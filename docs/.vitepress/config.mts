@@ -68,6 +68,7 @@ export default defineConfig({
           { text: "Domain Throttle Externalization", link: "/architecture/domain_throttle_externalization" },
           { text: "SMTP Connection Pool", link: "/architecture/smtp_connection_pool" },
           { text: "Delivery Event Webhooks", link: "/architecture/delivery_event_webhooks" },
+          { text: "DKIM2 Experiment", link: "/architecture/dkim2_experiment" },
           { text: "HA Reference", link: "/architecture/ha_reference" },
           { text: "Spec", link: "/spec" }
         ]
