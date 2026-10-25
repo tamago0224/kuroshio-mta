@@ -62,6 +62,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/delivery/pauses", a.handleDeliveryPauses)
 	mux.HandleFunc("/api/v1/delivery/pauses/", a.handleDeliveryResume)
 	mux.HandleFunc("/api/v1/delivery/history", a.handleDeliveryHistory)
+	mux.HandleFunc("/api/v1/delivery/diagnostics", a.handleDeliveryDiagnostics)
+	mux.HandleFunc("/api/v1/delivery/diagnostics/", a.handleDeliveryDiagnostic)
 	mux.HandleFunc("/api/v1/suppressions", a.handleSuppressions)
 	mux.HandleFunc("/api/v1/suppressions/", a.handleSuppressionByAddress)
 	mux.HandleFunc("/api/v1/queue/", a.handleQueue)
@@ -70,6 +72,96 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/reputation/reports/complaints", a.handleReport)
 	mux.HandleFunc("/api/v1/reputation/reports/tlsrpt", a.handleReport)
 	return mux
+}
+
+func (a *API) handleDeliveryDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if a.history == nil {
+		http.Error(w, "delivery diagnostics are unavailable", http.StatusNotImplemented)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if next, _, ok := a.authorize(w, r, roleViewer); !ok {
+			return
+		} else {
+			r = next
+		}
+		items, err := a.history.ListDiagnostics(r.Context())
+		if err != nil {
+			http.Error(w, "delivery diagnostics lookup failed", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	case http.MethodPost:
+		if next, _, ok := a.authorize(w, r, roleOperator); !ok {
+			return
+		} else {
+			r = next
+		}
+		var req struct {
+			MessageID string    `json:"message_id"`
+			ExpiresAt time.Time `json:"expires_at"`
+			MaxEvents int       `json:"max_events"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		item, err := a.history.CreateDiagnostic(r.Context(), req.MessageID, req.ExpiresAt, req.MaxEvents)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		a.audit(r, "delivery_diagnostic_create", map[string]any{"message_id": req.MessageID, "diagnostic_id": item.ID, "expires_at": item.ExpiresAt, "max_events": item.MaxEvents})
+		writeJSON(w, http.StatusCreated, item)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleDeliveryDiagnostic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete && r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	minRole := roleOperator
+	if r.Method == http.MethodGet {
+		minRole = roleViewer
+	}
+	if next, _, ok := a.authorize(w, r, minRole); !ok {
+		return
+	} else {
+		r = next
+	}
+	if a.history == nil {
+		http.Error(w, "delivery diagnostics are unavailable", http.StatusNotImplemented)
+		return
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/v1/delivery/diagnostics/"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid diagnostic id", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodGet {
+		item, page, err := a.history.DiagnosticHistory(r.Context(), id)
+		if err != nil {
+			http.Error(w, "delivery diagnostic not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"diagnostic": item, "items": page.Items})
+		return
+	}
+	deleted, err := a.history.DeleteDiagnostic(r.Context(), id)
+	if err != nil {
+		http.Error(w, "delivery diagnostic deletion failed", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "delivery diagnostic not found", http.StatusNotFound)
+		return
+	}
+	a.audit(r, "delivery_diagnostic_delete", map[string]any{"diagnostic_id": id})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (a *API) SetDeliveryHistory(store *deliveryhistory.Store) { a.history = store }

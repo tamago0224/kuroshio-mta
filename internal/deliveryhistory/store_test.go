@@ -66,3 +66,28 @@ func TestStoreRejectsOversizedPage(t *testing.T) {
 		t.Fatal("oversized page accepted")
 	}
 }
+
+func TestDiagnosticBoundsHistory(t *testing.T) {
+	t.Parallel()
+	store, err := Open(filepath.Join(t.TempDir(), "history.db"), time.Hour, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	diagnostic, err := store.CreateDiagnostic(t.Context(), "m1", time.Now().Add(time.Hour), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, result := range []string{"retry", "delivered"} {
+		if err := store.Record(t.Context(), Event{MessageID: "m1", Result: result}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, page, err := store.DiagnosticHistory(t.Context(), diagnostic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Events != 1 || len(page.Items) != 1 {
+		t.Fatalf("diagnostic=%+v page=%+v", got, page)
+	}
+}
