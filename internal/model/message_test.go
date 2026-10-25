@@ -17,9 +17,10 @@ func TestMessageLegacyJSONLeavesDSNUnset(t *testing.T) {
 
 func TestMessageDSNJSONRoundTrip(t *testing.T) {
 	want := Message{
-		ID:       "dsn",
-		MailFrom: "sender@example.test",
-		RcptTo:   []string{"user@example.test"},
+		ID:         "dsn",
+		MailFrom:   "sender@example.test",
+		RcptTo:     []string{"user@example.test"},
+		RequireTLS: true,
 		DSN: &DSN{
 			Return:     "HDRS",
 			EnvelopeID: "id+2B1",
@@ -36,7 +37,7 @@ func TestMessageDSNJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.DSN == nil || got.DSN.EnvelopeID != want.DSN.EnvelopeID || got.DSN.Recipients["user@example.test"].OriginalRecipient == "" {
+	if got.DSN == nil || got.DSN.EnvelopeID != want.DSN.EnvelopeID || got.DSN.Recipients["user@example.test"].OriginalRecipient == "" || !got.RequireTLS {
 		t.Fatalf("round trip DSN = %+v", got.DSN)
 	}
 }

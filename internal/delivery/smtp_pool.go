@@ -27,6 +27,8 @@ type smtpSession struct {
 	idleSince  time.Time
 	deliveries int
 	dsn        bool
+	tls        bool
+	requireTLS bool
 	key        smtpPoolKey
 	keySlots   chan struct{}
 	pool       *smtpConnectionPool

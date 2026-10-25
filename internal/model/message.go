@@ -11,6 +11,7 @@ type Message struct {
 	MailFrom    string    `json:"mail_from"`
 	RcptTo      []string  `json:"rcpt_to"`
 	DSN         *DSN      `json:"dsn,omitempty"`
+	RequireTLS  bool      `json:"require_tls,omitempty"`
 	Data        []byte    `json:"data"`
 	TraceParent string    `json:"trace_parent,omitempty"`
 	TraceState  string    `json:"trace_state,omitempty"`

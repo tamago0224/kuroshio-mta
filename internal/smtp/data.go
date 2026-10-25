@@ -203,6 +203,7 @@ func (s *Server) enqueue(ctx context.Context, ss *session, id string) error {
 		MailFrom:   ss.mailFrom,
 		RcptTo:     append([]string(nil), ss.rcptTo...),
 		DSN:        ss.dsn,
+		RequireTLS: ss.requireTLS,
 		Data:       append([]byte(nil), ss.data...),
 
 		SigningIdentity: ss.signing,

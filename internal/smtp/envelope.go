@@ -18,11 +18,12 @@ import (
 )
 
 type mailFromArgs struct {
-	Address string
-	Size    int64
-	HasSize bool
-	Body    string
-	DSN     *model.DSN
+	Address    string
+	Size       int64
+	HasSize    bool
+	Body       string
+	DSN        *model.DSN
+	RequireTLS bool
 }
 
 type rcptToArgs struct {
@@ -87,9 +88,14 @@ func (s *Server) handleMailCommand(
 	if mailArgs.HasSize {
 		cmdSpan.SetAttributes(attribute.Int64("smtp.mail.size", mailArgs.Size))
 	}
-	if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "" || mailArgs.DSN != nil) {
+	if !ss.extended && (mailArgs.HasSize || mailArgs.Body != "" || mailArgs.DSN != nil || mailArgs.RequireTLS) {
 		cmdSpan.reject("mail_params_require_ehlo", 555, "MAIL parameters require EHLO")
 		writeResp(w, 555, "MAIL parameters require EHLO")
+		return false
+	}
+	if mailArgs.RequireTLS && !s.requireTLSAvailable() {
+		cmdSpan.reject("requiretls_unavailable", 555, "REQUIRETLS is not available on this listener")
+		writeResp(w, 555, "REQUIRETLS is not available on this listener")
 		return false
 	}
 	if mailArgs.HasSize && mailArgs.Size > s.cfg.MaxMessageBytes {
@@ -263,6 +269,13 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 	}
 	out := mailFromArgs{Address: addr}
 	for _, p := range params {
+		if strings.EqualFold(strings.TrimSpace(p), "REQUIRETLS") {
+			if out.RequireTLS {
+				return mailFromArgs{}, errors.New("duplicate REQUIRETLS parameter")
+			}
+			out.RequireTLS = true
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(p), "SMTPUTF8") {
 			return mailFromArgs{}, fmt.Errorf("%w: SMTPUTF8", errSMTPUTF8Param)
 		}
@@ -312,6 +325,23 @@ func parseMailFrom(arg string) (mailFromArgs, error) {
 		}
 	}
 	return out, nil
+}
+
+func (s *Server) requireTLSAvailable() bool {
+	if !s.submission || !s.cfg.SubmissionAuth {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(s.cfg.DeliveryMode))
+	if mode != "mx" && mode != "relay" {
+		return false
+	}
+	for _, route := range s.cfg.DeliveryRoutes {
+		routeMode := strings.ToLower(strings.TrimSpace(route.Mode))
+		if routeMode != "mx" && routeMode != "relay" {
+			return false
+		}
+	}
+	return true
 }
 
 func parseRcptTo(arg string, hostname string) (string, error) {
