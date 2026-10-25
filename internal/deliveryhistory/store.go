@@ -43,6 +43,15 @@ type Page struct {
 	NextAfter int64   `json:"next_after,omitempty"`
 }
 
+type Diagnostic struct {
+	ID        int64     `json:"id"`
+	MessageID string    `json:"message_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	MaxEvents int       `json:"max_events"`
+	Events    int       `json:"events"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Store struct {
 	db        *sql.DB
 	retention time.Duration
@@ -95,6 +104,16 @@ CREATE TABLE IF NOT EXISTS delivery_history (
 CREATE INDEX IF NOT EXISTS delivery_history_message_id ON delivery_history(message_id, id);
 CREATE INDEX IF NOT EXISTS delivery_history_occurred_at ON delivery_history(occurred_at, id);
 CREATE INDEX IF NOT EXISTS delivery_history_result ON delivery_history(result, id);`)
+	if err == nil {
+		_, err = s.db.Exec(`CREATE TABLE IF NOT EXISTS delivery_diagnostics (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ message_id TEXT NOT NULL,
+ expires_at TEXT NOT NULL,
+ max_events INTEGER NOT NULL,
+ events INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+); CREATE INDEX IF NOT EXISTS delivery_diagnostics_target ON delivery_diagnostics(message_id, expires_at);`)
+	}
 	if err != nil {
 		return fmt.Errorf("initialize delivery history: %w", err)
 	}
@@ -120,7 +139,86 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.MessageID, event.Recipient, event.Attemp
 	if err != nil {
 		return fmt.Errorf("record delivery history: %w", err)
 	}
+	_, err = s.db.ExecContext(ctx, `UPDATE delivery_diagnostics SET events = events + 1
+WHERE message_id = ? AND expires_at > ? AND events < max_events`, event.MessageID, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("update delivery diagnostic: %w", err)
+	}
 	return s.prune(ctx, time.Now().UTC())
+}
+
+func (s *Store) CreateDiagnostic(ctx context.Context, messageID string, expiresAt time.Time, maxEvents int) (Diagnostic, error) {
+	messageID = strings.TrimSpace(messageID)
+	now := time.Now().UTC()
+	if messageID == "" || !expiresAt.After(now) || expiresAt.After(now.Add(24*time.Hour)) {
+		return Diagnostic{}, errors.New("diagnostic requires message_id and expiry within 24h")
+	}
+	if maxEvents < 1 || maxEvents > 1000 {
+		return Diagnostic{}, errors.New("diagnostic max_events must be between 1 and 1000")
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO delivery_diagnostics(message_id,expires_at,max_events,created_at) VALUES(?,?,?,?)`, messageID, expiresAt.UTC().Format(time.RFC3339Nano), maxEvents, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return Diagnostic{}, fmt.Errorf("create delivery diagnostic: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Diagnostic{}, fmt.Errorf("read delivery diagnostic id: %w", err)
+	}
+	return Diagnostic{ID: id, MessageID: messageID, ExpiresAt: expiresAt.UTC(), MaxEvents: maxEvents, CreatedAt: now}, nil
+}
+
+func (s *Store) ListDiagnostics(ctx context.Context) ([]Diagnostic, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,expires_at,max_events,events,created_at FROM delivery_diagnostics WHERE expires_at > ? ORDER BY id`, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, fmt.Errorf("list delivery diagnostics: %w", err)
+	}
+	defer rows.Close()
+	items := []Diagnostic{}
+	for rows.Next() {
+		var item Diagnostic
+		var expiresAt, createdAt string
+		if err := rows.Scan(&item.ID, &item.MessageID, &expiresAt, &item.MaxEvents, &item.Events, &createdAt); err != nil {
+			return nil, err
+		}
+		item.ExpiresAt, err = time.Parse(time.RFC3339Nano, expiresAt)
+		if err != nil {
+			return nil, err
+		}
+		item.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) DeleteDiagnostic(ctx context.Context, id int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM delivery_diagnostics WHERE id = ?`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete delivery diagnostic: %w", err)
+	}
+	count, err := result.RowsAffected()
+	return count > 0, err
+}
+
+func (s *Store) DiagnosticHistory(ctx context.Context, id int64) (Diagnostic, Page, error) {
+	var item Diagnostic
+	var expiresAt, createdAt string
+	err := s.db.QueryRowContext(ctx, `SELECT id,message_id,expires_at,max_events,events,created_at FROM delivery_diagnostics WHERE id = ?`, id).Scan(&item.ID, &item.MessageID, &expiresAt, &item.MaxEvents, &item.Events, &createdAt)
+	if err != nil {
+		return Diagnostic{}, Page{}, fmt.Errorf("find delivery diagnostic: %w", err)
+	}
+	item.ExpiresAt, err = time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return Diagnostic{}, Page{}, err
+	}
+	item.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return Diagnostic{}, Page{}, err
+	}
+	page, err := s.Search(ctx, Query{MessageID: item.MessageID, Since: item.CreatedAt, Until: item.ExpiresAt, Limit: min(item.MaxEvents, maxPageSize)})
+	return item, page, err
 }
 
 func (s *Store) prune(ctx context.Context, now time.Time) error {

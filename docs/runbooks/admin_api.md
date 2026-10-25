@@ -54,6 +54,9 @@ SQLite backend は次の 2 テーブルを参照する。
 - `GET /api/v1/queue/{state}?limit=50`
 - `POST /api/v1/queue/{state}/{message_id}/requeue`
 - `GET /api/v1/delivery/history?message_id={id}&result={result}&since={RFC3339}&until={RFC3339}&limit=50&after={cursor}`
+- `POST /api/v1/delivery/diagnostics`
+- `GET /api/v1/delivery/diagnostics` / `GET /api/v1/delivery/diagnostics/{id}`
+- `DELETE /api/v1/delivery/diagnostics/{id}`
 
 `state` は `retry` または `dlq` を想定する。
 
@@ -91,6 +94,15 @@ Admin API のネットワーク境界を限定し、DBバックアップにも�
 
 この履歴は OTEL trace、構造化ログ、Webhook を置き換えません。ホスト単位のTLS negotiationや
 接続内訳は trace/TLS-RPTを参照し、履歴APIは再起動をまたぐ最低限の配送結果確認に使います。
+
+期限付き診断は operator が `message_id`、24時間以内の `expires_at`、1〜1000の `max_events` を
+すべて指定して作成します。viewer は一覧と個別結果を参照でき、個別結果は作成後から期限まで、
+かつ指定件数までに制限されます。operator は期限前でも削除できます。期限後は新しいイベントを
+数えず一覧にも表示しません。本文や生SMTP応答を追加収集する機能ではありません。
+
+```json
+{"message_id":"msg-1","expires_at":"2026-10-25T12:00:00Z","max_events":50}
+```
 
 ## 監査ログ
 
