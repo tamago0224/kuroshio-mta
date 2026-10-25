@@ -168,13 +168,13 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	}
 	lmtpBatches := map[string][]batchRecipient{}
 	lmtpLeaseHeld := map[string]bool{}
-	handleResult := func(rcpt, domain string, err error) {
+	handleResult := func(rcpt, domain string, err error, tlsApplied bool) {
 		route, mode, routeTLS := d.cl.RouteMetadata(rcpt)
 		tlsRequired := msg.RequireTLS || routeTLS
 		if err != nil {
 			var deferred *shaping.DeferredError
 			if errors.As(err, &deferred) {
-				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "deferred", Category: "limit", Route: route, Mode: mode, TLSRequired: tlsRequired, Detail: "shaping"})
+				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "deferred", Category: "limit", Route: route, Mode: mode, TLSRequired: tlsRequired, TLSApplied: tlsApplied, Detail: "shaping"})
 				remaining = append(remaining, rcpt)
 				until := time.Now().Add(deferred.Delay)
 				if until.After(deferredUntil) {
@@ -185,7 +185,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 			var unknown *delivery.DeliveryStatusUnknownError
 			if errors.As(err, &unknown) {
-				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "unknown", Category: "transport", Route: route, Mode: mode, TLSRequired: tlsRequired})
+				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "unknown", Category: "transport", Route: route, Mode: mode, TLSRequired: tlsRequired, TLSApplied: tlsApplied})
 				d.publishEvent(msg, rcpt, "delivery_unknown", "transport")
 				reasons = append(reasons, rcpt+": "+err.Error())
 				errs = append(errs, err)
@@ -202,7 +202,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				smtpCode = smtpErr.Code
 			}
 			classification := delivery.ClassifyFailure(err)
-			d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "failed", Category: string(classification.Category), Stage: string(classification.Stage), SMTPCode: smtpCode, Route: route, Mode: mode, TLSRequired: tlsRequired})
+			d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "failed", Category: string(classification.Category), Stage: string(classification.Stage), SMTPCode: smtpCode, Route: route, Mode: mode, TLSRequired: tlsRequired, TLSApplied: tlsApplied})
 			if d.responses != nil {
 				ruleID, triggered, responseErr := d.responses.observe(ctx, domain, err)
 				if ruleID != "" {
@@ -278,7 +278,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			))
 		}
 		d.metricInc("worker_delivery_success")
-		d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "delivered", Route: route, Mode: mode, TLSRequired: tlsRequired})
+		d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "delivered", Route: route, Mode: mode, TLSRequired: tlsRequired, TLSApplied: tlsApplied})
 		d.publishEvent(msg, rcpt, "delivered", "")
 		d.emitSuccessDSN(ctx, msg, rcpt)
 	}
@@ -317,6 +317,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			return false
 		}
 		if checkPause() {
+			d.recordRecipientHistory(ctx, msg, []string{rcpt}, "deferred", "pause")
 			continue
 		}
 		batchKey, batchable := "", false
@@ -330,6 +331,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				var wait time.Duration
 				lease, wait = d.throttle.tryLease(ctx, domain)
 				if wait > 0 {
+					d.recordRecipientHistory(ctx, msg, []string{rcpt}, "deferred", "throttle")
 					remaining = append(remaining, rcpt)
 					until := time.Now().Add(wait)
 					if until.After(deferredUntil) {
@@ -371,10 +373,12 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 			}()
 			if checkPause() {
+				d.recordRecipientHistory(ctx, msg, []string{rcpt}, "deferred", "pause")
 				return
 			}
 			if d.rep != nil {
 				if ok, reason := d.rep.Admit(domain, time.Now().UTC()); !ok {
+					d.recordRecipientHistory(ctx, msg, []string{rcpt}, "deferred", "reputation_"+reason)
 					d.publishEvent(msg, rcpt, "temporary_failure", "policy")
 					reasons = append(reasons, rcpt+": reputation "+reason)
 					d.metricInc("worker_reputation_block")
@@ -393,6 +397,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				}
 			}
 			if d.sup != nil && d.sup.IsSuppressed(rcpt) {
+				d.recordRecipientHistory(ctx, msg, []string{rcpt}, "failed", "suppressed")
 				d.publishEvent(msg, rcpt, "permanent_failure", "invalid_recipient")
 				reasons = append(reasons, rcpt+": suppressed")
 				d.metricInc("worker_suppressed_recipient")
@@ -406,7 +411,9 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				releaseAfter = false
 				return
 			}
-			handleResult(rcpt, domain, d.cl.Deliver(ctx, msg, rcpt))
+			observation := &delivery.AttemptObservation{}
+			deliveryCtx := delivery.WithAttemptObservation(ctx, observation)
+			handleResult(rcpt, domain, d.cl.Deliver(deliveryCtx, msg, rcpt), observation.TLSApplied)
 		}()
 	}
 	for _, batch := range lmtpBatches {
@@ -416,7 +423,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		}
 		results := d.cl.DeliverBatch(ctx, msg, recipients)
 		for _, item := range batch {
-			handleResult(item.rcpt, item.domain, results[item.rcpt])
+			handleResult(item.rcpt, item.domain, results[item.rcpt], false)
 			item.release()
 		}
 	}

@@ -25,6 +25,7 @@ type Event struct {
 	Route       string    `json:"route,omitempty"`
 	Mode        string    `json:"mode,omitempty"`
 	TLSRequired bool      `json:"tls_required"`
+	TLSApplied  bool      `json:"tls_applied"`
 	Detail      string    `json:"detail,omitempty"`
 	OccurredAt  time.Time `json:"occurred_at"`
 }
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS delivery_history (
  route TEXT NOT NULL DEFAULT '',
  mode TEXT NOT NULL DEFAULT '',
  tls_required INTEGER NOT NULL DEFAULT 0,
+ tls_applied INTEGER NOT NULL DEFAULT 0,
  detail TEXT NOT NULL DEFAULT '',
  occurred_at TEXT NOT NULL,
  UNIQUE(message_id, recipient, attempt, result, occurred_at)
@@ -104,6 +106,12 @@ CREATE TABLE IF NOT EXISTS delivery_history (
 CREATE INDEX IF NOT EXISTS delivery_history_message_id ON delivery_history(message_id, id);
 CREATE INDEX IF NOT EXISTS delivery_history_occurred_at ON delivery_history(occurred_at, id);
 CREATE INDEX IF NOT EXISTS delivery_history_result ON delivery_history(result, id);`)
+	if err == nil {
+		_, alterErr := s.db.Exec(`ALTER TABLE delivery_history ADD COLUMN tls_applied INTEGER NOT NULL DEFAULT 0`)
+		if alterErr != nil && !strings.Contains(strings.ToLower(alterErr.Error()), "duplicate column") {
+			err = alterErr
+		}
+	}
 	if err == nil {
 		_, err = s.db.Exec(`CREATE TABLE IF NOT EXISTS delivery_diagnostics (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,10 +140,10 @@ func (s *Store) Record(ctx context.Context, event Event) error {
 		event.OccurredAt = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO delivery_history
-(message_id,recipient,attempt,result,category,stage,smtp_code,route,mode,tls_required,detail,occurred_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.MessageID, event.Recipient, event.Attempt, event.Result,
+(message_id,recipient,attempt,result,category,stage,smtp_code,route,mode,tls_required,tls_applied,detail,occurred_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.MessageID, event.Recipient, event.Attempt, event.Result,
 		event.Category, event.Stage, event.SMTPCode, event.Route, event.Mode, event.TLSRequired,
-		truncate(event.Detail, 512), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+		event.TLSApplied, truncate(event.Detail, 512), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("record delivery history: %w", err)
 	}
@@ -261,7 +269,7 @@ func (s *Store) Search(ctx context.Context, query Query) (Page, error) {
 		args = append(args, query.Until.UTC().Format(time.RFC3339Nano))
 	}
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,recipient,attempt,result,category,stage,smtp_code,route,mode,tls_required,detail,occurred_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,recipient,attempt,result,category,stage,smtp_code,route,mode,tls_required,tls_applied,detail,occurred_at
 FROM delivery_history WHERE `+strings.Join(clauses, " AND ")+` ORDER BY id LIMIT ?`, args...)
 	if err != nil {
 		return Page{}, fmt.Errorf("search delivery history: %w", err)
@@ -272,7 +280,7 @@ FROM delivery_history WHERE `+strings.Join(clauses, " AND ")+` ORDER BY id LIMIT
 		var event Event
 		var occurredAt string
 		if err := rows.Scan(&event.ID, &event.MessageID, &event.Recipient, &event.Attempt, &event.Result,
-			&event.Category, &event.Stage, &event.SMTPCode, &event.Route, &event.Mode, &event.TLSRequired,
+			&event.Category, &event.Stage, &event.SMTPCode, &event.Route, &event.Mode, &event.TLSRequired, &event.TLSApplied,
 			&event.Detail, &occurredAt); err != nil {
 			return Page{}, fmt.Errorf("scan delivery history: %w", err)
 		}

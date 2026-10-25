@@ -88,7 +88,8 @@ scripts/admin/kuroshio_admin.sh delivery-history msg-1 50
 `next_after` を次の `after` に指定して続きを取得します。1ページは最大200件です。
 
 履歴には message ID、宛先、試行番号、結果、失敗分類、SMTP stage/code、route/mode、
-TLS必須フラグを保存します。メール本文、ヘッダ、MAIL FROM、SMTP AUTH、token、秘密鍵は保存せず、
+TLS必須フラグと実際のSTARTTLS適用有無を保存します。配送前のpause、throttle、reputation、
+suppressionも理由を分類して記録します。メール本文、ヘッダ、MAIL FROM、SMTP AUTH、token、秘密鍵は保存せず、
 相手サーバーの応答本文も保存しません。宛先自体は運用上必要なPIIなので、viewer権限と
 Admin API のネットワーク境界を限定し、DBバックアップにも同じ保持期限を適用してください。
 
