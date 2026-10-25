@@ -20,6 +20,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
 	"github.com/tamago0224/kuroshio-mta/internal/eventwebhook"
+	"github.com/tamago0224/kuroshio-mta/internal/httpinjection"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/observability"
@@ -145,10 +146,11 @@ func main() {
 	s := smtp.NewServer(cfg, q, metrics)
 	s.SetDMARCReportStore(dmarcReports)
 	var submissionServers []*smtp.Server
-	if cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != "" {
+	var authBackend userauth.Backend
+	var bearerBackend userauth.BearerBackend
+	if cfg.SubmissionAddr != "" || cfg.SubmissionTLSAddr != "" || cfg.HTTPInjection.Enabled {
 		var (
-			authBackend userauth.Backend
-			aErr        error
+			aErr error
 		)
 		switch cfg.SubmissionAuthBackend {
 		case "sqlite":
@@ -175,6 +177,7 @@ func main() {
 			if err != nil {
 				fatal("submission bearer init failed", "error", err)
 			}
+			bearerBackend = bearer
 			if cfg.SubmissionAuthBackend == "static" && strings.TrimSpace(cfg.SubmissionUsers) == "" {
 				authBackend = nil
 			}
@@ -191,6 +194,9 @@ func main() {
 	workers := 5
 	workers += len(submissionServers)
 	if cfg.AdminAddr != "" {
+		workers++
+	}
+	if cfg.HTTPInjection.Enabled {
 		workers++
 	}
 	workers++
@@ -227,6 +233,13 @@ func main() {
 		go func() {
 			errCh <- admin.RunServerWithPauses(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep, pauses)
 		}()
+	}
+	if cfg.HTTPInjection.Enabled {
+		injectionAPI, apiErr := httpinjection.New(cfg, q, authBackend, bearerBackend)
+		if apiErr != nil {
+			fatal("HTTP injection init failed", "error", apiErr)
+		}
+		go func() { errCh <- httpinjection.Run(ctx, cfg, injectionAPI) }()
 	}
 	go func() {
 		errCh <- retention.Run(ctx, cfg.QueueDir, retention.Policy{

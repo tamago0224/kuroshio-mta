@@ -12,7 +12,6 @@ import (
 
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
 	"github.com/tamago0224/kuroshio-mta/internal/userauth"
-	"github.com/tamago0224/kuroshio-mta/internal/util"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -252,34 +251,7 @@ func authMechanism(arg string) (string, bool) {
 }
 
 func senderAllowedForAuth(principal userauth.Principal, mailFrom string) bool {
-	mailFrom = strings.ToLower(strings.TrimSpace(mailFrom))
-	if mailFrom == "" {
-		return false
-	}
-	for _, allowed := range principal.AllowedSenderAddresses {
-		if strings.EqualFold(strings.TrimSpace(allowed), mailFrom) {
-			return true
-		}
-	}
-	if fromDomain, ok := util.DomainOf(mailFrom); ok {
-		for _, allowed := range principal.AllowedSenderDomains {
-			if strings.EqualFold(strings.TrimSpace(allowed), fromDomain) {
-				return true
-			}
-		}
-	}
-	if principal.RequireExplicitSenderScope {
-		return false
-	}
-	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(principal.Username)))
-	if !ok {
-		return false
-	}
-	fromDomain, ok := util.DomainOf(mailFrom)
-	if !ok {
-		return false
-	}
-	return strings.EqualFold(authDomain, fromDomain)
+	return userauth.SenderAllowed(principal, mailFrom)
 }
 
 func submissionSenderScopeMode(principal userauth.Principal) string {

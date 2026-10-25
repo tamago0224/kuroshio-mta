@@ -3,12 +3,44 @@ package userauth
 import (
 	"errors"
 	"strings"
+
+	"github.com/tamago0224/kuroshio-mta/internal/util"
 )
 
 type AuthResult struct {
 	Principal     Principal
 	Success       bool
 	FailureReason string
+}
+
+// SenderAllowed reports whether an authenticated principal may use mailFrom.
+// Explicit address/domain grants take precedence over the legacy username-domain fallback.
+func SenderAllowed(principal Principal, mailFrom string) bool {
+	mailFrom = strings.ToLower(strings.TrimSpace(mailFrom))
+	if mailFrom == "" {
+		return false
+	}
+	for _, allowed := range principal.AllowedSenderAddresses {
+		if strings.EqualFold(strings.TrimSpace(allowed), mailFrom) {
+			return true
+		}
+	}
+	if fromDomain, ok := util.DomainOf(mailFrom); ok {
+		for _, allowed := range principal.AllowedSenderDomains {
+			if strings.EqualFold(strings.TrimSpace(allowed), fromDomain) {
+				return true
+			}
+		}
+	}
+	if principal.RequireExplicitSenderScope {
+		return false
+	}
+	authDomain, ok := util.DomainOf(strings.ToLower(strings.TrimSpace(principal.Username)))
+	if !ok {
+		return false
+	}
+	fromDomain, ok := util.DomainOf(mailFrom)
+	return ok && strings.EqualFold(authDomain, fromDomain)
 }
 
 type Principal struct {

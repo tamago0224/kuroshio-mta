@@ -60,6 +60,19 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `tls_key_file` | `MTA_TLS_KEY_FILE` | unset | 受信側 TLS に使う秘密鍵ファイルです |
 | `max_message_bytes` | `MTA_MAX_MESSAGE_BYTES` | `10485760` | 受信するメッセージの最大サイズです |
 
+### 認証付き HTTP メール投入
+
+`http_injection.enabled: true` にすると、`POST /api/v1/messages` を専用 HTTPS listener で公開します。SMTP Submission と同じ static / SQLite 認証情報、sender scope、`max_message_bytes`、`smtp_limits.max_recipients` を使用します。Admin API token は送信権限として使用しません。
+
+| property | default | 説明 |
+| --- | --- | --- |
+| `enabled` | `false` | HTTP 投入 API を有効化 |
+| `listen_addr` | `127.0.0.1:8443` | HTTPS listener。公開範囲は明示的に設定する |
+| `idempotency_ttl` | `24h` | principal と `Idempotency-Key` の組を保持する期間（1分〜30日） |
+| `rate_limit_per_minute` | `60` | process ごとの認証 principal 単位の投入上限 |
+
+有効時は `tls_cert_file` と `tls_key_file` が必須です。リクエスト形式、認証、再送契約、curl 例は [HTTP Message Injection](./runbooks/http_injection.md) を参照してください。
+
 補足:
 - `submission_auth_backend: static` では既存通り `submission_users` / `MTA_SUBMISSION_USERS(_FILE)` を使います
 - `submission_auth_backend: sqlite` では `submission_credentials` テーブルを参照し、`username`, `password_hash`, `enabled`, `expires_at`, `last_auth_at` を使います

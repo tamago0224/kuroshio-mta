@@ -23,6 +23,7 @@ type Config struct {
 	MXShaping                        MXShapingConfig
 	SMTPConnectionPool               SMTPConnectionPoolConfig
 	EventWebhook                     EventWebhookConfig
+	HTTPInjection                    HTTPInjectionConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
 	SubmissionTLSAddr                string
@@ -217,6 +218,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.EventWebhook.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.HTTPInjection.Validate(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

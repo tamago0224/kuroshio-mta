@@ -17,6 +17,7 @@
 - DKIM / ARC 送信署名と、SPF / DKIM / DMARC / ARC の受信評価に対応
 - STARTTLS、MTA-STS、DANE など送受信時のセキュリティ機能を段階的に実装
 - Kafka queue mode、Redis / Valkey ベースの rate limit、S3-compatible spool backend を選択可能
+- SMTP Submission と認証・sender scope を共有する、冪等性付き HTTPS メール投入 API
 - 永続 outbox と HMAC 署名を使う at-least-once 配送イベント Webhook を opt-in で提供
 
 ## ドキュメント
