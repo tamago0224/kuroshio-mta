@@ -74,6 +74,7 @@ func defaultConfig() Config {
 		SendTimeout:                   20 * time.Second,
 		SMTPConnectionPool:            defaultSMTPConnectionPoolConfig(),
 		EventWebhook:                  defaultEventWebhookConfig(),
+		DeliveryHistory:               defaultDeliveryHistoryConfig(),
 		HTTPInjection:                 defaultHTTPInjectionConfig(),
 		TLSReport:                     defaultTLSReportConfig(),
 		DKIMSignDomain:                "",

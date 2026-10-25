@@ -17,6 +17,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/deliveryhistory"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/dmarcreport"
 	"github.com/tamago0224/kuroshio-mta/internal/eventwebhook"
@@ -152,6 +153,23 @@ func main() {
 	}
 	d.SetDeliveryPauses(pauses)
 	d.SetEventOutbox(eventOutbox)
+	var deliveryHistory *deliveryhistory.Store
+	if cfg.DeliveryHistory.Enabled {
+		deliveryHistory, err = deliveryhistory.Open(
+			filepath.Join(cfg.QueueDir, "delivery-history.db"),
+			cfg.DeliveryHistory.Retention,
+			cfg.DeliveryHistory.MaxRows,
+		)
+		if err != nil {
+			fatal("delivery history init failed", "error", err)
+		}
+		defer func() {
+			if closeErr := deliveryHistory.Close(); closeErr != nil {
+				slog.Error("delivery history close failed", "error", closeErr)
+			}
+		}()
+		d.SetDeliveryHistory(deliveryHistory)
+	}
 	s := smtp.NewServer(cfg, q, metrics)
 	s.SetDMARCReportStore(dmarcReports)
 	var submissionServers []*smtp.Server
@@ -246,7 +264,7 @@ func main() {
 			}
 		}
 		go func() {
-			errCh <- admin.RunServerWithPauses(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep, pauses)
+			errCh <- admin.RunServerWithServices(ctx, cfg.AdminAddr, adminAuthBackend, sup, queueAdmin, rep, pauses, deliveryHistory)
 		}()
 	}
 	if cfg.HTTPInjection.Enabled {

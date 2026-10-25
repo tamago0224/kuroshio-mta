@@ -113,6 +113,18 @@ go run ./cmd/kuroshio -config ./config.yaml
 | `admin_auth_dsn` | `MTA_ADMIN_AUTH_DSN` | unset | SQLite 管理認証の DSN です。テーブル構成は [Admin API](./runbooks/admin_api.md) を参照してください |
 | `admin_addr` | `MTA_ADMIN_ADDR` | unset | Admin API の待受アドレスです。設定すると有効になります |
 
+`delivery_history.enabled: true` にすると、本文を含まない宛先別配送履歴を
+`queue_dir/delivery-history.db` に保存します。`retention`（既定30日、最大365日）と
+`max_rows`（既定100,000、最大10,000,000）の早い方で削除されます。SQLite WAL を使うため、
+複数プロセスで同じファイルを共有せず、`queue_dir` と同じバックアップ・アクセス制御を適用してください。
+
+```yaml
+delivery_history:
+  enabled: true
+  retention: 720h
+  max_rows: 100000
+```
+
 ## キューと配送
 
 | YAML property | 環境変数 | default | 説明 |

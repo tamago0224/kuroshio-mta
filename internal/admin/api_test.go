@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/deliveryhistory"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
 	"github.com/tamago0224/kuroshio-mta/internal/reputation"
@@ -185,6 +186,44 @@ func TestAPIUsesAuthBackend(t *testing.T) {
 	}
 	if !s.IsSuppressed("user@example.com") {
 		t.Fatal("suppression was not added")
+	}
+}
+
+func TestDeliveryHistoryAPIRequiresViewerAndPaginates(t *testing.T) {
+	store, err := deliveryhistory.Open(filepath.Join(t.TempDir(), "history.db"), time.Hour, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	for _, result := range []string{"accepted", "delivered"} {
+		if err := store.Record(t.Context(), deliveryhistory.Event{MessageID: "m1", Result: result, OccurredAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := NewAPI(nil, nil, nil, "viewer-token:viewer")
+	api.SetDeliveryHistory(store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/delivery/history?message_id=m1&limit=1", nil)
+	req.Header.Set("Authorization", "Bearer viewer-token")
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var page deliveryhistory.Page
+	if err := json.NewDecoder(rec.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].MessageID != "m1" || page.NextAfter == 0 {
+		t.Fatalf("page=%+v", page)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/delivery/history", nil)
+	rec = httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", rec.Code)
 	}
 }
 

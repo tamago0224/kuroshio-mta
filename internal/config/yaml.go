@@ -27,6 +27,7 @@ type yamlConfig struct {
 	MXShaping                *MXShapingConfig          `yaml:"mx_shaping"`
 	SMTPConnectionPool       *SMTPConnectionPoolConfig `yaml:"smtp_connection_pool"`
 	EventWebhook             *EventWebhookConfig       `yaml:"event_webhook"`
+	DeliveryHistory          *DeliveryHistoryConfig    `yaml:"delivery_history"`
 	HTTPInjection            *HTTPInjectionConfig      `yaml:"http_injection"`
 	TLSReport                *TLSReportConfig          `yaml:"tls_report"`
 	QueueMaxMessages         *int64                    `yaml:"queue_max_messages"`
@@ -178,6 +179,9 @@ func loadYAMLConfigMode(path string, base Config, strict bool) (Config, error) {
 	}
 	if raw.EventWebhook != nil {
 		cfg.EventWebhook = *raw.EventWebhook
+	}
+	if raw.DeliveryHistory != nil {
+		cfg.DeliveryHistory = *raw.DeliveryHistory
 	}
 	if raw.HTTPInjection != nil {
 		cfg.HTTPInjection = *raw.HTTPInjection

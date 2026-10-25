@@ -11,6 +11,7 @@ import (
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
 	"github.com/tamago0224/kuroshio-mta/internal/config"
 	"github.com/tamago0224/kuroshio-mta/internal/delivery"
+	"github.com/tamago0224/kuroshio-mta/internal/deliveryhistory"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/eventwebhook"
 	"github.com/tamago0224/kuroshio-mta/internal/logging"
@@ -38,9 +39,13 @@ type Dispatcher struct {
 	responses *responseThrottle
 	fair      *fairQueue
 	events    *eventwebhook.Outbox
+	history   *deliveryhistory.Store
 }
 
 func (d *Dispatcher) SetEventOutbox(outbox *eventwebhook.Outbox) { d.events = outbox }
+
+// SetDeliveryHistory installs the optional persistent attempt history.
+func (d *Dispatcher) SetDeliveryHistory(store *deliveryhistory.Store) { d.history = store }
 
 var workerTracer = otel.Tracer("github.com/tamago0224/kuroshio-mta/internal/worker")
 
@@ -139,6 +144,14 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	)
 	defer span.End()
 	observability.InjectTraceContext(ctx, msg)
+	if msg.Attempts == 0 {
+		d.recordHistory(ctx, deliveryhistory.Event{
+			MessageID:  msg.ID,
+			Attempt:    msg.Attempts,
+			Result:     "accepted",
+			OccurredAt: msg.CreatedAt,
+		})
+	}
 
 	pausedRecipients := map[string]bool{}
 	failedRecipients := map[string]string{}
@@ -156,9 +169,12 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	lmtpBatches := map[string][]batchRecipient{}
 	lmtpLeaseHeld := map[string]bool{}
 	handleResult := func(rcpt, domain string, err error) {
+		route, mode, routeTLS := d.cl.RouteMetadata(rcpt)
+		tlsRequired := msg.RequireTLS || routeTLS
 		if err != nil {
 			var deferred *shaping.DeferredError
 			if errors.As(err, &deferred) {
+				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "deferred", Category: "limit", Route: route, Mode: mode, TLSRequired: tlsRequired, Detail: "shaping"})
 				remaining = append(remaining, rcpt)
 				until := time.Now().Add(deferred.Delay)
 				if until.After(deferredUntil) {
@@ -169,6 +185,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			}
 			var unknown *delivery.DeliveryStatusUnknownError
 			if errors.As(err, &unknown) {
+				d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "unknown", Category: "transport", Route: route, Mode: mode, TLSRequired: tlsRequired})
 				d.publishEvent(msg, rcpt, "delivery_unknown", "transport")
 				reasons = append(reasons, rcpt+": "+err.Error())
 				errs = append(errs, err)
@@ -185,6 +202,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 				smtpCode = smtpErr.Code
 			}
 			classification := delivery.ClassifyFailure(err)
+			d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "failed", Category: string(classification.Category), Stage: string(classification.Stage), SMTPCode: smtpCode, Route: route, Mode: mode, TLSRequired: tlsRequired})
 			if d.responses != nil {
 				ruleID, triggered, responseErr := d.responses.observe(ctx, domain, err)
 				if ruleID != "" {
@@ -260,6 +278,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 			))
 		}
 		d.metricInc("worker_delivery_success")
+		d.recordHistory(ctx, deliveryhistory.Event{MessageID: msg.ID, Recipient: rcpt, Attempt: msg.Attempts, Result: "delivered", Route: route, Mode: mode, TLSRequired: tlsRequired})
 		d.publishEvent(msg, rcpt, "delivered", "")
 		d.emitSuccessDSN(ctx, msg, rcpt)
 	}
@@ -409,6 +428,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 	}
 
 	if len(errs) == 0 && !deferredUntil.IsZero() {
+		d.recordRecipientHistory(ctx, msg, remaining, "deferred", "limit")
 		span.SetAttributes(attribute.String("worker.result", "deferred"))
 		if err := persistRecipients(remaining, func() error { return d.queue.Defer(msg, time.Until(deferredUntil)) }); err != nil {
 			slog.ErrorContext(ctx, "shaping reschedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
@@ -457,6 +477,7 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		return
 	}
 	delay := max(backoff(msg.Attempts, d.cfg.RetrySchedule), time.Until(deferredUntil))
+	d.recordRecipientHistory(ctx, msg, remaining, "retry", "")
 	if joined := errors.Join(errs...); joined != nil {
 		span.RecordError(joined)
 	}
@@ -474,6 +495,29 @@ func (d *Dispatcher) handleMessage(ctx context.Context, msg *model.Message) {
 		slog.ErrorContext(ctx, "retry schedule failed", "component", "worker", "msg_id", msg.ID, "error", err)
 	}
 	d.metricInc("worker_retry_scheduled")
+}
+
+func (d *Dispatcher) recordRecipientHistory(ctx context.Context, msg *model.Message, recipients []string, result, category string) {
+	if d.history == nil || d.cl == nil {
+		return
+	}
+	for _, recipient := range recipients {
+		route, mode, routeTLS := d.cl.RouteMetadata(recipient)
+		d.recordHistory(ctx, deliveryhistory.Event{
+			MessageID: msg.ID, Recipient: recipient, Attempt: msg.Attempts, Result: result,
+			Category: category, Route: route, Mode: mode, TLSRequired: msg.RequireTLS || routeTLS,
+		})
+	}
+}
+
+func (d *Dispatcher) recordHistory(ctx context.Context, event deliveryhistory.Event) {
+	if d.history == nil {
+		return
+	}
+	if err := d.history.Record(ctx, event); err != nil {
+		d.metricInc("delivery_history_record_error")
+		slog.ErrorContext(ctx, "delivery history persistence failed", "component", "delivery_history", "msg_id", event.MessageID, "error", err)
+	}
 }
 
 func (d *Dispatcher) publishEvent(msg *model.Message, rcpt, result, category string) {
