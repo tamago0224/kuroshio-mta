@@ -24,6 +24,7 @@ type Config struct {
 	SMTPConnectionPool               SMTPConnectionPoolConfig
 	EventWebhook                     EventWebhookConfig
 	HTTPInjection                    HTTPInjectionConfig
+	TLSReport                        TLSReportConfig
 	ListenAddr                       string
 	SubmissionAddr                   string
 	SubmissionTLSAddr                string
@@ -221,6 +222,9 @@ func loadWithPath(explicitPath string, strict bool) (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.HTTPInjection.Validate(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.TLSReport.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

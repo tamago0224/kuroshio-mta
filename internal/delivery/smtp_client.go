@@ -65,6 +65,7 @@ type Client struct {
 	spoolStore                     spoolBackend
 	spoolStoreErr                  error
 	reportMTASTSTestingViolationFn func(context.Context, string, string, string)
+	tlsObserver                    func(TLSObservation)
 	metrics                        *observability.Metrics
 	routes                         []deliveryRoute
 	egress                         *egressManager
@@ -424,6 +425,8 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 	}
 	requireTLS := false
 	daneActive := false
+	policyType := "no-policy-found"
+	policyStrings := []string{}
 	daneByHost := map[string]DANEResult{}
 	var mtaSTSTestingPolicy *MTASTSPolicy
 	daneCandidates := make([]router.MXHost, 0, len(mxHosts))
@@ -443,10 +446,17 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 		// RFC 7672 precedence: if usable DANE is available, apply it before MTA-STS.
 		requireTLS = true
 		daneActive = true
+		policyType = "tlsa"
 		mxHosts = daneCandidates
 	} else if c.mtaSTS != nil {
 		if p, pErr := c.mtaSTS.Lookup(ctx, domain); pErr == nil {
 			if p.Mode == "enforce" {
+				policyType = "sts"
+				policyStrings = []string{"version: STSv1", "mode: " + p.Mode}
+				for _, pattern := range p.MX {
+					policyStrings = append(policyStrings, "mx: "+pattern)
+				}
+				policyStrings = append(policyStrings, fmt.Sprintf("max_age: %d", int64(p.MaxAge/time.Second)))
 				requireTLS = true
 				filtered := make([]router.MXHost, 0, len(mxHosts))
 				for _, mx := range mxHosts {
@@ -476,7 +486,16 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 				daneRes = &cp
 			}
 		}
-		attemptCtx, attemptSpan := deliveryTracer.Start(ctx, "delivery.attempt_host")
+		obPolicyStrings := append([]string(nil), policyStrings...)
+		if daneRes != nil {
+			obPolicyStrings = make([]string, 0, len(daneRes.Records))
+			for _, record := range daneRes.Records {
+				obPolicyStrings = append(obPolicyStrings, fmt.Sprintf("%d %d %d %x", record.Usage, record.Selector, record.MatchingType, record.CertificateAssociation))
+			}
+		}
+		metadata := &tlsAttemptMetadata{}
+		attemptCtx := context.WithValue(ctx, tlsAttemptMetadataKey{}, metadata)
+		attemptCtx, attemptSpan := deliveryTracer.Start(attemptCtx, "delivery.attempt_host")
 		attemptSpan.SetAttributes(
 			attribute.String("delivery.mx_host", mx.Host),
 			attribute.Bool("delivery.require_tls", requireTLS),
@@ -491,6 +510,9 @@ func (c *Client) deliverByMX(ctx context.Context, msg *model.Message, rcpt strin
 			attemptSpan.SetStatus(codes.Error, err.Error())
 		}
 		attemptSpan.End()
+		if c.tlsObserver != nil && policyType != "no-policy-found" {
+			c.tlsObserver(TLSObservation{ObservedAt: time.Now().UTC(), PolicyDomain: domain, PolicyType: policyType, PolicyString: obPolicyStrings, MXHost: mx.Host, SendingMTAIP: metadata.sendingIP, ReceivingIP: metadata.receivingIP, Success: err == nil, ResultType: tlsResultType(err), Reason: tlsFailureReason(err)})
+		}
 		if err == nil {
 			return nil
 		} else {
@@ -577,6 +599,10 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	if err != nil {
 		return err
 	}
+	if metadata, ok := ctx.Value(tlsAttemptMetadataKey{}).(*tlsAttemptMetadata); ok {
+		metadata.sendingIP = addressIP(session.conn.LocalAddr())
+		metadata.receivingIP = addressIP(session.conn.RemoteAddr())
+	}
 	reusable := false
 	defer func() {
 		if c.smtpPool != nil {
@@ -592,8 +618,23 @@ func (c *Client) deliverHost(ctx context.Context, host string, port int, msg *mo
 	return err
 }
 
+func addressIP(addr net.Addr) string {
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		return tcp.IP.String()
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err == nil {
+		return host
+	}
+	return ""
+}
+
 func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth relayAuth, requireTLS bool, daneRes *DANEResult, span trace.Span) (*smtpSession, error) {
 	dialer := &net.Dialer{Timeout: c.cfg.DialTimeout}
+	metadata, _ := ctx.Value(tlsAttemptMetadataKey{}).(*tlsAttemptMetadata)
+	if metadata != nil {
+		metadata.sendingIP = key.sourceIP
+	}
 	ehlo := key.ehlo
 	if key.sourceIP != "" {
 		ip := net.ParseIP(key.sourceIP)
@@ -616,6 +657,9 @@ func (c *Client) openSMTPSession(ctx context.Context, key smtpPoolKey, auth rela
 	var conn net.Conn
 	var err error
 	for _, address := range addresses {
+		if metadata != nil {
+			metadata.receivingIP = address
+		}
 		destinationIP := net.ParseIP(address)
 		if key.sourceIP != "" && destinationIP != nil && (net.ParseIP(key.sourceIP).To4() == nil) != (destinationIP.To4() == nil) {
 			continue

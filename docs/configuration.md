@@ -73,6 +73,22 @@ go run ./cmd/kuroshio -config ./config.yaml
 
 有効時は `tls_cert_file` と `tls_key_file` が必須です。リクエスト形式、認証、再送契約、curl 例は [HTTP Message Injection](./runbooks/http_injection.md) を参照してください。
 
+### 配送側 TLS-RPT
+
+`tls_report.enabled: true` は、MTA-STS / DANE を適用した外向き SMTP セッションの成功・TLS失敗を UTC 日単位で集約し、宛先 domain の `_smtp._tls` TXT policy が指定する HTTPS endpoint へ RFC 8460 JSON を送ります。受信した TLS-RPT を扱う reputation store とは別の状態です。
+
+| property | default | 説明 |
+| --- | --- | --- |
+| `enabled` | `false` | 配送側 TLS report の集約・送信を有効化 |
+| `organization` | unset | report の `organization-name` |
+| `contact_info` | unset | report 運用連絡先の addr-spec |
+| `report_domain` | unset | report ID を生成する送信者 domain |
+| `flush_interval` | `1h` | 完了した UTC 日の送信確認間隔（1分〜24時間） |
+| `max_records` | `100000` | process が保持する集約tuple上限 |
+| `max_report_bytes` | `5242880` | 非圧縮 JSON report の上限 |
+
+初期実装は HTTPS transport のみです。`mailto:` は DKIM署名とreport配送時のTLS policy bypassを安全に分離するまで無視します。配送・再送・SSRF制約は [Outgoing TLS-RPT](./runbooks/outgoing_tls_reports.md) を参照してください。
+
 補足:
 - `submission_auth_backend: static` では既存通り `submission_users` / `MTA_SUBMISSION_USERS(_FILE)` を使います
 - `submission_auth_backend: sqlite` では `submission_credentials` テーブルを参照し、`username`, `password_hash`, `enabled`, `expires_at`, `last_auth_at` を使います

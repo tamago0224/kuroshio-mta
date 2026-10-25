@@ -49,6 +49,25 @@ func TestDeliverByMX_DANETakesPrecedenceOverMTASTS(t *testing.T) {
 	}
 }
 
+func TestDeliverByMXRecordsDANEObservation(t *testing.T) {
+	cl := NewClient(config.Config{DialTimeout: time.Second, DANEDNSSECTrustModel: "ad_required"})
+	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {
+		return []router.MXHost{{Host: "mx.example.test"}}, nil
+	}
+	cl.dane = NewDANEResolver(time.Second, func(context.Context, string, int) (DANEResult, error) {
+		return DANEResult{AuthenticatedData: true, Records: []TLSARecord{{Usage: 3, Selector: 1, MatchingType: 1, CertificateAssociation: []byte{0xab}}}}, nil
+	})
+	cl.deliverHostFn = func(context.Context, string, int, *model.Message, string, bool, *DANEResult) error {
+		return &SMTPResponseError{Stage: StageTLS, Code: 454, Line: "mta-sts enforce requires starttls"}
+	}
+	var got TLSObservation
+	cl.SetTLSObserver(func(ob TLSObservation) { got = ob })
+	_ = cl.deliverByMX(context.Background(), &model.Message{}, "user@example.test")
+	if got.PolicyType != "tlsa" || got.PolicyDomain != "example.test" || got.Success || got.ResultType != "validation-failure" {
+		t.Fatalf("unexpected observation: %+v", got)
+	}
+}
+
 func TestDeliverByMX_FallsBackToMTASTSWhenNoUsableDANE(t *testing.T) {
 	cl := NewClient(config.Config{})
 	cl.resolveMXFn = func(string, time.Duration) ([]router.MXHost, error) {

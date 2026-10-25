@@ -77,6 +77,7 @@ export default defineConfig({
         items: [
           { text: "Admin API", link: "/runbooks/admin_api" },
           { text: "HTTP Message Injection", link: "/runbooks/http_injection" },
+          { text: "Outgoing TLS-RPT", link: "/runbooks/outgoing_tls_reports" },
           { text: "TLS Certificate Rotation", link: "/runbooks/tls_certificate_rotation" },
           { text: "DKIM Key Rotation", link: "/runbooks/dkim_rotation" },
           { text: "PROXY Protocol", link: "/runbooks/proxy_protocol" },

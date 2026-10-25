@@ -75,6 +75,7 @@ func defaultConfig() Config {
 		SMTPConnectionPool:            defaultSMTPConnectionPoolConfig(),
 		EventWebhook:                  defaultEventWebhookConfig(),
 		HTTPInjection:                 defaultHTTPInjectionConfig(),
+		TLSReport:                     defaultTLSReportConfig(),
 		DKIMSignDomain:                "",
 		DKIMSignSelector:              "",
 		DKIMPrivateKeyFile:            "",
