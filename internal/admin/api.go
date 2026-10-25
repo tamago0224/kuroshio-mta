@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tamago0224/kuroshio-mta/internal/bounce"
+	"github.com/tamago0224/kuroshio-mta/internal/deliveryhistory"
 	"github.com/tamago0224/kuroshio-mta/internal/deliverypause"
 	"github.com/tamago0224/kuroshio-mta/internal/model"
 	"github.com/tamago0224/kuroshio-mta/internal/queue"
@@ -36,6 +37,7 @@ type API struct {
 	queue        queueManager
 	reputation   *reputation.Tracker
 	authBackend  AuthBackend
+	history      *deliveryhistory.Store
 	now          func() time.Time
 }
 
@@ -59,6 +61,7 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/delivery/pauses", a.handleDeliveryPauses)
 	mux.HandleFunc("/api/v1/delivery/pauses/", a.handleDeliveryResume)
+	mux.HandleFunc("/api/v1/delivery/history", a.handleDeliveryHistory)
 	mux.HandleFunc("/api/v1/suppressions", a.handleSuppressions)
 	mux.HandleFunc("/api/v1/suppressions/", a.handleSuppressionByAddress)
 	mux.HandleFunc("/api/v1/queue/", a.handleQueue)
@@ -67,6 +70,69 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/reputation/reports/complaints", a.handleReport)
 	mux.HandleFunc("/api/v1/reputation/reports/tlsrpt", a.handleReport)
 	return mux
+}
+
+func (a *API) SetDeliveryHistory(store *deliveryhistory.Store) { a.history = store }
+
+func (a *API) handleDeliveryHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if next, _, ok := a.authorize(w, r, roleViewer); !ok {
+		return
+	} else {
+		r = next
+	}
+	if a.history == nil {
+		http.Error(w, "delivery history is unavailable", http.StatusNotImplemented)
+		return
+	}
+	query := deliveryhistory.Query{
+		MessageID: strings.TrimSpace(r.URL.Query().Get("message_id")),
+		Result:    strings.TrimSpace(r.URL.Query().Get("result")),
+	}
+	var err error
+	if value := r.URL.Query().Get("limit"); value != "" {
+		query.Limit, err = strconv.Atoi(value)
+		if err != nil || query.Limit <= 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+	}
+	if value := r.URL.Query().Get("after"); value != "" {
+		query.AfterID, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || query.AfterID < 0 {
+			http.Error(w, "invalid after", http.StatusBadRequest)
+			return
+		}
+	}
+	if query.Since, err = parseHistoryTime(r.URL.Query().Get("since")); err != nil {
+		http.Error(w, "invalid since", http.StatusBadRequest)
+		return
+	}
+	if query.Until, err = parseHistoryTime(r.URL.Query().Get("until")); err != nil {
+		http.Error(w, "invalid until", http.StatusBadRequest)
+		return
+	}
+	page, err := a.history.Search(r.Context(), query)
+	if err != nil {
+		if strings.Contains(err.Error(), "limit must not exceed") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		slog.ErrorContext(r.Context(), "delivery history search failed", "component", "admin", "error", err)
+		http.Error(w, "delivery history search failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func parseHistoryTime(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, value)
 }
 
 func (a *API) authorize(w http.ResponseWriter, r *http.Request, min role) (*http.Request, Principal, bool) {

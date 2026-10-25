@@ -268,6 +268,27 @@ func (c *Client) Deliver(ctx context.Context, msg *model.Message, rcpt string) e
 	return err
 }
 
+// RouteMetadata returns the configured route information without performing I/O.
+func (c *Client) RouteMetadata(rcpt string) (routeName, mode string, tlsRequired bool) {
+	domain, _ := util.DomainOf(rcpt)
+	route, routed := c.routeFor(domain)
+	mode = strings.ToLower(strings.TrimSpace(c.cfg.DeliveryMode))
+	if routed {
+		mode = strings.ToLower(strings.TrimSpace(route.Mode))
+		routeName = route.Name
+	}
+	if mode == "" {
+		mode = "mx"
+	}
+	if mode == "relay" {
+		tlsRequired = c.cfg.RelayRequireTLS
+		if routed {
+			tlsRequired = route.RelayRequireTLS
+		}
+	}
+	return routeName, mode, tlsRequired
+}
+
 // BatchKey identifies recipients that can share one multi-recipient delivery.
 func (c *Client) BatchKey(rcpt string) (string, bool) {
 	domain, ok := util.DomainOf(rcpt)

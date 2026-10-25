@@ -53,6 +53,7 @@ SQLite backend は次の 2 テーブルを参照する。
 - `DELETE /api/v1/suppressions/{address}`
 - `GET /api/v1/queue/{state}?limit=50`
 - `POST /api/v1/queue/{state}/{message_id}/requeue`
+- `GET /api/v1/delivery/history?message_id={id}&result={result}&since={RFC3339}&until={RFC3339}&limit=50&after={cursor}`
 
 `state` は `retry` または `dlq` を想定する。
 
@@ -74,7 +75,22 @@ scripts/admin/kuroshio_admin.sh list-suppressions
 scripts/admin/kuroshio_admin.sh add-suppression user@example.com manual
 scripts/admin/kuroshio_admin.sh list-queue dlq 20
 scripts/admin/kuroshio_admin.sh requeue dlq msg-1 --dry-run
+scripts/admin/kuroshio_admin.sh delivery-history msg-1 50
 ```
+
+## 配送履歴
+
+`delivery_history.enabled: true` のとき、viewer 以上は受理時刻と宛先別の配送結果を検索できます。
+結果は `accepted`、`deferred`、`retry`、`delivered`、`failed`、`unknown` です。レスポンスの
+`next_after` を次の `after` に指定して続きを取得します。1ページは最大200件です。
+
+履歴には message ID、宛先、試行番号、結果、失敗分類、SMTP stage/code、route/mode、
+TLS必須フラグを保存します。メール本文、ヘッダ、MAIL FROM、SMTP AUTH、token、秘密鍵は保存せず、
+相手サーバーの応答本文も保存しません。宛先自体は運用上必要なPIIなので、viewer権限と
+Admin API のネットワーク境界を限定し、DBバックアップにも同じ保持期限を適用してください。
+
+この履歴は OTEL trace、構造化ログ、Webhook を置き換えません。ホスト単位のTLS negotiationや
+接続内訳は trace/TLS-RPTを参照し、履歴APIは再起動をまたぐ最低限の配送結果確認に使います。
 
 ## 監査ログ
 

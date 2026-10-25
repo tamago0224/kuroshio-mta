@@ -46,6 +46,14 @@ case "${cmd}" in
     curl -fsS "${auth_args[@]}" \
       "${BASE_URL}/api/v1/queue/${state}?limit=${limit}"
     ;;
+  delivery-history)
+    message_id="${1:-}"
+    limit="${2:-50}"
+    curl -fsS --get "${auth_args[@]}" \
+      --data-urlencode "message_id=${message_id}" \
+      --data-urlencode "limit=${limit}" \
+      "${BASE_URL}/api/v1/delivery/history"
+    ;;
   requeue)
     state="${1:-}"
     id="${2:-}"
